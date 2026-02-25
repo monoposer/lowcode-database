@@ -17,23 +17,44 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
+	"github.com/solat/lowcode-database/internal/config"
 	"github.com/solat/lowcode-database/internal/db"
 	"github.com/solat/lowcode-database/internal/service"
 	"github.com/solat/lowcode-database/internal/tenant"
 	lowcodev1 "github.com/solat/lowcode-database/gen/lowcode/v1"
 )
 
+func withCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Tenant-Id, X-Tenant-ID, X-Requested-With")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("load config: %v", err)
+	}
+
 	var (
-		grpcAddr = flag.String("grpc-addr", ":9090", "gRPC listen address")
-		httpAddr = flag.String("http-addr", ":8080", "HTTP (grpc-gateway + static) listen address")
+		grpcAddr = flag.String("grpc-addr", cfg.GRPCAddr, "gRPC listen address")
+		httpAddr = flag.String("http-addr", cfg.HTTPAddr, "HTTP (grpc-gateway + static) listen address")
 	)
 	flag.Parse()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	tenantMgr, err := db.NewTenantManager(ctx)
+	tenantMgr, err := db.NewTenantManager(ctx, cfg)
 	if err != nil {
 		log.Fatalf("init tenant manager: %v", err)
 	}
@@ -49,7 +70,7 @@ func main() {
 	})
 
 	grpcServer := grpc.NewServer(unary)
-	lcSvc := service.NewLowcodeService(tenantMgr)
+	lcSvc := service.NewLowcodeService(tenantMgr, cfg.MaxRow)
 	lowcodev1.RegisterLowcodeServiceServer(grpcServer, lcSvc)
 
 	go func() {
@@ -91,7 +112,7 @@ func main() {
 
 	httpServer := &http.Server{
 		Addr:              *httpAddr,
-		Handler:           mux,
+		Handler:           withCORS(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
