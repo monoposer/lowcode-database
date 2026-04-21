@@ -1,0 +1,1947 @@
+openapi: 3.0.3
+info:
+  title: lowcode-database API
+  description: |
+    Postgres-backed low-code table service: dynamic tables, columns, rows, indexes,
+    choices (PG ENUM), relations, data sources, and webhooks.
+
+    **Multi-tenant:** send `X-Tenant-Id` on every request when `TENANT_MODE=multi`.
+    In single-tenant mode the header is optional (default tenant from env).
+
+    **Playground:** `playground/` — AG Grid UI (`make playground`).
+
+    Errors are returned as plain text (`http.Error`), not JSON envelopes.
+  version: 1.0.0
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8080
+    description: Local dev (see HTTP_ADDR in .env)
+
+tags:
+  - name: Platform
+  - name: Types
+  - name: Webhooks
+  - name: Tables
+  - name: Columns
+  - name: Indexes
+  - name: Schema
+  - name: Choices
+  - name: Relations
+  - name: Data sources
+
+paths:
+  /v1/database/connection:
+    get:
+      tags: [Platform]
+      summary: Get tenant database connection info (no password)
+      operationId: getDatabaseConnection
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetDatabaseConnectionResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/tenants:
+    post:
+      tags: [Platform]
+      summary: Provision a tenant (multi-tenant mode)
+      operationId: createTenant
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTenantRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateTenantResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /v1/types:
+    get:
+      tags: [Types]
+      summary: List built-in column types
+      operationId: listTypes
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListTypesResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /v1/webhooks:
+    get:
+      tags: [Webhooks]
+      summary: List webhooks
+      operationId: listWebhooks
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListWebhooksResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [Webhooks]
+      summary: Create webhook
+      operationId: createWebhook
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWebhookRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateWebhookResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /v1/webhooks/{id}:
+    patch:
+      tags: [Webhooks]
+      summary: Update webhook
+      operationId: updateWebhook
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateWebhookRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateWebhookResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [Webhooks]
+      summary: Delete webhook
+      operationId: deleteWebhook
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteWebhookResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/tables:
+    get:
+      tags: [Tables]
+      summary: List tables
+      operationId: listTables
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListTablesResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [Tables]
+      summary: Create table
+      operationId: createTable
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTableRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateTableResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /v1/tables/{id}:
+    delete:
+      tags: [Tables]
+      summary: Delete table
+      operationId: deleteTable
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteTableResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/tables/{id}:rename:
+    post:
+      tags: [Tables]
+      summary: Rename table
+      operationId: renameTable
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenameTableBody"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RenameTableResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/tables/{tableId}/schema:
+    get:
+      tags: [Tables]
+      summary: Get table schema (columns + indexes)
+      operationId: getTableSchema
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/TableIdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetTableSchemaResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/tables/{tableId}/rows:
+    get:
+      tags: [Tables]
+      summary: List rows (paginated)
+      operationId: listRows
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/TableIdPath"
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            format: int32
+          description: Also accepted as `page_size`.
+        - name: pageToken
+          in: query
+          schema:
+            type: string
+          description: Also accepted as `page_token`.
+        - name: expand_column_ids
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+          description: Relationship column ids to expand. Also `expandColumnIds`.
+        - name: expand_paths
+          in: query
+          schema:
+            type: string
+          description: Comma-separated dot paths (e.g. `relCol.fieldCol`). Also `expandPaths`.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListRowsResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [Tables]
+      summary: Create row
+      operationId: createRow
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/TableIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRowBody"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateRowResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/tables/{tableId}/rows/{rowId}:
+    patch:
+      tags: [Tables]
+      summary: Update row
+      operationId: updateRow
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/TableIdPath"
+        - $ref: "#/components/parameters/RowIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRowBody"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateRowResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [Tables]
+      summary: Delete row
+      operationId: deleteRow
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/TableIdPath"
+        - $ref: "#/components/parameters/RowIdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteRowResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/tables/{tableId}/rows:query:
+    post:
+      tags: [Tables]
+      summary: Query rows with filter, sort, and projection
+      operationId: queryRows
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/TableIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QueryRowsBody"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QueryRowsResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/tables/{tableId}/rows:bulkUpsert:
+    post:
+      tags: [Tables]
+      summary: Bulk upsert rows
+      operationId: bulkUpsertRows
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/TableIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkUpsertRowsBody"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkUpsertRowsResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/tables/{tableId}/rows:bulkDelete:
+    post:
+      tags: [Tables]
+      summary: Bulk delete rows
+      operationId: bulkDeleteRows
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/TableIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkDeleteRowsBody"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkDeleteRowsResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/tables/{tableId}/rows:import:
+    post:
+      tags: [Tables]
+      summary: Import rows (bulk insert)
+      operationId: importRows
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/TableIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportRowsBody"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportRowsResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/columns:
+    get:
+      tags: [Columns]
+      summary: List columns for a table
+      operationId: listColumns
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - name: table_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Logical table id.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListColumnsResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [Columns]
+      summary: Add column
+      operationId: addColumn
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddColumnRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddColumnResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /v1/columns/{id}:
+    patch:
+      tags: [Columns]
+      summary: Update column
+      operationId: updateColumn
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateColumnBody"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateColumnResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [Columns]
+      summary: Delete column
+      operationId: deleteColumn
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteColumnResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/indexes:
+    get:
+      tags: [Indexes]
+      summary: List indexes for a table
+      operationId: listIndexes
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - name: table_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListIndexesResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [Indexes]
+      summary: Create index
+      operationId: createIndex
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateIndexRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateIndexResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /v1/indexes/{id}:
+    get:
+      tags: [Indexes]
+      summary: Get index by id
+      operationId: getIndex
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetIndexResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [Indexes]
+      summary: Delete index
+      operationId: deleteIndex
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteIndexResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/schema/er:
+    get:
+      tags: [Schema]
+      summary: Get ER diagram (tables, columns, relations)
+      operationId: getERDiagram
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetERDiagramResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /v1/choices:
+    get:
+      tags: [Choices]
+      summary: List choices (PG ENUM types)
+      operationId: listChoices
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListChoicesResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [Choices]
+      summary: Create choice (PG ENUM)
+      operationId: createChoice
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateChoiceRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateChoiceResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /v1/choices/{id}:
+    get:
+      tags: [Choices]
+      summary: Get choice
+      operationId: getChoice
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetChoiceResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      tags: [Choices]
+      summary: Update choice (add enum values via label changes)
+      operationId: updateChoice
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateChoiceBody"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateChoiceResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [Choices]
+      summary: Delete choice
+      operationId: deleteChoice
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteChoiceResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/relations:
+    get:
+      tags: [Relations]
+      summary: List relations
+      operationId: listRelations
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - name: table_id
+          in: query
+          schema:
+            type: string
+          description: Filter by table id (optional).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListRelationsResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [Relations]
+      summary: Create relation
+      operationId: createRelation
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRelationRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateRelationResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /v1/relations/{id}:
+    delete:
+      tags: [Relations]
+      summary: Delete relation
+      operationId: deleteRelation
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteRelationResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/data-sources:
+    get:
+      tags: [Data sources]
+      summary: List data sources
+      operationId: listDataSources
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - name: table_id
+          in: query
+          schema:
+            type: string
+          description: Filter by table id (optional).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListDataSourcesResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [Data sources]
+      summary: Create data source (saved view definition)
+      operationId: createDataSource
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDataSourceRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateDataSourceResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /v1/data-sources/{id}:
+    get:
+      tags: [Data sources]
+      summary: Get data source
+      operationId: getDataSource
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetDataSourceResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      tags: [Data sources]
+      summary: Update data source
+      operationId: updateDataSource
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDataSourceBody"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateDataSourceResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [Data sources]
+      summary: Delete data source
+      operationId: deleteDataSource
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteDataSourceResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/data-sources/{id}:query:
+    post:
+      tags: [Data sources]
+      summary: Query rows through a data source
+      operationId: queryDataSource
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QueryDataSourceBody"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QueryDataSourceResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+components:
+  parameters:
+    TenantIdHeader:
+      name: X-Tenant-Id
+      in: header
+      required: false
+      description: |
+        Tenant identifier. Required in multi-tenant mode (`TENANT_MODE=multi`) to route
+        to the tenant's Postgres database. Also accepted as `X-Tenant-ID`.
+      schema:
+        type: string
+        example: default
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    TableIdPath:
+      name: tableId
+      in: path
+      required: true
+      schema:
+        type: string
+    RowIdPath:
+      name: rowId
+      in: path
+      required: true
+      schema:
+        type: string
+
+  responses:
+    Error:
+      description: Error message (plain text from http.Error)
+      content:
+        text/plain:
+          schema:
+            type: string
+            example: table_id query parameter is required
+
+  schemas:
+    Value:
+      type: object
+      description: Cell value union (one field set per value).
+      properties:
+        stringValue:
+          type: string
+        numberValue:
+          type: number
+          format: double
+        boolValue:
+          type: boolean
+        timestampValue:
+          type: string
+          format: date-time
+        bytesValue:
+          type: string
+          format: byte
+        jsonValue: {}
+
+    Row:
+      type: object
+      properties:
+        id:
+          type: string
+        cells:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/Value"
+
+    Type:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        pgType:
+          type: string
+        config:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Table:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        schemaName:
+          type: string
+        tableName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Column:
+      type: object
+      properties:
+        id:
+          type: string
+        tableId:
+          type: string
+        name:
+          type: string
+        typeId:
+          type: string
+        pgColumn:
+          type: string
+        isNullable:
+          type: boolean
+        position:
+          type: integer
+          format: int32
+        config:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Index:
+      type: object
+      properties:
+        id:
+          type: string
+        tableId:
+          type: string
+        name:
+          type: string
+        pgIndex:
+          type: string
+        columnIds:
+          type: array
+          items:
+            type: string
+        isUnique:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Webhook:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        targetUrl:
+          type: string
+        tableFilter:
+          type: string
+        events:
+          type: array
+          items:
+            type: string
+        headers:
+          type: object
+          additionalProperties: true
+        enabled:
+          type: boolean
+        hasSecret:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateWebhookRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        targetUrl:
+          type: string
+        tableFilter:
+          type: string
+        events:
+          type: array
+          items:
+            type: string
+        headers:
+          type: object
+          additionalProperties: true
+        enabled:
+          type: boolean
+        secret:
+          type: string
+
+    CreateWebhookResponse:
+      type: object
+      properties:
+        webhook:
+          $ref: "#/components/schemas/Webhook"
+
+    ListWebhooksResponse:
+      type: object
+      properties:
+        webhooks:
+          type: array
+          items:
+            $ref: "#/components/schemas/Webhook"
+
+    DeleteWebhookResponse:
+      type: object
+
+    UpdateWebhookRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        targetUrl:
+          type: string
+        tableFilter:
+          type: string
+        events:
+          type: array
+          items:
+            type: string
+        headers:
+          type: object
+          additionalProperties: true
+        enabled:
+          type: boolean
+        secret:
+          type: string
+
+    UpdateWebhookResponse:
+      type: object
+      properties:
+        webhook:
+          $ref: "#/components/schemas/Webhook"
+
+    CreateTenantRequest:
+      type: object
+      properties:
+        id:
+          type: string
+        displayName:
+          type: string
+        dataDsn:
+          type: string
+        createDatabase:
+          type: boolean
+
+    CreateTenantResponse:
+      type: object
+      properties:
+        id:
+          type: string
+
+    ListTypesResponse:
+      type: object
+      properties:
+        types:
+          type: array
+          items:
+            $ref: "#/components/schemas/Type"
+
+    GetDatabaseConnectionResponse:
+      type: object
+      properties:
+        host:
+          type: string
+        port:
+          type: integer
+          format: int32
+        database:
+          type: string
+        user:
+          type: string
+        urlWithoutPassword:
+          type: string
+        psqlCommand:
+          type: string
+        passwordSourceHint:
+          type: string
+
+    CreateTableRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        schemaName:
+          type: string
+
+    CreateTableResponse:
+      type: object
+      properties:
+        table:
+          $ref: "#/components/schemas/Table"
+
+    DeleteTableResponse:
+      type: object
+
+    ListTablesResponse:
+      type: object
+      properties:
+        tables:
+          type: array
+          items:
+            $ref: "#/components/schemas/Table"
+
+    RenameTableBody:
+      type: object
+      properties:
+        newName:
+          type: string
+      description: Table id is taken from the path (`/v1/tables/{id}:rename`).
+
+    RenameTableResponse:
+      type: object
+      properties:
+        table:
+          $ref: "#/components/schemas/Table"
+
+    GetTableSchemaResponse:
+      type: object
+      properties:
+        table:
+          $ref: "#/components/schemas/Table"
+        columns:
+          type: array
+          items:
+            $ref: "#/components/schemas/Column"
+        indexes:
+          type: array
+          items:
+            $ref: "#/components/schemas/Index"
+
+    CreateRowBody:
+      type: object
+      properties:
+        cells:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/Value"
+      description: Table id is taken from the path.
+
+    CreateRowResponse:
+      type: object
+      properties:
+        row:
+          $ref: "#/components/schemas/Row"
+
+    UpdateRowBody:
+      type: object
+      properties:
+        cells:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/Value"
+      description: Table id and row id are taken from the path.
+
+    UpdateRowResponse:
+      type: object
+      properties:
+        row:
+          $ref: "#/components/schemas/Row"
+
+    DeleteRowResponse:
+      type: object
+
+    ListRowsResponse:
+      type: object
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/Row"
+        nextPageToken:
+          type: string
+
+    SortOrder:
+      type: object
+      properties:
+        attribute:
+          type: string
+        sortOrder:
+          type: string
+          enum: [ASC, DESC]
+
+    QueryRowsBody:
+      type: object
+      properties:
+        filter:
+          type: object
+          additionalProperties: true
+        sort:
+          type: array
+          items:
+            $ref: "#/components/schemas/SortOrder"
+        columnIds:
+          type: array
+          items:
+            type: string
+        pageSize:
+          type: integer
+          format: int32
+        pageToken:
+          type: string
+        expandColumnIds:
+          type: array
+          items:
+            type: string
+        expandPaths:
+          type: array
+          items:
+            type: string
+      description: Table id is taken from the path.
+
+    QueryRowsResponse:
+      type: object
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/Row"
+        nextPageToken:
+          type: string
+        count:
+          type: integer
+          format: int32
+
+    BulkUpsertRowItem:
+      type: object
+      properties:
+        rowId:
+          type: string
+        cells:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/Value"
+
+    BulkUpsertRowsBody:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BulkUpsertRowItem"
+      description: Table id is taken from the path.
+
+    BulkUpsertRowsResponse:
+      type: object
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/Row"
+
+    BulkDeleteRowsBody:
+      type: object
+      properties:
+        rowIds:
+          type: array
+          items:
+            type: string
+      description: Table id is taken from the path.
+
+    BulkDeleteRowsResponse:
+      type: object
+
+    ImportRowsBody:
+      type: object
+      properties:
+        format:
+          type: integer
+          format: int32
+          description: "0 = unspecified, 1 = JSON rows"
+          enum: [0, 1]
+        rows:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        columnMap:
+          type: object
+          additionalProperties:
+            type: string
+      description: Table id is taken from the path.
+
+    ImportRowsResponse:
+      type: object
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/Row"
+        insertedCount:
+          type: integer
+          format: int32
+
+    AddColumnRequest:
+      type: object
+      required: [tableId]
+      properties:
+        tableId:
+          type: string
+        name:
+          type: string
+        typeId:
+          type: string
+        isNullable:
+          type: boolean
+        position:
+          type: integer
+          format: int32
+        config:
+          type: object
+          additionalProperties: true
+
+    AddColumnResponse:
+      type: object
+      properties:
+        column:
+          $ref: "#/components/schemas/Column"
+
+    UpdateColumnBody:
+      type: object
+      properties:
+        name:
+          type: string
+        isNullable:
+          type: boolean
+          nullable: true
+        position:
+          type: integer
+          format: int32
+        config:
+          type: object
+          additionalProperties: true
+      description: Column id is taken from the path.
+
+    UpdateColumnResponse:
+      type: object
+      properties:
+        column:
+          $ref: "#/components/schemas/Column"
+
+    DeleteColumnResponse:
+      type: object
+
+    ListColumnsResponse:
+      type: object
+      properties:
+        columns:
+          type: array
+          items:
+            $ref: "#/components/schemas/Column"
+
+    CreateIndexRequest:
+      type: object
+      properties:
+        tableId:
+          type: string
+        name:
+          type: string
+        columnIds:
+          type: array
+          items:
+            type: string
+        isUnique:
+          type: boolean
+
+    CreateIndexResponse:
+      type: object
+      properties:
+        index:
+          $ref: "#/components/schemas/Index"
+
+    GetIndexResponse:
+      type: object
+      properties:
+        index:
+          $ref: "#/components/schemas/Index"
+
+    DeleteIndexResponse:
+      type: object
+
+    ListIndexesResponse:
+      type: object
+      properties:
+        indexes:
+          type: array
+          items:
+            $ref: "#/components/schemas/Index"
+
+    ChoiceItem:
+      type: object
+      properties:
+        name:
+          type: string
+        label:
+          type: string
+        value:
+          type: string
+        color:
+          type: string
+        order:
+          type: integer
+          format: int32
+        parentId:
+          type: string
+
+    ChoiceSource:
+      type: object
+      properties:
+        type:
+          type: string
+          description: STATIC | ENTITY
+        tableId:
+          type: string
+        valueField:
+          type: string
+        labelField:
+          type: string
+        dataSourceId:
+          type: string
+        filter:
+          type: object
+          additionalProperties: true
+
+    Choice:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        label:
+          type: string
+        schemaName:
+          type: string
+        pgTypeName:
+          type: string
+        source:
+          $ref: "#/components/schemas/ChoiceSource"
+        values:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChoiceItem"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateChoiceRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        label:
+          type: string
+        schemaName:
+          type: string
+        values:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChoiceItem"
+
+    CreateChoiceResponse:
+      type: object
+      properties:
+        choice:
+          $ref: "#/components/schemas/Choice"
+
+    ListChoicesResponse:
+      type: object
+      properties:
+        choices:
+          type: array
+          items:
+            $ref: "#/components/schemas/Choice"
+
+    GetChoiceResponse:
+      type: object
+      properties:
+        choice:
+          $ref: "#/components/schemas/Choice"
+
+    UpdateChoiceBody:
+      type: object
+      properties:
+        label:
+          type: string
+        values:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChoiceItem"
+      description: Choice id is taken from the path.
+
+    UpdateChoiceResponse:
+      type: object
+      properties:
+        choice:
+          $ref: "#/components/schemas/Choice"
+
+    DeleteChoiceResponse:
+      type: object
+
+    Relation:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+          description: ONE_TO_ONE | ONE_TO_MANY | MANY_TO_ONE
+        sourceTableId:
+          type: string
+        sourceColumnId:
+          type: string
+        targetTableId:
+          type: string
+        targetColumnId:
+          type: string
+        config:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateRelationRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+        sourceTableId:
+          type: string
+        sourceColumnId:
+          type: string
+        targetTableId:
+          type: string
+        targetColumnId:
+          type: string
+        config:
+          type: object
+          additionalProperties: true
+
+    CreateRelationResponse:
+      type: object
+      properties:
+        relation:
+          $ref: "#/components/schemas/Relation"
+
+    ListRelationsResponse:
+      type: object
+      properties:
+        relations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Relation"
+
+    DeleteRelationResponse:
+      type: object
+
+    DataSource:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        label:
+          type: string
+        tableId:
+          type: string
+        filter:
+          type: object
+          additionalProperties: true
+        sort:
+          type: array
+          items:
+            $ref: "#/components/schemas/SortOrder"
+        columnIds:
+          type: array
+          items:
+            type: string
+        config:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateDataSourceRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        label:
+          type: string
+        tableId:
+          type: string
+        filter:
+          type: object
+          additionalProperties: true
+        sort:
+          type: array
+          items:
+            $ref: "#/components/schemas/SortOrder"
+        columnIds:
+          type: array
+          items:
+            type: string
+        config:
+          type: object
+          additionalProperties: true
+
+    CreateDataSourceResponse:
+      type: object
+      properties:
+        dataSource:
+          $ref: "#/components/schemas/DataSource"
+
+    ListDataSourcesResponse:
+      type: object
+      properties:
+        dataSources:
+          type: array
+          items:
+            $ref: "#/components/schemas/DataSource"
+
+    GetDataSourceResponse:
+      type: object
+      properties:
+        dataSource:
+          $ref: "#/components/schemas/DataSource"
+
+    UpdateDataSourceBody:
+      type: object
+      properties:
+        label:
+          type: string
+        filter:
+          type: object
+          additionalProperties: true
+        sort:
+          type: array
+          items:
+            $ref: "#/components/schemas/SortOrder"
+        columnIds:
+          type: array
+          items:
+            type: string
+        config:
+          type: object
+          additionalProperties: true
+      description: Data source id is taken from the path.
+
+    UpdateDataSourceResponse:
+      type: object
+      properties:
+        dataSource:
+          $ref: "#/components/schemas/DataSource"
+
+    DeleteDataSourceResponse:
+      type: object
+
+    QueryDataSourceBody:
+      type: object
+      properties:
+        pageSize:
+          type: integer
+          format: int32
+        pageToken:
+          type: string
+        filter:
+          type: object
+          additionalProperties: true
+      description: Data source id is taken from the path.
+
+    QueryDataSourceResponse:
+      type: object
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/Row"
+        nextPageToken:
+          type: string
+        count:
+          type: integer
+          format: int32
+
+    ERNode:
+      type: object
+      properties:
+        tableId:
+          type: string
+        tableName:
+          type: string
+        label:
+          type: string
+        columns:
+          type: array
+          items:
+            $ref: "#/components/schemas/Column"
+
+    EREdge:
+      type: object
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+        sourceTableId:
+          type: string
+        sourceColumnId:
+          type: string
+        targetTableId:
+          type: string
+        targetColumnId:
+          type: string
+        label:
+          type: string
+
+    ERDiagram:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/ERNode"
+        edges:
+          type: array
+          items:
+            $ref: "#/components/schemas/EREdge"
+
+    GetERDiagramResponse:
+      type: object
+      properties:
+        diagram:
+          $ref: "#/components/schemas/ERDiagram"

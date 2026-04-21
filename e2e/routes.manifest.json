@@ -1,0 +1,27 @@
+{
+  "smokeGets": [
+    { "id": "types", "path": "/v1/types", "jsonKey": "types" },
+    { "id": "tables", "path": "/v1/tables", "jsonKey": "tables" },
+    { "id": "choices", "path": "/v1/choices", "jsonKey": "choices" },
+    { "id": "relations", "path": "/v1/relations", "jsonKey": "relations" },
+    { "id": "dataSources", "path": "/v1/data-sources", "jsonKey": "dataSources" },
+    { "id": "webhooks", "path": "/v1/webhooks", "jsonKey": "webhooks" },
+    { "id": "erDiagram", "path": "/v1/schema/er", "jsonKey": "diagram" },
+    { "id": "databaseConnection", "path": "/v1/database/connection", "jsonKey": "host" }
+  ],
+  "scalarColumnTypes": [
+    "text",
+    "int8",
+    "double",
+    "precision",
+    "bool",
+    "timestamptz",
+    "jsonb",
+    "uuid",
+    "int8_array",
+    "text_array"
+  ],
+  "virtualColumnTypes": ["formula", "relationship", "lookup", "rollup"],
+  "specialColumnTypes": ["enum", "relation_fk"],
+  "requiredBuiltinTypes": ["text", "int8", "formula", "rollup", "relation_fk"]
+}

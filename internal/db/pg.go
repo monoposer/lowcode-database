@@ -8,19 +8,18 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/solat/lowcode-database/internal/config"
-	"github.com/solat/lowcode-database/internal/migrate"
 )
 
-// NewPool creates a pgx connection pool using config.DatabaseURL (single-tenant mode).
+// NewPool creates a pgx connection pool using META_DATABASE_URL from config.
 func NewPool(ctx context.Context) (*pgxpool.Pool, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, err
 	}
-	if cfg.DatabaseURL == "" {
-		return nil, fmt.Errorf("config.database_url is not set")
+	if cfg.MetaDatabaseURL == "" {
+		return nil, fmt.Errorf("META_DATABASE_URL is not set")
 	}
-	return NewPoolFromDSN(ctx, cfg.DatabaseURL)
+	return NewPoolFromDSN(ctx, cfg.MetaDatabaseURL)
 }
 
 // NewPoolFromDSN creates a pgx connection pool from a full DSN.
@@ -40,9 +39,3 @@ func NewPoolFromDSN(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 
 	return pool, nil
 }
-
-// EnsureMetaSchema runs all pending schema migrations for the lowcode system.
-func EnsureMetaSchema(ctx context.Context, pool *pgxpool.Pool) error {
-	return migrate.Migrate(ctx, pool)
-}
-

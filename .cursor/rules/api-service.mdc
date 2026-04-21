@@ -1,0 +1,67 @@
+---
+description: API 路由与 service 层开发约定
+globs:
+  - internal/api/**
+  - internal/apiv1/**
+  - internal/service/**
+  - internal/dsl/**
+  - internal/query/**
+---
+
+# API & Service
+
+## 路由
+
+- 统一前缀 `/v1/`，handler 在 `internal/api/handler.go`
+- 表级子路由：`/v1/tables/{tableId}/...`（`tableId` = 逻辑表名）
+- 动作后缀：`POST ...:rename`、`POST ...:query`、`POST ...:bulkUpsert`
+- 写 JSON 用 camelCase；列单元格用 `apiv1.Value` 联合体
+
+## Service 分层
+
+```
+handler → LowcodeService method → MetaPool / DataPool
+```
+
+- Meta 查询：`s.tenants.MetaPool()` — lc_tables、lc_columns、lc_choices、lc_data_sources 等
+- Data DDL/DML：`s.tenants.DataPool(ctx)` — CREATE TABLE、ALTER、行 CRUD、ENUM、INDEX
+- 租户：`tenantID(ctx)` 读 `X-Tenant-Id`
+
+## 列类型
+
+- 物理列：`AddColumn` 执行 `ALTER TABLE ... ADD COLUMN`（`typeId` 必须为 `internal/columntype` 内置类型）
+- `enum` 列：`config.choice_name` → 解析 PG 类型 `{schema}.{pg_type_name}`
+- `relation_fk`：bigint + 可选 `add_fk` 外键
+- 虚拟列：只写 `lc_columns`，`pg_column` 为 `v_*` 占位
+
+## Choice 操作
+
+- 创建 ENUM：`createPgEnumType`（data DB，`lc_e_{tenant}_{name}`）
+- 列表/读值：`listTenantChoiceEnums` / `listPgEnumValues` ← `pg_type` / `pg_enum`
+- 列引用：`config.choice_name`（逻辑名）或完整 `pg_type_name`
+
+## Index 操作
+
+- 路由：`GET/POST /v1/indexes`，`GET/DELETE /v1/indexes/{pgIndexName}`
+- 列表：`GET /v1/indexes?table_id=xxx` → `listPGIndexes` → `pgIndexesToAPI`
+- 创建：`CREATE INDEX` on data DB；名 `idx_{table}_{logicalName}`
+- 删除：`DROP INDEX`；`Id` = PG 索引名
+
+## Column 操作
+
+- 路由：`GET/POST /v1/columns`，`PATCH/DELETE /v1/columns/{id}`
+- 列表：`GET /v1/columns?table_id=xxx` → `ListColumns`
+- 创建：`POST /v1/columns`（body 含 `tableId`）→ `AddColumn`
+- 更新/删除：按列资源 `id`
+
+## 查询
+
+- `QueryRows` / `QueryDataSource` → `executeQuery`
+- Filter：`dsl.Parse` + `query.BuildWhere`
+- DataSource 列投影 + filter 属性可能不在 SELECT 列表，attrMap 需包含全部物理列
+
+## 测试
+
+- 纯逻辑：`internal/dsl`、`internal/query`、`choice_service_test.go`
+- 集成：`integration_test.go` + `testutil.SetupIntegration`（skip 无 DB）
+- 改 handler 时补充 `handler_test.go`

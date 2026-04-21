@@ -4,167 +4,186 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
-	lowcodev1 "github.com/solat/lowcode-database/gen/lowcode/v1"
+	"github.com/solat/lowcode-database/internal/apiv1"
 )
 
-// -------- Index --------
+// -------- Index (PostgreSQL catalog as source of truth) --------
 
-func (s *LowcodeService) CreateIndex(ctx context.Context, req *lowcodev1.CreateIndexRequest) (*lowcodev1.CreateIndexResponse, error) {
-	pool, err := s.tenants.PoolFor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	tableIdentifier := req.GetTableId()
-	if tableIdentifier == "" {
+func (s *LowcodeService) CreateIndex(ctx context.Context, req *apiv1.CreateIndexRequest) (*apiv1.CreateIndexResponse, error) {
+	if req.TableId == "" {
 		return nil, fmt.Errorf("table_id is required")
 	}
-	// loadColumns 会内部解析成逻辑 table name。
-	cols, schemaName, tableName, err := s.loadColumns(ctx, pool, tableIdentifier)
+	cols, schemaName, tableName, err := s.loadColumns(ctx, req.TableId)
+	if err != nil {
+		return nil, err
+	}
+	resolvedTable, err := s.resolveTableName(ctx, req.TableId)
 	if err != nil {
 		return nil, err
 	}
 
-	colIDSet := make(map[string]struct{}, len(req.GetColumnIds()))
-	for _, id := range req.GetColumnIds() {
+	colIDSet := make(map[string]struct{}, len(req.ColumnIds))
+	for _, id := range req.ColumnIds {
 		colIDSet[id] = struct{}{}
 	}
-
 	var pgColumns []string
 	for _, c := range cols {
 		if _, ok := colIDSet[c.Id]; ok {
-			pgColumns = append(pgColumns, c.PgColumn)
+			pgColumns = append(pgColumns, pgx.Identifier{c.PgColumn}.Sanitize())
 		}
 	}
 	if len(pgColumns) == 0 {
 		return nil, fmt.Errorf("no valid columns for index")
 	}
 
-	pgIndex := "lc_idx_" + strings.ReplaceAll(uuid.New().String(), "-", "")
-	indexSQL := fmt.Sprintf(`CREATE %s INDEX %s ON %s.%s (%s)`,
-		func() string {
-			if req.GetIsUnique() {
-				return "UNIQUE"
-			}
-			return ""
-		}(),
+	pgIndex, err := indexSQLName(tableName, req.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := s.tenants.DataPool(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	uniqueSQL := ""
+	if req.IsUnique {
+		uniqueSQL = "UNIQUE "
+	}
+	indexSQL := fmt.Sprintf(`CREATE %sINDEX IF NOT EXISTS %s ON %s.%s (%s)`,
+		uniqueSQL,
 		pgx.Identifier{pgIndex}.Sanitize(),
 		pgx.Identifier{schemaName}.Sanitize(),
 		pgx.Identifier{tableName}.Sanitize(),
 		strings.Join(pgColumns, ", "),
 	)
+	if _, err := data.Exec(ctx, indexSQL); err != nil {
+		return nil, err
+	}
 
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	pgRows, err := s.listPGIndexes(ctx, schemaName, tableName)
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
-
-	if _, err := tx.Exec(ctx, indexSQL); err != nil {
+	var target *apiv1.Index
+	apiIndexes, err := s.pgIndexesToAPI(ctx, resolvedTable, schemaName, tableName, pgRows)
+	if err != nil {
 		return nil, err
 	}
-	const ins = `
-		INSERT INTO lc_indexes (table_id, name, pg_index, column_ids, is_unique)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, table_id, name, pg_index, column_ids, is_unique, created_at, updated_at
-	`
-	row := tx.QueryRow(ctx, ins,
-		tableIdentifier,
-		req.GetName(),
-		pgIndex,
-		req.GetColumnIds(),
-		req.GetIsUnique(),
-	)
-
-	var idx lowcodev1.Index
-	var createdAt, updatedAt time.Time
-	if err := row.Scan(&idx.Id, &idx.TableId, &idx.Name, &idx.PgIndex, &idx.ColumnIds, &idx.IsUnique, &createdAt, &updatedAt); err != nil {
-		return nil, err
+	for _, idx := range apiIndexes {
+		if idx.PgIndex == pgIndex {
+			target = idx
+			break
+		}
 	}
-	idx.CreatedAt = timestamppb.New(createdAt)
-	idx.UpdatedAt = timestamppb.New(updatedAt)
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
+	if target == nil {
+		target = &apiv1.Index{
+			Id:        pgIndex,
+			TableId:   resolvedTable,
+			Name:      req.Name,
+			PgIndex:   pgIndex,
+			ColumnIds: req.ColumnIds,
+			IsUnique:  req.IsUnique,
+		}
+	} else {
+		target.Name = req.Name
 	}
-	return &lowcodev1.CreateIndexResponse{Index: &idx}, nil
+	return &apiv1.CreateIndexResponse{Index: target}, nil
 }
 
-func (s *LowcodeService) DeleteIndex(ctx context.Context, req *lowcodev1.DeleteIndexRequest) (*lowcodev1.DeleteIndexResponse, error) {
-	pool, err := s.tenants.PoolFor(ctx)
+func (s *LowcodeService) DeleteIndex(ctx context.Context, req *apiv1.DeleteIndexRequest) (*apiv1.DeleteIndexResponse, error) {
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	schemaName, err := s.resolveIndexSchema(ctx, req.Id)
+	if err != nil {
+		return &apiv1.DeleteIndexResponse{}, nil
+	}
+	data, err := s.tenants.DataPool(ctx)
 	if err != nil {
 		return nil, err
 	}
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(ctx)
-
-	var schemaName, tableName, pgIndex string
-	if err := tx.QueryRow(ctx, `
-		SELECT t.schema_name, t.table_name, i.pg_index
-		FROM lc_indexes i
-		JOIN lc_tables t ON i.table_id = t.name
-		WHERE i.id = $1`,
-		req.GetId(),
-	).Scan(&schemaName, &tableName, &pgIndex); err != nil {
-		if err == pgx.ErrNoRows {
-			return &lowcodev1.DeleteIndexResponse{}, nil
-		}
-		return nil, err
-	}
-
 	drop := fmt.Sprintf(`DROP INDEX IF EXISTS %s.%s`,
 		pgx.Identifier{schemaName}.Sanitize(),
-		pgx.Identifier{pgIndex}.Sanitize(),
+		pgx.Identifier{req.Id}.Sanitize(),
 	)
-	if _, err := tx.Exec(ctx, drop); err != nil {
+	if _, err := data.Exec(ctx, drop); err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM lc_indexes WHERE id = $1`, req.GetId()); err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
-	}
-	return &lowcodev1.DeleteIndexResponse{}, nil
+	return &apiv1.DeleteIndexResponse{}, nil
 }
 
-func (s *LowcodeService) ListIndexes(ctx context.Context, req *lowcodev1.ListIndexesRequest) (*lowcodev1.ListIndexesResponse, error) {
-	pool, err := s.tenants.PoolFor(ctx)
+func (s *LowcodeService) ListIndexes(ctx context.Context, req *apiv1.ListIndexesRequest) (*apiv1.ListIndexesResponse, error) {
+	tableID, schemaName, tableName, err := s.loadTablePhysical(ctx, req.TableId)
 	if err != nil {
 		return nil, err
 	}
-	tableID := req.GetTableId()
-	const q = `
-		SELECT id, table_id, name, pg_index, column_ids, is_unique, created_at, updated_at
-		FROM lc_indexes
-		WHERE table_id = $1
-		ORDER BY name
-	`
-	rows, err := pool.Query(ctx, q, tableID)
+	pgRows, err := s.listPGIndexes(ctx, schemaName, tableName)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	indexes, err := s.pgIndexesToAPI(ctx, tableID, schemaName, tableName, pgRows)
+	if err != nil {
+		return nil, err
+	}
+	return &apiv1.ListIndexesResponse{Indexes: indexes}, nil
+}
 
-	var resp lowcodev1.ListIndexesResponse
-	for rows.Next() {
-		var idx lowcodev1.Index
-		var createdAt, updatedAt time.Time
-		if err := rows.Scan(&idx.Id, &idx.TableId, &idx.Name, &idx.PgIndex, &idx.ColumnIds, &idx.IsUnique, &createdAt, &updatedAt); err != nil {
-			return nil, err
+func (s *LowcodeService) GetIndex(ctx context.Context, req *apiv1.GetIndexRequest) (*apiv1.GetIndexResponse, error) {
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	data, err := s.tenants.DataPool(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var schemaName, tableName string
+	if err := data.QueryRow(ctx, `
+		SELECT schemaname, tablename FROM pg_indexes WHERE indexname = $1 LIMIT 1`,
+		req.Id,
+	).Scan(&schemaName, &tableName); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("index not found")
 		}
-		idx.CreatedAt = timestamppb.New(createdAt)
-		idx.UpdatedAt = timestamppb.New(updatedAt)
-		resp.Indexes = append(resp.Indexes, &idx)
+		return nil, err
 	}
-	return &resp, rows.Err()
+	tid, err := s.tenantID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var tableID string
+	if err := s.tenants.MetaPool().QueryRow(ctx, `
+		SELECT name FROM lc_tables WHERE tenant_id = $1 AND schema_name = $2 AND table_name = $3`,
+		tid, schemaName, tableName,
+	).Scan(&tableID); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("index table not found in metadata")
+		}
+		return nil, err
+	}
+	pgRows, err := s.listPGIndexes(ctx, schemaName, tableName)
+	if err != nil {
+		return nil, err
+	}
+	var match *pgIndexRow
+	for i := range pgRows {
+		if pgRows[i].Name == req.Id {
+			match = &pgRows[i]
+			break
+		}
+	}
+	if match == nil {
+		return nil, fmt.Errorf("index not found")
+	}
+	apiIndexes, err := s.pgIndexesToAPI(ctx, tableID, schemaName, tableName, []pgIndexRow{*match})
+	if err != nil {
+		return nil, err
+	}
+	if len(apiIndexes) == 0 {
+		return nil, fmt.Errorf("index not found")
+	}
+	return &apiv1.GetIndexResponse{Index: apiIndexes[0]}, nil
 }
-

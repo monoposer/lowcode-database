@@ -118,7 +118,7 @@
         <button type="button" id="ctxDeleteTable" class="danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Delete table</button>
       </div>
       <div class="sidebar-footer">
-        <a href="#" id="linkManageTypes">管理 Type（列类型）</a>
+        <a href="#" id="linkManageTypes">查看 Type（列类型）</a>
       </div>
     </aside>
 
@@ -212,17 +212,13 @@
     </div>
   </div>
 
-  <!-- Modal: Manage types -->
+  <!-- Modal: built-in types (read-only) -->
   <div class="overlay" id="modalTypes">
     <div class="modal">
-      <div class="modal-header">管理 Type（列类型） <button type="button" class="modal-close" data-close="modalTypes">&times;</button></div>
+      <div class="modal-header">内置 Type（列类型） <button type="button" class="modal-close" data-close="modalTypes">&times;</button></div>
       <div class="modal-body">
-        <label>Type name</label>
-        <input type="text" id="typeName" placeholder="e.g. text" />
-        <label>PG type</label>
-        <input type="text" id="typePgType" placeholder="e.g. text, int8, timestamptz, jsonb" />
-        <button type="button" class="btn btn-insert" id="btnCreateType">Create Type</button>
-        <p style="margin-top:12px;font-size:12px;color:#6b7280">现有 Types 会在「Add column」的 Type 下拉框中显示。</p>
+        <p style="font-size:12px;color:#6b7280;margin-bottom:12px">列类型由系统预置，不可自定义。下方列表会在「Add column」的 Type 下拉框中显示。</p>
+        <ul id="typeList" style="max-height:240px;overflow:auto;font-size:13px;line-height:1.6"></ul>
       </div>
     </div>
   </div>
@@ -279,7 +275,13 @@
         currentTypes = data.types || [];
         const sel = document.getElementById("newColumnType");
         const prev = sel.value;
-        sel.innerHTML = currentTypes.map(t => `<option value="${esc(t.name)}">${esc(t.name)} (${esc(t.pg_type || "")})</option>`).join("");
+        sel.innerHTML = currentTypes.map(t => `<option value="${esc(t.name)}">${esc(t.name)} (${esc(t.pg_type || t.pgType || "")})</option>`).join("");
+        const listEl = document.getElementById("typeList");
+        if (listEl) {
+          listEl.innerHTML = currentTypes.map(t =>
+            `<li><strong>${esc(t.name)}</strong> → ${esc(t.pg_type || t.pgType || "")}</li>`
+          ).join("");
+        }
         if (prev && currentTypes.some(t => t.name === prev)) sel.value = prev;
       } catch (e) {}
     }
@@ -626,14 +628,14 @@
       const isNullable = document.getElementById("newColumnNullable").value === "true";
       if (!name || !typeId || !currentTableId) return;
       try {
-        const res = await fetch(apiBase + `/v1/tables/${encodeURIComponent(currentTableId)}/columns`, {
+        const res = await fetch(apiBase + `/v1/columns`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            table_id: currentTableId,
+            tableId: currentTableId,
             name,
-            type_id: typeId,
-            is_nullable: isNullable,
+            typeId,
+            isNullable,
             position: currentColumns.length + 1
           })
         });
@@ -647,21 +649,6 @@
     document.getElementById("linkManageTypes").addEventListener("click", (e) => {
       e.preventDefault();
       openModal("modalTypes");
-    });
-    document.getElementById("btnCreateType").addEventListener("click", async () => {
-      const name = document.getElementById("typeName").value.trim();
-      const pgType = document.getElementById("typePgType").value.trim();
-      if (!name || !pgType) return;
-      try {
-        await fetch(apiBase + "/v1/types", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, pg_type: pgType, config: {} })
-        });
-        await loadTypes();
-        document.getElementById("typeName").value = "";
-        document.getElementById("typePgType").value = "";
-      } catch (e) {}
     });
 
     loadTypes();
