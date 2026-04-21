@@ -1,29 +1,38 @@
-PROTO_DIR := proto
-GEN_DIR := gen
+.PHONY: all run migrate migrate-meta migrate-data playground test test-integration e2e e2e-generate docker-up docker-down
 
-PROTO_FILES := $(shell find $(PROTO_DIR) -name '*.proto')
-
-# Use project-local proto/google/ for google/api/*.proto; ensure Go proto plugins are on PATH.
-GOBIN := $(shell go env GOPATH)/bin
-export PATH := $(GOBIN):$(PATH)
-
-.PHONY: all proto clean run
-
-all: proto
-
-proto: $(PROTO_FILES)
-	@echo "==> Generating Go code from proto"
-	@mkdir -p $(GEN_DIR)
-	protoc \
-		-I $(PROTO_DIR) \
-		--go_out=$(GEN_DIR) --go_opt=paths=source_relative \
-		--go-grpc_out=$(GEN_DIR) --go-grpc_opt=paths=source_relative \
-		--grpc-gateway_out=$(GEN_DIR) --grpc-gateway_opt=paths=source_relative \
-		proto/lowcode/v1/lowcode_service.proto
-
-clean:
-	@echo "==> Cleaning generated code"
-	rm -rf $(GEN_DIR)
+all: test
 
 run:
 	go run ./cmd/server
+
+migrate:
+	go run ./cmd/migrate -target meta
+	go run ./cmd/migrate -target data
+
+migrate-meta:
+	go run ./cmd/migrate -target meta
+
+migrate-data:
+	go run ./cmd/migrate -target data
+
+playground:
+	cd playground && npm run dev
+
+test:
+	go test ./cmd/... ./internal/... -count=1
+
+test-integration:
+	@test -n "$$TEST_META_DATABASE_URL" || (echo "Set TEST_META_DATABASE_URL (and optionally TEST_DATA_DATABASE_URL)" && exit 1)
+	go test ./internal/... -count=1 -v
+
+e2e-generate:
+	cd e2e && node scripts/generate-api-tests.mjs
+
+e2e:
+	cd e2e && npm install && npx playwright install chromium && npm test
+
+docker-up:
+	docker compose up -d postgres redis
+
+docker-down:
+	docker compose down

@@ -2,40 +2,49 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"google.golang.org/protobuf/types/known/structpb"
 
-	lowcodev1 "github.com/solat/lowcode-database/gen/lowcode/v1"
+	"github.com/solat/lowcode-database/internal/apiv1"
+	"github.com/solat/lowcode-database/internal/webhook"
 )
+
+const (
+	maxExpandPathDepth = 5
+	maxExpandManyRows  = 100
+)
+
+// fetchRelatedOpts controls optional projection when loading related rows.
+type fetchRelatedOpts struct {
+	SelectColumnIDs []string // ids of physical columns on the target table; empty = all physical columns
+}
 
 // -------- Row / Cell --------
 
-func (s *LowcodeService) CreateRow(ctx context.Context, req *lowcodev1.CreateRowRequest) (*lowcodev1.CreateRowResponse, error) {
-	pool, err := s.tenants.PoolFor(ctx)
+func (s *LowcodeService) CreateRow(ctx context.Context, req *apiv1.CreateRowRequest) (*apiv1.CreateRowResponse, error) {
+	data, err := s.tenants.DataPool(ctx)
 	if err != nil {
 		return nil, err
 	}
-	tableID := req.GetTableId()
+	tableID := req.TableId
 	if tableID == "" {
 		return nil, fmt.Errorf("table_id is required")
 	}
 
-	cols, schemaName, tableName, err := s.loadColumns(ctx, pool, tableID)
+	cols, schemaName, tableName, err := s.loadColumns(ctx, tableID)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(req.GetCells()) == 0 {
+	if len(req.Cells) == 0 {
 		return nil, fmt.Errorf("cells is empty")
 	}
 
 	var pgCols []string
 	var args []any
-	argPos := 1
 	for _, c := range cols {
 		val, ok := req.Cells[c.Id]
 		if !ok {
@@ -43,7 +52,6 @@ func (s *LowcodeService) CreateRow(ctx context.Context, req *lowcodev1.CreateRow
 		}
 		pgCols = append(pgCols, c.PgColumn)
 		args = append(args, valueToAnyForColumn(val, c.PgType))
-		_ = argPos
 	}
 
 	if len(pgCols) == 0 {
@@ -65,34 +73,40 @@ func (s *LowcodeService) CreateRow(ctx context.Context, req *lowcodev1.CreateRow
 	)
 
 	var rowID string
-	if err := pool.QueryRow(ctx, insert, args...).Scan(&rowID); err != nil {
+	if err := data.QueryRow(ctx, insert, args...).Scan(&rowID); err != nil {
 		return nil, err
 	}
 
-	return &lowcodev1.CreateRowResponse{
-		Row: &lowcodev1.Row{
+	resp := &apiv1.CreateRowResponse{
+		Row: &apiv1.Row{
 			Id:    rowID,
-			Cells: req.GetCells(),
+			Cells: req.Cells,
 		},
-	}, nil
+	}
+	if s.Hooks != nil {
+		s.Hooks.Emit(ctx, webhook.RecordsAfterInsert, tableID, map[string]any{
+			"row": RowToMap(resp.Row),
+		})
+	}
+	return resp, nil
 }
 
 // 这里为了简单，只实现按 id 精确匹配的 UpdateRow，BulkUpsertRows 里会复用。
-func (s *LowcodeService) UpdateRow(ctx context.Context, req *lowcodev1.UpdateRowRequest) (*lowcodev1.UpdateRowResponse, error) {
-	pool, err := s.tenants.PoolFor(ctx)
+func (s *LowcodeService) UpdateRow(ctx context.Context, req *apiv1.UpdateRowRequest) (*apiv1.UpdateRowResponse, error) {
+	data, err := s.tenants.DataPool(ctx)
 	if err != nil {
 		return nil, err
 	}
-	tableID := req.GetTableId()
-	if tableID == "" || req.GetRowId() == "" {
+	tableID := req.TableId
+	if tableID == "" || req.RowId == "" {
 		return nil, fmt.Errorf("table_id and row_id are required")
 	}
 
-	cols, schemaName, tableName, err := s.loadColumns(ctx, pool, tableID)
+	cols, schemaName, tableName, err := s.loadColumns(ctx, tableID)
 	if err != nil {
 		return nil, err
 	}
-	if len(req.GetCells()) == 0 {
+	if len(req.Cells) == 0 {
 		return nil, fmt.Errorf("cells is empty")
 	}
 
@@ -112,36 +126,42 @@ func (s *LowcodeService) UpdateRow(ctx context.Context, req *lowcodev1.UpdateRow
 		return nil, fmt.Errorf("no valid cells for known columns")
 	}
 
-	args = append(args, req.GetRowId())
+	args = append(args, req.RowId)
 	update := fmt.Sprintf(`UPDATE %s.%s SET %s WHERE id = $%d`,
 		pgx.Identifier{schemaName}.Sanitize(),
 		pgx.Identifier{tableName}.Sanitize(),
 		strings.Join(setParts, ", "),
 		argIdx,
 	)
-	if _, err := pool.Exec(ctx, update, args...); err != nil {
+	if _, err := data.Exec(ctx, update, args...); err != nil {
 		return nil, err
 	}
 
-	return &lowcodev1.UpdateRowResponse{
-		Row: &lowcodev1.Row{
-			Id:    req.GetRowId(),
-			Cells: req.GetCells(),
+	resp := &apiv1.UpdateRowResponse{
+		Row: &apiv1.Row{
+			Id:    req.RowId,
+			Cells: req.Cells,
 		},
-	}, nil
+	}
+	if s.Hooks != nil {
+		s.Hooks.Emit(ctx, webhook.RecordsAfterUpdate, tableID, map[string]any{
+			"row": RowToMap(resp.Row),
+		})
+	}
+	return resp, nil
 }
 
-func (s *LowcodeService) DeleteRow(ctx context.Context, req *lowcodev1.DeleteRowRequest) (*lowcodev1.DeleteRowResponse, error) {
-	pool, err := s.tenants.PoolFor(ctx)
+func (s *LowcodeService) DeleteRow(ctx context.Context, req *apiv1.DeleteRowRequest) (*apiv1.DeleteRowResponse, error) {
+	data, err := s.tenants.DataPool(ctx)
 	if err != nil {
 		return nil, err
 	}
-	tableID := req.GetTableId()
-	if tableID == "" || req.GetRowId() == "" {
+	tableID := req.TableId
+	if tableID == "" || req.RowId == "" {
 		return nil, fmt.Errorf("table_id and row_id are required")
 	}
 
-	_, schemaName, tableName, err := s.loadColumns(ctx, pool, tableID)
+	_, schemaName, tableName, err := s.loadColumns(ctx, tableID)
 	if err != nil {
 		return nil, err
 	}
@@ -149,121 +169,216 @@ func (s *LowcodeService) DeleteRow(ctx context.Context, req *lowcodev1.DeleteRow
 	del := fmt.Sprintf(`DELETE FROM %s.%s WHERE id = $1`,
 		pgx.Identifier{schemaName}.Sanitize(),
 		pgx.Identifier{tableName}.Sanitize())
-	if _, err := pool.Exec(ctx, del, req.GetRowId()); err != nil {
+	if _, err := data.Exec(ctx, del, req.RowId); err != nil {
 		return nil, err
 	}
-	return &lowcodev1.DeleteRowResponse{}, nil
+	if s.Hooks != nil {
+		s.Hooks.Emit(ctx, webhook.RecordsAfterDelete, tableID, map[string]any{
+			"rowId": req.RowId,
+		})
+	}
+	return &apiv1.DeleteRowResponse{}, nil
 }
 
-// 简化实现：ListRows 只做无条件分页。
-func (s *LowcodeService) ListRows(ctx context.Context, req *lowcodev1.ListRowsRequest) (*lowcodev1.ListRowsResponse, error) {
-	pool, err := s.tenants.PoolFor(ctx)
+type lookupJoinSpec struct {
+	LookupColumnID string
+	Alias          string
+	TargetSchema   string
+	TargetTable    string
+	TargetPgCol    string
+	BaseFKPgCol    string
+}
+
+func (s *LowcodeService) buildLookupJoinSpecs(ctx context.Context, tableID string) ([]lookupJoinSpec, error) {
+	tid, err := s.tenantID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	tableID := req.GetTableId()
-	if tableID == "" {
-		return nil, fmt.Errorf("table_id is required")
-	}
-	cols, schemaName, tableName, err := s.loadColumns(ctx, pool, tableID)
+	resolvedName, err := s.resolveTableName(ctx, tableID)
 	if err != nil {
 		return nil, err
 	}
-	if len(cols) == 0 {
-		return &lowcodev1.ListRowsResponse{}, nil
-	}
-
-	pageSize := req.GetPageSize()
-	// Apply MAX_ROW config as both default and upper bound when set.
-	maxRow := s.maxRow
-	if pageSize <= 0 {
-		if maxRow > 0 {
-			pageSize = maxRow
-		} else {
-			pageSize = 50
-		}
-	}
-	if maxRow > 0 && pageSize > maxRow {
-		pageSize = maxRow
-	} else if maxRow <= 0 && pageSize > 100 {
-		// Backward-compatible hard cap when MAX_ROW is not configured.
-		pageSize = 100
-	}
-
-	// 目前忽略 page_token，简单 offset=0。
-	columnSQL := "id"
-	for _, c := range cols {
-		columnSQL += ", " + c.PgColumn
-	}
-
-	query := fmt.Sprintf(`SELECT %s FROM %s.%s ORDER BY id LIMIT $1`,
-		columnSQL,
-		pgx.Identifier{schemaName}.Sanitize(),
-		pgx.Identifier{tableName}.Sanitize(),
-	)
-	rows, err := pool.Query(ctx, query, pageSize)
+	meta := s.tenants.MetaPool()
+	const q = `
+		SELECT c.id, c.config
+		FROM lc_columns c
+		WHERE c.table_id = $1 AND c.tenant_id = $2 AND c.type_id = 'lookup'
+	`
+	rows, err := meta.Query(ctx, q, resolvedName, tid)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var resp lowcodev1.ListRowsResponse
+	var specs []lookupJoinSpec
 	for rows.Next() {
-		scanTargets := make([]any, 1+len(cols))
 		var id string
-		scanTargets[0] = &id
-		values := make([]any, len(cols))
-		for i := range values {
-			values[i] = new(any)
-			scanTargets[i+1] = values[i]
-		}
-		if err := rows.Scan(scanTargets...); err != nil {
+		var cfg map[string]any
+		if err := rows.Scan(&id, &cfg); err != nil {
 			return nil, err
 		}
-
-		row := &lowcodev1.Row{
-			Id:    id,
-			Cells: make(map[string]*lowcodev1.Value, len(cols)),
+		relID := cfgString(cfg, "relation_column_id")
+		fieldID := cfgString(cfg, "target_column_id")
+		if relID == "" || fieldID == "" {
+			continue
 		}
-		for i, c := range cols {
-			vPtr := values[i].(*any)
-			if *vPtr == nil {
-				continue
-			}
-			row.Cells[c.Id] = anyToValue(*vPtr)
+		rels, err := s.loadRelationshipColumns(ctx, tableID, []string{relID})
+		if err != nil || len(rels) == 0 {
+			continue
 		}
-
-		// 展开 relationship 列：把子表/关联表数据放入 cells，值为 json_value { "rows": [ { "id", "cells" }, ... ] }
-		if len(req.GetExpandColumnIds()) > 0 {
-			relCols, err := s.loadRelationshipColumns(ctx, pool, tableID, req.GetExpandColumnIds())
-			if err != nil {
-				return nil, err
-			}
-			for _, rel := range relCols {
-				related, err := s.fetchRelatedRows(ctx, pool, rel, id, row.Cells)
-				if err != nil {
-					return nil, err
-				}
-				if related == nil {
-					related = []*structpb.Value{}
-				}
-				listVal := &structpb.Value{Kind: &structpb.Value_ListValue{ListValue: &structpb.ListValue{Values: related}}}
-				expandStruct := &structpb.Struct{Fields: map[string]*structpb.Value{"rows": listVal}}
-				if row.Cells == nil {
-					row.Cells = make(map[string]*lowcodev1.Value)
-				}
-				row.Cells[rel.Id] = &lowcodev1.Value{Kind: &lowcodev1.Value_JsonValue{JsonValue: expandStruct}}
-			}
+		rel := rels[0]
+		if rel.Cardinality != "one" || rel.TargetColumnId == "" {
+			continue
 		}
-
-		resp.Rows = append(resp.Rows, row)
+		var baseFKPg string
+		if err := meta.QueryRow(ctx, `SELECT pg_column FROM lc_columns WHERE id = $1 AND tenant_id = $2`, rel.TargetColumnId, tid).Scan(&baseFKPg); err != nil {
+			continue
+		}
+		targetResolved, err := s.resolveTableName(ctx, rel.TargetTableId)
+		if err != nil {
+			continue
+		}
+		var tgtSchema, tgtTable, tgtPg string
+		if err := meta.QueryRow(ctx, `
+			SELECT t.schema_name, t.table_name, c.pg_column
+			FROM lc_columns c
+			JOIN lc_tables t ON c.table_id = t.name AND c.tenant_id = t.tenant_id
+			WHERE c.id = $1 AND c.tenant_id = $2 AND c.table_id = $3`,
+			fieldID, tid, targetResolved,
+		).Scan(&tgtSchema, &tgtTable, &tgtPg); err != nil {
+			continue
+		}
+		short := strings.ReplaceAll(id, "-", "")
+		if len(short) > 8 {
+			short = short[:8]
+		}
+		alias := "lk_" + short
+		specs = append(specs, lookupJoinSpec{
+			LookupColumnID: id,
+			Alias:          alias,
+			TargetSchema:   tgtSchema,
+			TargetTable:    tgtTable,
+			TargetPgCol:    tgtPg,
+			BaseFKPgCol:    baseFKPg,
+		})
 	}
-	return &resp, rows.Err()
+	return specs, rows.Err()
 }
 
-// fetchRelatedRows 根据 relationship 配置查询关联行，返回可序列化为 JSON 的 []*structpb.Value（每项为 { "id", "cells" }）。
-func (s *LowcodeService) fetchRelatedRows(ctx context.Context, pool *pgxpool.Pool, rel relationshipColumn, currentRowID string, currentRowCells map[string]*lowcodev1.Value) ([]*structpb.Value, error) {
-	targetCols, targetSchema, targetTable, err := s.loadColumns(ctx, pool, rel.TargetTableId)
+// ListRows delegates to QueryRows for filter/sort/pagination support.
+func (s *LowcodeService) ListRows(ctx context.Context, req *apiv1.ListRowsRequest) (*apiv1.ListRowsResponse, error) {
+	qresp, err := s.QueryRows(ctx, &apiv1.QueryRowsRequest{
+		TableId:         req.TableId,
+		PageSize:        req.PageSize,
+		PageToken:       req.PageToken,
+		ExpandColumnIds: req.ExpandColumnIds,
+		ExpandPaths:     req.ExpandPaths,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &apiv1.ListRowsResponse{
+		Rows:          qresp.Rows,
+		NextPageToken: qresp.NextPageToken,
+	}, nil
+}
+
+func relationshipExpandValue(rel relationshipColumn, related []map[string]any) *apiv1.Value {
+	if rel.Cardinality == "one" {
+		if len(related) == 0 {
+			return &apiv1.Value{JsonValue: json.RawMessage("null")}
+		}
+		return apiv1.JsonValue(related[0])
+	}
+	if related == nil {
+		related = []map[string]any{}
+	}
+	rowsAny := make([]any, len(related))
+	for i := range related {
+		rowsAny[i] = related[i]
+	}
+	return apiv1.JsonValue(map[string]any{"rows": rowsAny})
+}
+
+func (s *LowcodeService) expandPathResult(ctx context.Context, tableID, rowID string, rowCells map[string]*apiv1.Value, parts []string, depth int) (any, error) {
+	if depth > maxExpandPathDepth {
+		return nil, fmt.Errorf("max depth %d exceeded", maxExpandPathDepth)
+	}
+	if len(parts) < 2 {
+		return nil, fmt.Errorf("path segment too short")
+	}
+	relID := parts[0]
+	rels, err := s.loadRelationshipColumns(ctx, tableID, []string{relID})
+	if err != nil {
+		return nil, err
+	}
+	if len(rels) == 0 {
+		return nil, fmt.Errorf("unknown relationship column %q on table", relID)
+	}
+	rel := rels[0]
+	rest := parts[1:]
+	var opts fetchRelatedOpts
+	if len(rest) == 1 {
+		opts.SelectColumnIDs = []string{rest[0]}
+	}
+	related, err := s.fetchRelatedRows(ctx, rel, rowID, rowCells, opts)
+	if err != nil {
+		return nil, err
+	}
+	if rel.Cardinality == "one" {
+		if len(related) == 0 {
+			return map[string]any{"id": nil, "cells": map[string]any{}}, nil
+		}
+		r0 := related[0]
+		if len(rest) == 1 {
+			return r0, nil
+		}
+		cellsMap, _ := r0["cells"].(map[string]any)
+		childID, _ := r0["id"].(string)
+		return s.expandPathResult(ctx, rel.TargetTableId, childID, cellsAnyToValues(cellsMap), rest, depth+1)
+	}
+	out := []any{}
+	for i, r := range related {
+		if i >= maxExpandManyRows {
+			break
+		}
+		cellsMap, _ := r["cells"].(map[string]any)
+		childID, _ := r["id"].(string)
+		if len(rest) == 1 {
+			out = append(out, r)
+			continue
+		}
+		sub, err := s.expandPathResult(ctx, rel.TargetTableId, childID, cellsAnyToValues(cellsMap), rest, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, sub)
+	}
+	return out, nil
+}
+
+func cellsAnyToValues(m map[string]any) map[string]*apiv1.Value {
+	if m == nil {
+		return map[string]*apiv1.Value{}
+	}
+	out := make(map[string]*apiv1.Value, len(m))
+	for k, v := range m {
+		out[k] = anyToValue(v)
+	}
+	return out
+}
+
+// fetchRelatedRows 根据 relationship 配置查询关联行，每项为 { "id", "cells" }（cells 为列 id -> 原生 JSON 值）。
+func (s *LowcodeService) fetchRelatedRows(ctx context.Context, rel relationshipColumn, currentRowID string, currentRowCells map[string]*apiv1.Value, opts fetchRelatedOpts) ([]map[string]any, error) {
+	tid, err := s.tenantID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	data, err := s.tenants.DataPool(ctx)
+	if err != nil {
+		return nil, err
+	}
+	targetCols, targetSchema, targetTable, err := s.loadColumns(ctx, rel.TargetTableId)
 	if err != nil {
 		return nil, err
 	}
@@ -271,20 +386,40 @@ func (s *LowcodeService) fetchRelatedRows(ctx context.Context, pool *pgxpool.Poo
 		return nil, nil
 	}
 
+	selCols := targetCols
+	if len(opts.SelectColumnIDs) > 0 {
+		want := map[string]struct{}{}
+		for _, id := range opts.SelectColumnIDs {
+			want[id] = struct{}{}
+		}
+		var subset []columnMeta
+		for _, c := range targetCols {
+			if _, ok := want[c.Id]; ok {
+				subset = append(subset, c)
+			}
+		}
+		if len(subset) > 0 {
+			selCols = subset
+		}
+	}
+
 	var query string
 	var args []any
 
-	if rel.LinkColumnId != "" {
-		// 一对多：子表中外键列 = 当前行 id
+	if rel.Cardinality == "many" {
+		if rel.LinkColumnId == "" {
+			return nil, nil
+		}
 		var linkPgCol string
-		if err := pool.QueryRow(ctx, `SELECT pg_column FROM lc_columns WHERE id = $1`, rel.LinkColumnId).Scan(&linkPgCol); err != nil {
+		meta := s.tenants.MetaPool()
+		if err := meta.QueryRow(ctx, `SELECT pg_column FROM lc_columns WHERE id = $1 AND tenant_id = $2`, rel.LinkColumnId, tid).Scan(&linkPgCol); err != nil {
 			if err == pgx.ErrNoRows {
 				return nil, nil
 			}
 			return nil, err
 		}
 		columnSQL := "id"
-		for _, c := range targetCols {
+		for _, c := range selCols {
 			columnSQL += ", " + c.PgColumn
 		}
 		query = fmt.Sprintf(`SELECT %s FROM %s.%s WHERE %s = $1 ORDER BY id`,
@@ -295,18 +430,15 @@ func (s *LowcodeService) fetchRelatedRows(ctx context.Context, pool *pgxpool.Poo
 		)
 		args = []any{currentRowID}
 	} else {
-		// 多对一/一对一：当前行某列存目标行 id，查目标表 by id
-		var relatedID string
-		if v, ok := currentRowCells[rel.TargetColumnId]; ok && v != nil {
-			if sv, ok := v.Kind.(*lowcodev1.Value_StringValue); ok && sv != nil {
-				relatedID = sv.StringValue
-			}
+		relatedID := ""
+		if v, ok := currentRowCells[rel.TargetColumnId]; ok && v != nil && v.StringValue != nil {
+			relatedID = *v.StringValue
 		}
 		if relatedID == "" {
 			return nil, nil
 		}
 		columnSQL := "id"
-		for _, c := range targetCols {
+		for _, c := range selCols {
 			columnSQL += ", " + c.PgColumn
 		}
 		query = fmt.Sprintf(`SELECT %s FROM %s.%s WHERE id = $1`,
@@ -317,18 +449,18 @@ func (s *LowcodeService) fetchRelatedRows(ctx context.Context, pool *pgxpool.Poo
 		args = []any{relatedID}
 	}
 
-	rows, err := pool.Query(ctx, query, args...)
+	rows, err := data.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var list []*structpb.Value
+	var list []map[string]any
 	for rows.Next() {
-		scanTargets := make([]any, 1+len(targetCols))
+		scanTargets := make([]any, 1+len(selCols))
 		var rowID string
 		scanTargets[0] = &rowID
-		values := make([]any, len(targetCols))
+		values := make([]any, len(selCols))
 		for i := range values {
 			values[i] = new(any)
 			scanTargets[i+1] = values[i]
@@ -336,20 +468,14 @@ func (s *LowcodeService) fetchRelatedRows(ctx context.Context, pool *pgxpool.Poo
 		if err := rows.Scan(scanTargets...); err != nil {
 			return nil, err
 		}
-		cellsMap := make(map[string]interface{}, len(targetCols))
-		for i, c := range targetCols {
+		cellsMap := make(map[string]any, len(selCols))
+		for i, c := range selCols {
 			vPtr := values[i].(*any)
 			if *vPtr != nil {
 				cellsMap[c.Id] = *vPtr
 			}
 		}
-		rowMap := map[string]interface{}{"id": rowID, "cells": cellsMap}
-		s, err := structpb.NewStruct(rowMap)
-		if err != nil {
-			return nil, err
-		}
-		list = append(list, structpb.NewStructValue(s))
+		list = append(list, map[string]any{"id": rowID, "cells": cellsMap})
 	}
 	return list, rows.Err()
 }
-

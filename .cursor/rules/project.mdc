@@ -1,0 +1,19 @@
+---
+description: lowcode-database 项目约定与双库架构
+alwaysApply: true
+---
+
+# lowcode-database
+
+- Go 1.22+ HTTP 服务，`net/http` + JSON，**无 gRPC/protobuf**
+- **双库**：`META_DATABASE_URL`（meta）+ 每租户 `data_dsn`（data）；请求头 `X-Tenant-Id` 必填
+- API 类型手写于 `internal/apiv1/`，勿引入 proto 生成流程
+- Schema SQL：`docker/postgres/migrations/`；执行 `cmd/migrate` 或 Docker init，**业务服务不自动 migrate**
+- 物理表名与逻辑 name 相同；对外 `Table.Id` = 逻辑 name
+- **Choice** = PostgreSQL ENUM（data DB）；meta 表 `lc_choices` 仅存 `pg_type_name`
+- **Index** 以 PG catalog 为准（`pg_catalog.go`），无 `lc_indexes` meta 表
+- 虚拟列 kind：`formula`、`relationship`、`lookup`、`rollup` — 不参与 DDL 存储列
+- 查询 DSL：`internal/dsl` + `internal/query`；DataSource 合并 filter/sort
+- 业务按域分文件：`internal/service/*_service.go`；路由在 `internal/api/handler.go`
+- 测试：`make test`；集成测试需 `TEST_META_DATABASE_URL`
+- 未要求不 git commit；小 diff，匹配现有命名与文件布局

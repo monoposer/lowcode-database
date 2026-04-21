@@ -2,24 +2,21 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-
-	lowcodev1 "github.com/solat/lowcode-database/gen/lowcode/v1"
+	"github.com/solat/lowcode-database/internal/apiv1"
 )
 
 // -------- Tenant --------
 
-func (s *LowcodeService) CreateTenant(ctx context.Context, req *lowcodev1.CreateTenantRequest) (*lowcodev1.CreateTenantResponse, error) {
-	id := strings.TrimSpace(req.GetId())
+func (s *LowcodeService) CreateTenant(ctx context.Context, req *apiv1.CreateTenantRequest) (*apiv1.CreateTenantResponse, error) {
+	id := strings.TrimSpace(req.Id)
 	if id == "" {
-		return nil, status.Error(codes.InvalidArgument, "id is required")
+		return nil, fmt.Errorf("id is required")
 	}
-	if err := s.tenants.CreateTenant(ctx, id); err != nil {
-		return nil, status.Errorf(codes.Internal, "create tenant %s: %v", id, err)
+	if err := s.tenants.CreateTenant(ctx, id, req.DisplayName, req.DataDsn, req.CreateDatabase); err != nil {
+		return nil, fmt.Errorf("create tenant %s: %w", id, err)
 	}
-	return &lowcodev1.CreateTenantResponse{Id: id}, nil
+	return &apiv1.CreateTenantResponse{Id: id}, nil
 }
-

@@ -8,26 +8,35 @@ import (
 	"strings"
 )
 
-// Config holds all service configuration that used to come from env vars.
+// Config holds service configuration from environment variables.
 type Config struct {
-	// TENANT_MODE: "single" (default) or "multi"
-	TenantMode string
+	// MetaDatabaseURL is the Postgres URL for **metadata** (all lc_* tables + lc_tenants), shared by every tenant.
+	MetaDatabaseURL string
 
-	// Single-tenant DSNs.
-	SingleDatabaseURL string
-	DatabaseURL       string
+	// DataAdminDatabaseURL optional superuser DSN (e.g. .../postgres) used with create_database when provisioning tenants.
+	DataAdminDatabaseURL string
+	// DataDSNTemplate optional printf template for tenant data DSN when API omits data_dsn, e.g. postgresql://u:p@host:5432/%s
+	DataDSNTemplate string
 
-	// Multi-tenant.
-	TenantDSNTemplate string
-	TenantAdminDB     string
+	// DefaultTenantID + DefaultTenantDataDSN bootstrap one lc_tenants row on startup (e.g. single-tenant stack).
+	DefaultTenantID        string
+	DefaultTenantDataDSN   string
 
-	// Server addresses.
-	GRPCAddr string
 	HTTPAddr string
+	MaxRow   int
 
-	// MAX_ROW: default and maximum row count per ListRows call.
-	// If <= 0, falls back to internal defaults.
-	MaxRow int
+	// Redis (optional): metadata cache + metrics backend
+	RedisURL       string
+	CacheEnabled   bool
+	CacheTTLSeconds int
+
+	// MetricsBackend: noop | redis | prometheus
+	MetricsBackend    string
+	MetricsWindowSize int
+
+	// SlowQueryThresholdMS triggers warn logs when SQL exceeds this duration.
+	SlowQueryThresholdMS int
+	LogLevel             string
 }
 
 // Load reads configuration from environment variables, optionally populating
@@ -36,41 +45,36 @@ func Load() (*Config, error) {
 	loadDotEnvIfPresent()
 
 	cfg := &Config{
-		TenantMode:        getenvDefault("TENANT_MODE", "single"),
-		SingleDatabaseURL: os.Getenv("SINGLE_DATABASE_URL"),
-		DatabaseURL:       os.Getenv("DATABASE_URL"),
-		TenantDSNTemplate: os.Getenv("TENANT_DSN_TEMPLATE"),
-		TenantAdminDB:     os.Getenv("TENANT_ADMIN_DB"),
-		GRPCAddr:          getenvDefault("GRPC_ADDR", ":9090"),
-		HTTPAddr:          getenvDefault("HTTP_ADDR", ":8080"),
-		MaxRow:            getenvInt("MAX_ROW", 100),
+		MetaDatabaseURL:        firstNonEmpty(os.Getenv("META_DATABASE_URL"), os.Getenv("DATABASE_URL")),
+		DataAdminDatabaseURL:   os.Getenv("DATA_ADMIN_DATABASE_URL"),
+		DataDSNTemplate:        os.Getenv("DATA_DSN_TEMPLATE"),
+		DefaultTenantID:        getenvDefault("DEFAULT_TENANT_ID", "default"),
+		DefaultTenantDataDSN:   firstNonEmpty(os.Getenv("DEFAULT_TENANT_DATA_DSN"), os.Getenv("SINGLE_DATABASE_URL")),
+		HTTPAddr:               getenvDefault("HTTP_ADDR", ":8080"),
+		MaxRow:                 getenvInt("MAX_ROW", 100),
+		RedisURL:               os.Getenv("REDIS_URL"),
+		CacheEnabled:           getenvBool("CACHE_ENABLED", os.Getenv("REDIS_URL") != ""),
+		CacheTTLSeconds:        getenvInt("CACHE_TTL_SECONDS", 300),
+		MetricsBackend:         getenvDefault("METRICS_BACKEND", "noop"),
+		MetricsWindowSize:      getenvInt("METRICS_WINDOW_SIZE", 100),
+		SlowQueryThresholdMS:   getenvInt("SLOW_QUERY_THRESHOLD_MS", 500),
+		LogLevel:               getenvDefault("LOG_LEVEL", "info"),
 	}
 
-	// Fallback: if SINGLE_DATABASE_URL is empty, use DATABASE_URL.
-	if cfg.SingleDatabaseURL == "" && cfg.DatabaseURL != "" {
-		cfg.SingleDatabaseURL = cfg.DatabaseURL
-	}
-
-	// Default for multi-tenant admin DB.
-	if cfg.TenantAdminDB == "" {
-		cfg.TenantAdminDB = "postgres"
-	}
-
-	// Basic validation so we fail fast on misconfiguration.
-	switch cfg.TenantMode {
-	case "single":
-		if cfg.SingleDatabaseURL == "" {
-			return nil, fmt.Errorf("TENANT_MODE=single requires SINGLE_DATABASE_URL or DATABASE_URL")
-		}
-	case "multi":
-		if cfg.TenantDSNTemplate == "" {
-			return nil, fmt.Errorf("TENANT_MODE=multi requires TENANT_DSN_TEMPLATE")
-		}
-	default:
-		return nil, fmt.Errorf("invalid TENANT_MODE %q (expected \"single\" or \"multi\")", cfg.TenantMode)
+	if cfg.MetaDatabaseURL == "" {
+		return nil, fmt.Errorf("META_DATABASE_URL is required (legacy DATABASE_URL is accepted as fallback)")
 	}
 
 	return cfg, nil
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func getenvDefault(key, def string) string {
@@ -89,10 +93,18 @@ func getenvInt(key string, def int) int {
 	return def
 }
 
-// loadDotEnvIfPresent loads key=value pairs from a local ".env" file into the
-// process environment. It is intentionally minimal: blank lines and lines
-// starting with "#" are ignored, and the whole text after the first "=" is
-// treated as the value.
+func getenvBool(key string, def bool) bool {
+	if v, ok := os.LookupEnv(key); ok && v != "" {
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "1", "true", "yes", "on":
+			return true
+		case "0", "false", "no", "off":
+			return false
+		}
+	}
+	return def
+}
+
 func loadDotEnvIfPresent() {
 	f, err := os.Open(".env")
 	if err != nil {
@@ -118,4 +130,3 @@ func loadDotEnvIfPresent() {
 		_ = os.Setenv(key, val)
 	}
 }
-
