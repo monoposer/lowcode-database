@@ -22,6 +22,7 @@
     "text_array"
   ],
   "virtualColumnTypes": ["formula", "relationship", "lookup", "rollup"],
-  "specialColumnTypes": ["enum", "relation_fk"],
+  "specialColumnTypes": ["relation_fk"],
+  "choiceColumnTypeId": "choice logical name (POST /v1/choices name)",
   "requiredBuiltinTypes": ["text", "int8", "formula", "rollup", "relation_fk"]
 }

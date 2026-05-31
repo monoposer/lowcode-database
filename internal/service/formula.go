@@ -1,42 +1,46 @@
 package service
 
 import (
+	"context"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/solat/lowcode-database/internal/columntype"
+	formulacompile "github.com/solat/lowcode-database/internal/formula"
 )
 
-var formulaVarRe = regexp.MustCompile(`\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}`)
-
-// compileFormulaExpression converts {{column_name}} templates to SQL referencing alias.col.
+// compileFormulaExpression converts Excel-style expressions to PostgreSQL via pg-formula.
 func compileFormulaExpression(expr, alias string, nameToPg map[string]string) (string, error) {
-	expr = strings.TrimSpace(expr)
-	if expr == "" {
-		return "NULL", nil
-	}
-	var err error
-	out := formulaVarRe.ReplaceAllStringFunc(expr, func(m string) string {
-		if err != nil {
-			return m
-		}
-		sub := formulaVarRe.FindStringSubmatch(m)
-		if len(sub) < 2 {
-			err = fmt.Errorf("invalid formula reference %q", m)
-			return m
-		}
-		pg, ok := nameToPg[sub[1]]
-		if !ok {
-			err = fmt.Errorf("formula references unknown column %q", sub[1])
-			return m
-		}
-		return alias + "." + pg
-	})
+	return formulacompile.Compile(expr, alias, nameToPg)
+}
+
+func (s *LowcodeService) validateFormulaExpression(ctx context.Context, tableKey, expr string) error {
+	_, err := s.compileFormulaForTable(ctx, tableKey, expr)
+	return err
+}
+
+func (s *LowcodeService) compileFormulaForTable(ctx context.Context, tableKey, expr string) (string, error) {
+	allCols, _, _, err := s.loadAllColumnMeta(ctx, tableKey)
 	if err != nil {
 		return "", err
 	}
-	return out, nil
+	nameToPg := map[string]string{}
+	for _, c := range allCols {
+		if !c.IsVirtual {
+			nameToPg[c.Name] = c.PgColumn
+		}
+	}
+	return compileFormulaExpression(expr, "_b", nameToPg)
+}
+
+func formulaExpression(cfg map[string]any) string {
+	if cfg == nil {
+		return ""
+	}
+	if e := cfgString(cfg, "expression"); e != "" {
+		return e
+	}
+	return cfgString(cfg, "formula")
 }
 
 // rollupAggregateSQL builds a lateral subquery for rollup columns.

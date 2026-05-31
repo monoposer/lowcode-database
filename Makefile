@@ -1,4 +1,4 @@
-.PHONY: all run migrate migrate-meta migrate-data playground test test-integration e2e e2e-generate docker-build docker-up docker-down
+.PHONY: all run migrate migrate-meta migrate-data test test-integration e2e e2e-generate docker-build docker-up docker-down
 
 all: test
 
@@ -14,9 +14,6 @@ migrate-meta:
 
 migrate-data:
 	go run ./cmd/migrate -target data
-
-playground:
-	cd playground && npm run dev
 
 test:
 	go test ./cmd/... ./internal/... -count=1

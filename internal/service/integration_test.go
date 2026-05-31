@@ -124,9 +124,7 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 	}
 
 	statusCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
-		TableId: vendorTable, Name: "status", TypeId: "enum", Position: 8,
-		IsNullable: true,
-		Config:     map[string]any{"choice_name": choiceName},
+		TableId: vendorTable, Name: "status", TypeId: choiceName, Position: 8,
 	})
 	if err != nil {
 		t.Fatalf("add enum column: %v", err)
@@ -263,10 +261,52 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 		t.Fatalf("expected many columns, got %d", len(schema.Columns))
 	}
 
-	// --- choice resolve ---
+	// --- choice resolve & replace ---
 	items, err := svc.ResolveChoiceValues(ctx, choiceResp.Choice.Name)
 	if err != nil || len(items) != 2 {
 		t.Fatalf("resolve choice: err=%v len=%d", err, len(items))
+	}
+	_, err = svc.UpdateChoice(ctx, &apiv1.UpdateChoiceRequest{
+		Id:            choiceName,
+		ReplaceValues: true,
+		Values: []*apiv1.ChoiceItem{
+			{Value: "active"},
+			{Value: "inactive"},
+			{Value: "pending"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("replace choice add value: %v", err)
+	}
+	items, err = svc.ResolveChoiceValues(ctx, choiceName)
+	if err != nil || len(items) != 3 {
+		t.Fatalf("choice after replace add: err=%v len=%d", err, len(items))
+	}
+	_, err = svc.UpdateChoice(ctx, &apiv1.UpdateChoiceRequest{
+		Id:            choiceName,
+		ReplaceValues: true,
+		Values: []*apiv1.ChoiceItem{
+			{Value: "active"},
+			{Value: "inactive"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("replace choice remove value: %v", err)
+	}
+	items, err = svc.ResolveChoiceValues(ctx, choiceName)
+	if err != nil || len(items) != 2 {
+		t.Fatalf("choice after replace remove: err=%v len=%d", err, len(items))
+	}
+	_, err = svc.UpdateChoice(ctx, &apiv1.UpdateChoiceRequest{
+		Id:     choiceName,
+		Values: []*apiv1.ChoiceItem{{Value: "archived"}},
+	})
+	if err != nil {
+		t.Fatalf("append choice value: %v", err)
+	}
+	items, err = svc.ResolveChoiceValues(ctx, choiceName)
+	if err != nil || len(items) != 3 {
+		t.Fatalf("choice after append: err=%v len=%d", err, len(items))
 	}
 
 	// --- expand relationship ---

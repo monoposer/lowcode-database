@@ -385,6 +385,8 @@ func (s *LowcodeService) executeQuery(ctx context.Context, spec querySpec) (resp
 		for i, f := range formulaSpecs {
 			if formulaVals[i] != nil && *formulaVals[i] != nil {
 				row.Cells[f.ColumnID] = anyToValue(*formulaVals[i])
+			} else {
+				row.Cells[f.ColumnID] = &apiv1.Value{JsonValue: json.RawMessage("null")}
 			}
 		}
 		for i, r := range rollupSpecs {
@@ -474,9 +476,9 @@ func (s *LowcodeService) buildComputedSpecs(ctx context.Context, tableID string,
 	for _, c := range allCols {
 		switch c.Kind {
 		case "formula":
-			expr := cfgString(c.Config, "expression")
+			expr := formulaExpression(c.Config)
 			if expr == "" {
-				expr = cfgString(c.Config, "formula")
+				continue
 			}
 			sql, err := compileFormulaExpression(expr, baseAlias, nameToPg)
 			if err != nil {
@@ -568,7 +570,7 @@ func (s *LowcodeService) loadAllColumnMeta(ctx context.Context, tableID string) 
 			&c.Config, &schemaName, &tableName); err != nil {
 			return nil, "", "", err
 		}
-		c.PgType = columntype.PgType(c.TypeId)
+		c.PgType = s.columnPgTypeSQL(ctx, tid, c.TypeId, c.Config)
 		c.Kind = columntype.Kind(c.TypeId)
 		c.IsVirtual = columntype.IsVirtual(c.TypeId)
 		out = append(out, c)

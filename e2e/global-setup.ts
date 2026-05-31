@@ -16,7 +16,6 @@ export default async function globalSetup() {
   process.env.META_DATABASE_URL = meta
   process.env.DEFAULT_TENANT_DATA_DSN = data
   process.env.API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8080'
-  process.env.PLAYGROUND_URL = process.env.PLAYGROUND_URL || 'http://localhost:5173'
   process.env.E2E_REPO_ROOT = repoRoot
 
   if (process.env.E2E_SKIP_MIGRATE !== '1') {

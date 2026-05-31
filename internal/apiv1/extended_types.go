@@ -60,9 +60,10 @@ type GetChoiceResponse struct {
 }
 
 type UpdateChoiceRequest struct {
-	Id     string        `json:"id,omitempty"`
-	Label  string        `json:"label,omitempty"`
-	Values []*ChoiceItem `json:"values,omitempty"` // new labels → ALTER TYPE ADD VALUE
+	Id            string        `json:"id,omitempty"`
+	Label         string        `json:"label,omitempty"`
+	Values        []*ChoiceItem `json:"values,omitempty"`
+	ReplaceValues bool          `json:"replaceValues,omitempty"` // true: values is the full desired set (add/remove/recreate)
 }
 
 type UpdateChoiceResponse struct {

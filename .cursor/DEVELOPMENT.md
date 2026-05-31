@@ -37,10 +37,11 @@ MAX_ROW=100
 make docker-up      # postgres:16 + init migrations（首次 volume 空时自动 apply）
 make migrate        # 或手动：go run ./cmd/migrate -target meta && ... data
 make run            # HTTP 服务（不跑 migration）
-make playground
 make test
 make test-integration
 ```
+
+Playground UI 见独立仓库 **lowcode-database-playground**。
 
 集成测试：
 
@@ -104,10 +105,10 @@ SQL 文件：`docker/postgres/migrations/meta/`、`.../data/`
 
 ### Choice（PostgreSQL ENUM）
 
-- 创建：`CREATE TYPE {schema}.lc_e_{tenant}_{name} AS ENUM ('a','b')`（仅 data DB，无 meta 表）
-- 列表/读取：查 `pg_type` / `pg_enum`（`typname LIKE 'lc_e_{tenant}_%'`）
+- 创建：`CREATE TYPE {schema}.{name} AS ENUM ('a','b')`（仅 data DB，无 meta 表；类型名 = logical name）
+- 列表/读取：查 `pg_type` / `pg_enum`（`public` 下合法标识符；兼容旧 `lc_e_{tenant}_*`）
 - 列类型 `enum` + `config.choice_name`（逻辑名）或 `choice_id`（同逻辑名 / 完整 pg 类型名）
-- 更新枚举：`ALTER TYPE ... ADD VALUE IF NOT EXISTS`
+- 更新枚举：`replaceValues=true` 时全量替换（删值会重建 ENUM 类型；若行数据仍引用被删 label 会报错）；否则 `ALTER TYPE ... ADD VALUE IF NOT EXISTS` 追加
 - `Values` API 字段从 `pg_enum` 读取
 
 ### Index
@@ -123,7 +124,7 @@ SQL 文件：`docker/postgres/migrations/meta/`、`.../data/`
 |------|------|
 | relationship | 一对多 / 多对一；config 中 link_column_id 与 target_column_id 互斥 |
 | lookup | 基于 cardinality one 的 relationship LEFT JOIN |
-| formula | `{{column_name}}` 模板 → SQL 表达式 |
+| formula | Excel 表达式（`config.expression`）；`{{column_name}}` → [pg-formula](https://github.com/SolaTyolo/pg-formula) 编译为 PostgreSQL 标量 SQL |
 | rollup | 对关联表聚合子查询 |
 
 ### 查询

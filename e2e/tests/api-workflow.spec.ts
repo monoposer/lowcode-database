@@ -52,9 +52,7 @@ test.describe('API full workflow', () => {
       })
       expect(res.status()).toBe(200)
 
-      await addColumn(request, vendorTable, 'status', 'enum', 8, {
-        choice_name: choiceName,
-      })
+      await addColumn(request, vendorTable, 'status', choiceName, 8)
 
       res = await apiRequest(request, 'POST', '/v1/relations', {
         name: uniqueName('order_vendor'),

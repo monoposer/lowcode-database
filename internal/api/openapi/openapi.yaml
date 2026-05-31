@@ -8,7 +8,7 @@ info:
     **Multi-tenant:** send `X-Tenant-Id` on every request when `TENANT_MODE=multi`.
     In single-tenant mode the header is optional (default tenant from env).
 
-    **Playground:** `playground/` — AG Grid UI (`make playground`).
+    **Playground:** [lowcode-database-playground](https://github.com/solat/lowcode-database-playground) — AG Grid UI (separate repo).
 
     Errors are returned as plain text (`http.Error`), not JSON envelopes.
   version: 1.0.0
@@ -1689,7 +1689,9 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ChoiceItem"
-      description: Choice id is taken from the path.
+        replaceValues:
+          type: boolean
+          description: When true, values is the full desired enum set (supports add/remove). When false, only appends new values.
 
     UpdateChoiceResponse:
       type: object

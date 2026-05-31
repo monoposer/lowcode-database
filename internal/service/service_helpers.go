@@ -88,7 +88,7 @@ func (s *LowcodeService) loadColumns(ctx context.Context, tableID string) ([]col
 	}
 	meta := s.tenants.MetaPool()
 	const q = `
-		SELECT c.id, c.table_id, c.name, c.type_id, c.pg_column, c.is_nullable, c.position,
+		SELECT c.id, c.table_id, c.name, c.type_id, c.pg_column, c.is_nullable, c.position, c.config,
 		       t.schema_name, t.table_name
 		FROM lc_columns c
 		JOIN lc_tables t ON c.table_id = t.name AND c.tenant_id = t.tenant_id
@@ -105,13 +105,15 @@ func (s *LowcodeService) loadColumns(ctx context.Context, tableID string) ([]col
 	var schemaName, tableName string
 	for rows.Next() {
 		var c columnMeta
-		if err := rows.Scan(&c.Id, &c.TableId, &c.Name, &c.TypeId, &c.PgColumn, &c.IsNullable, &c.Position, &schemaName, &tableName); err != nil {
+		var cfg map[string]any
+		if err := rows.Scan(&c.Id, &c.TableId, &c.Name, &c.TypeId, &c.PgColumn, &c.IsNullable, &c.Position, &cfg,
+			&schemaName, &tableName); err != nil {
 			return nil, "", "", err
 		}
 		if columntype.IsVirtual(c.TypeId) {
 			continue
 		}
-		c.PgType = columntype.PgType(c.TypeId)
+		c.PgType = s.columnPgTypeSQL(ctx, tid, c.TypeId, cfg)
 		cols = append(cols, c)
 	}
 	if err := rows.Err(); err != nil {
