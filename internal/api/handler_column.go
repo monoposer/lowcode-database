@@ -46,10 +46,14 @@ func (h *handler) handleColumnsSubtree() {
 			return
 		}
 		body.Id = rest
+		if body.TableId == "" {
+			body.TableId = h.r.URL.Query().Get("table_id")
+		}
 		resp, err := h.svc.UpdateColumn(h.r.Context(), &body)
 		h.writeJSON(resp, err)
 	case http.MethodDelete:
-		resp, err := h.svc.DeleteColumn(h.r.Context(), &apiv1.DeleteColumnRequest{Id: rest})
+		tableID := h.r.URL.Query().Get("table_id")
+		resp, err := h.svc.DeleteColumn(h.r.Context(), &apiv1.DeleteColumnRequest{Id: rest, TableId: tableID})
 		h.writeJSON(resp, err)
 	default:
 		http.NotFound(h.w, h.r)

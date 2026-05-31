@@ -8,78 +8,85 @@ import (
 	"github.com/solat/lowcode-database/internal/db"
 	"github.com/solat/lowcode-database/internal/logger"
 	"github.com/solat/lowcode-database/internal/metrics"
+	"github.com/solat/lowcode-database/internal/service/catalog"
+	"github.com/solat/lowcode-database/internal/service/data"
+	"github.com/solat/lowcode-database/internal/service/graph"
+	"github.com/solat/lowcode-database/internal/service/platform"
+	"github.com/solat/lowcode-database/internal/service/schema"
+	"github.com/solat/lowcode-database/internal/service/shared"
 	"github.com/solat/lowcode-database/internal/webhook"
 )
 
+// LowcodeService is the root facade; domain logic lives in subpackages.
 type LowcodeService struct {
-	tenants *db.TenantManager
-	Hooks   *webhook.Dispatcher
-
-	maxRow int32
-
-	cache              cache.MetaCache
-	cacheTTL           time.Duration
-	dsMetrics          metrics.DataSourceMetrics
-	log                *logger.Logger
-	slowQueryThreshold time.Duration
+	*schema.Schema
+	*catalog.Catalog
+	*data.Data
+	*graph.Graph
+	*platform.Platform
 }
 
-type Option func(*LowcodeService)
+type Option func(*shared.Base)
 
 func WithCache(c cache.MetaCache, ttl time.Duration) Option {
-	return func(s *LowcodeService) {
+	return func(b *shared.Base) {
 		if c != nil {
-			s.cache = c
+			b.Cache = c
 		}
 		if ttl > 0 {
-			s.cacheTTL = ttl
+			b.CacheTTL = ttl
 		}
 	}
 }
 
 func WithMetrics(m metrics.DataSourceMetrics) Option {
-	return func(s *LowcodeService) {
+	return func(b *shared.Base) {
 		if m != nil {
-			s.dsMetrics = m
+			b.DSMetrics = m
 		}
 	}
 }
 
 func WithLogger(l *logger.Logger, slowQueryThreshold time.Duration) Option {
-	return func(s *LowcodeService) {
+	return func(b *shared.Base) {
 		if l != nil {
-			s.log = l
+			b.Log = l
 		}
 		if slowQueryThreshold > 0 {
-			s.slowQueryThreshold = slowQueryThreshold
+			b.SlowQueryThreshold = slowQueryThreshold
 		}
 	}
 }
 
 func NewLowcodeService(tenants *db.TenantManager, maxRow int, hooks *webhook.Dispatcher, opts ...Option) *LowcodeService {
-	s := &LowcodeService{
-		tenants:            tenants,
-		Hooks:              hooks,
-		cache:              cache.Noop{},
-		cacheTTL:           5 * time.Minute,
-		dsMetrics:          metrics.Noop{},
-		log:                logger.Default(),
-		slowQueryThreshold: 500 * time.Millisecond,
-	}
-	if maxRow > 0 {
-		s.maxRow = int32(maxRow)
-	}
+	base := shared.NewBase(tenants, maxRow, hooks)
 	for _, opt := range opts {
-		opt(s)
+		opt(base)
 	}
-	return s
+	return &LowcodeService{
+		schema.New(base),
+		catalog.New(base),
+		data.New(base),
+		graph.New(base),
+		platform.New(base),
+	}
+}
+
+// ValidateColumnName re-exports shared validation for cmd utilities.
+func ValidateColumnName(name string) error {
+	return shared.ValidateColumnName(name)
+}
+
+// ValidateTableName re-exports shared validation.
+func ValidateTableName(name string) error {
+	return shared.ValidateTableName(name)
 }
 
 // DataSourceQueryStats returns rolling average latency for a data source.
 func (s *LowcodeService) DataSourceQueryStats(ctx context.Context, dataSourceID string) (metrics.QueryStats, error) {
-	tid, err := s.tenantID(ctx)
+	tid, err := s.Schema.B.TenantID(ctx)
 	if err != nil {
 		return metrics.QueryStats{}, err
 	}
-	return s.dsMetrics.Stats(ctx, tid, dataSourceID)
+	return s.Schema.B.DSMetrics.Stats(ctx, tid, dataSourceID)
 }

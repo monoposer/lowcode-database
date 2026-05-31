@@ -94,16 +94,19 @@ test.describe('API full workflow', () => {
         name: uniqueName('active_vendors'),
         label: 'Active Vendors',
         tableId: vendorTable,
-        columnIds: [nameCol.column.id, scoreCol.column.id],
-        filter: { type: 'EQ', attr: activeCol.column.id, val: true },
-        sort: [{ attribute: scoreCol.column.id, sortOrder: 'DESC' }],
+        columnIds: [nameCol.column.name, scoreCol.column.name],
+        filter: { type: 'EQ', attr: activeCol.column.name, val: true },
+        sort: [{ attribute: scoreCol.column.name, sortOrder: 'DESC' }],
       })
       expect(res.status()).toBe(200)
       const ds = await jsonBody<{ dataSource: { id: string } }>(res)
 
-      res = await apiRequest(request, 'POST', `/v1/data-sources/${encodeURIComponent(ds.dataSource.id)}:query`, {
-        pageSize: 10,
-      })
+      res = await apiRequest(
+        request,
+        'POST',
+        `/v1/data-sources/${encodeURIComponent(ds.dataSource.id)}:query?table_id=${encodeURIComponent(vendorTable)}`,
+        { pageSize: 10 },
+      )
       expect(res.status()).toBe(200)
       const dsRows = await jsonBody<{ rows?: unknown[] }>(res)
       expect((dsRows.rows || []).length).toBeGreaterThan(0)

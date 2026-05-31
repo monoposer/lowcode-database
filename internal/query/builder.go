@@ -12,9 +12,9 @@ import (
 
 // ColumnMeta is minimal column info for SQL generation.
 type ColumnMeta struct {
-	ID       string
-	PgColumn string
-	PgType   string
+	ID     string
+	Name   string // PG column name (= logical name)
+	PgType string
 }
 
 // OrderSpec is a sort directive.
@@ -159,9 +159,9 @@ func BuildOrderBy(orders []OrderSpec, attrToPg map[string]string, defaultCol str
 func AttrMapFromColumns(alias string, cols []ColumnMeta) map[string]string {
 	m := map[string]string{"id": alias + ".id"}
 	for _, c := range cols {
-		ref := alias + "." + c.PgColumn
+		ref := alias + "." + pgx.Identifier{c.Name}.Sanitize()
 		m[c.ID] = ref
-		m[c.PgColumn] = ref
+		m[c.Name] = ref
 	}
 	return m
 }

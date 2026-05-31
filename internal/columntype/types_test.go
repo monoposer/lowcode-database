@@ -24,7 +24,7 @@ func TestIsVirtual(t *testing.T) {
 }
 
 func TestVirtualTypesHaveNoPgType(t *testing.T) {
-	for _, id := range []string{"formula", "relationship", "lookup", "rollup"} {
+	for _, id := range []string{"formula", "relationship", "lookup", "rollup", "relation_fk"} {
 		if got := columntype.PgType(id); got != "" {
 			t.Fatalf("PgType(%q) = %q, want empty", id, got)
 		}

@@ -136,9 +136,9 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 		Name:          testutil.UniqueName("order_vendor"),
 		Kind:          "MANY_TO_ONE",
 		SourceTableId: orderTable,
-		SourceColumnId: fkCol.Column.Id,
+		SourceColumnId: fkCol.Column.Name,
 		TargetTableId: vendorTable,
-		TargetColumnId: vendorIDCol.Column.Id,
+		TargetColumnId: vendorIDCol.Column.Name,
 	})
 	if err != nil {
 		t.Fatalf("create relation: %v", err)
@@ -189,18 +189,19 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 		Name:      testutil.UniqueName("active_vendors"),
 		Label:     "Active Vendors",
 		TableId:   vendorTable,
-		ColumnIds: []string{nameCol.Column.Id, scoreCol.Column.Id, formulaCol.Column.Id},
+		ColumnIds: []string{nameCol.Column.Name, scoreCol.Column.Name, formulaCol.Column.Name},
 		Filter: map[string]any{
-			"type": "EQ", "attr": activeCol.Column.Id, "val": true,
+			"type": "EQ", "attr": activeCol.Column.Name, "val": true,
 		},
-		Sort: []*apiv1.SortOrder{{Attribute: scoreCol.Column.Id, SortOrder: "DESC"}},
+		Sort: []*apiv1.SortOrder{{Attribute: scoreCol.Column.Name, SortOrder: "DESC"}},
 	})
 	if err != nil {
 		t.Fatalf("create data source: %v", err)
 	}
 
 	dsQuery, err := svc.QueryDataSource(ctx, &apiv1.QueryDataSourceRequest{
-		DataSourceId: dsResp.DataSource.Id,
+		TableId:      vendorTable,
+		DataSourceId: dsResp.DataSource.Name,
 		PageSize:     10,
 	})
 	if err != nil {
@@ -352,6 +353,43 @@ func TestIntegrationTypesList(t *testing.T) {
 		if !found {
 			t.Fatalf("type %q not seeded", name)
 		}
+	}
+}
+
+func TestIntegrationTableRowIDType(t *testing.T) {
+	svc, cleanup := testutil.SetupIntegration(t)
+	defer cleanup()
+	ctx := testutil.Ctx()
+
+	tableName := testutil.UniqueName("int8_ids")
+	resp, err := svc.CreateTable(ctx, &apiv1.CreateTableRequest{Name: tableName, IdType: "int8"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Table.IdType != "int8" {
+		t.Fatalf("idType=%q", resp.Table.IdType)
+	}
+	defer func() { _, _ = svc.DeleteTable(ctx, &apiv1.DeleteTableRequest{Id: tableName}) }()
+
+	col, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: tableName, Name: "title", TypeId: "text", Position: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err := svc.CreateRow(ctx, &apiv1.CreateRowRequest{
+		TableId: tableName,
+		Cells:   map[string]*apiv1.Value{col.Column.Id: apiv1.StringValue("hello")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.Row.Id == "" {
+		t.Fatal("expected numeric row id")
+	}
+	schema, err := svc.GetTableSchema(ctx, &apiv1.GetTableSchemaRequest{TableId: tableName})
+	if err != nil || schema.Table.IdType != "int8" {
+		t.Fatalf("schema idType=%q err=%v", schema.Table.IdType, err)
 	}
 }
 
