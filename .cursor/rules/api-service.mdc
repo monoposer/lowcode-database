@@ -31,7 +31,7 @@ handler → LowcodeService method → MetaPool / DataPool
 
 - 物理列：`AddColumn` 执行 `ALTER TABLE ... ADD COLUMN`（`typeId` 必须为 `internal/columntype` 内置类型）
 - `enum` 列：`config.choice_name` → 解析 PG 类型 `{schema}.{pg_type_name}`
-- `relation_fk`：bigint + 可选 `add_fk` 外键
+- `relation_fk`：PG 类型与目标列一致（默认 target `id` 的 uuid/int8 等）+ 可选 `add_fk` 外键
 - 虚拟列：只写 `lc_columns`，`pg_column` 为 `v_*` 占位
 
 ## Choice 操作

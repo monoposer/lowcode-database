@@ -114,7 +114,8 @@ type ListRelationsResponse struct {
 }
 
 type DeleteRelationRequest struct {
-	Id string `json:"id,omitempty"`
+	SourceTableId string `json:"sourceTableId,omitempty"`
+	Name          string `json:"name,omitempty"`
 }
 
 type DeleteRelationResponse struct{}
@@ -133,7 +134,7 @@ type DataSource struct {
 	TableId   string         `json:"tableId,omitempty"`
 	Filter    map[string]any `json:"filter,omitempty"`
 	Sort      []*SortOrder   `json:"sort,omitempty"`
-	ColumnIds []string       `json:"columnIds,omitempty"`
+	ColumnIds []string       `json:"columnIds,omitempty"` // logical column names within tableId (UUID accepted on write)
 	Config    map[string]any `json:"config,omitempty"`
 	CreatedAt time.Time      `json:"createdAt,omitempty"`
 	UpdatedAt time.Time      `json:"updatedAt,omitempty"`
@@ -145,7 +146,7 @@ type CreateDataSourceRequest struct {
 	TableId   string         `json:"tableId,omitempty"`
 	Filter    map[string]any `json:"filter,omitempty"`
 	Sort      []*SortOrder   `json:"sort,omitempty"`
-	ColumnIds []string       `json:"columnIds,omitempty"`
+	ColumnIds []string       `json:"columnIds,omitempty"` // logical column names within tableId (UUID accepted on write)
 	Config    map[string]any `json:"config,omitempty"`
 }
 
@@ -162,7 +163,8 @@ type ListDataSourcesResponse struct {
 }
 
 type GetDataSourceRequest struct {
-	Id string `json:"id,omitempty"`
+	TableId string `json:"tableId,omitempty"`
+	Name    string `json:"name,omitempty"` // logical id (= name within table_id)
 }
 
 type GetDataSourceResponse struct {
@@ -170,11 +172,12 @@ type GetDataSourceResponse struct {
 }
 
 type UpdateDataSourceRequest struct {
-	Id        string         `json:"id,omitempty"`
+	TableId   string         `json:"tableId,omitempty"`
+	Name      string         `json:"name,omitempty"`
 	Label     string         `json:"label,omitempty"`
 	Filter    map[string]any `json:"filter,omitempty"`
 	Sort      []*SortOrder   `json:"sort,omitempty"`
-	ColumnIds []string       `json:"columnIds,omitempty"`
+	ColumnIds []string       `json:"columnIds,omitempty"` // logical column names within tableId (UUID accepted on write)
 	Config    map[string]any `json:"config,omitempty"`
 }
 
@@ -183,15 +186,17 @@ type UpdateDataSourceResponse struct {
 }
 
 type DeleteDataSourceRequest struct {
-	Id string `json:"id,omitempty"`
+	TableId string `json:"tableId,omitempty"`
+	Name    string `json:"name,omitempty"`
 }
 
 type DeleteDataSourceResponse struct{}
 
 type QueryDataSourceRequest struct {
-	DataSourceId string `json:"dataSourceId,omitempty"`
-	PageSize     int32  `json:"pageSize,omitempty"`
-	PageToken    string `json:"pageToken,omitempty"`
+	TableId      string         `json:"tableId,omitempty"`
+	DataSourceId string         `json:"dataSourceId,omitempty"` // logical name within tableId
+	PageSize     int32          `json:"pageSize,omitempty"`
+	PageToken    string         `json:"pageToken,omitempty"`
 	Filter       map[string]any `json:"filter,omitempty"`
 }
 

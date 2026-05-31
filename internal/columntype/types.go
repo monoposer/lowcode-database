@@ -51,7 +51,7 @@ func init() {
 		{ID: "relationship", Name: "relationship", Kind: "relationship"},
 		{ID: "lookup", Name: "lookup", Kind: "lookup"},
 		{ID: "rollup", Name: "rollup", Kind: "rollup"},
-		{ID: "relation_fk", Name: "relation_fk", PgType: "bigint", Kind: "relation_fk"},
+		{ID: "relation_fk", Name: "relation_fk", Kind: "relation_fk"},
 	} {
 		register(t)
 	}

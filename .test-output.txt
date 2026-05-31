@@ -1,0 +1,23 @@
+ok  	github.com/solat/lowcode-database/internal/apiv1	0.652s
+ok  	github.com/solat/lowcode-database/internal/api	0.507s
+?   	github.com/solat/lowcode-database/internal/cache	[no test files]
+ok  	github.com/solat/lowcode-database/internal/columntype	(cached)
+?   	github.com/solat/lowcode-database/internal/config	[no test files]
+?   	github.com/solat/lowcode-database/internal/db	[no test files]
+ok  	github.com/solat/lowcode-database/internal/dsl	(cached)
+ok  	github.com/solat/lowcode-database/internal/formula	(cached)
+?   	github.com/solat/lowcode-database/internal/logger	[no test files]
+ok  	github.com/solat/lowcode-database/internal/metrics	(cached)
+?   	github.com/solat/lowcode-database/internal/migrator	[no test files]
+ok  	github.com/solat/lowcode-database/internal/query	(cached)
+?   	github.com/solat/lowcode-database/internal/redisclient	[no test files]
+ok  	github.com/solat/lowcode-database/internal/service	0.948s
+ok  	github.com/solat/lowcode-database/internal/service/catalog	0.472s
+?   	github.com/solat/lowcode-database/internal/service/data	[no test files]
+?   	github.com/solat/lowcode-database/internal/service/graph	[no test files]
+?   	github.com/solat/lowcode-database/internal/service/platform	[no test files]
+ok  	github.com/solat/lowcode-database/internal/service/schema	1.820s
+ok  	github.com/solat/lowcode-database/internal/service/shared	1.383s
+?   	github.com/solat/lowcode-database/internal/tenant	[no test files]
+?   	github.com/solat/lowcode-database/internal/testutil	[no test files]
+?   	github.com/solat/lowcode-database/internal/webhook	[no test files]

@@ -25,6 +25,10 @@ func (h *handler) handleCreateDataSource() {
 	h.writeJSON(resp, err)
 }
 
+func (h *handler) dataSourceTableID() string {
+	return h.r.URL.Query().Get("table_id")
+}
+
 func (h *handler) handleDataSourcesSubtree() {
 	rest := strings.TrimPrefix(h.r.URL.Path, "/v1/data-sources/")
 	if rest == "" {
@@ -32,14 +36,19 @@ func (h *handler) handleDataSourcesSubtree() {
 		return
 	}
 
-	// POST /v1/data-sources/{id}:query
+	tableID := h.dataSourceTableID()
+
+	// POST /v1/data-sources/{name}:query?table_id=
 	if h.r.Method == http.MethodPost && strings.HasSuffix(rest, ":query") {
-		id := strings.TrimSuffix(rest, ":query")
+		name := strings.TrimSuffix(rest, ":query")
 		var body apiv1.QueryDataSourceRequest
 		if !h.readJSON(&body) {
 			return
 		}
-		body.DataSourceId = id
+		if body.TableId == "" {
+			body.TableId = tableID
+		}
+		body.DataSourceId = name
 		resp, err := h.svc.QueryDataSource(h.r.Context(), &body)
 		h.writeJSON(resp, err)
 		return
@@ -52,18 +61,27 @@ func (h *handler) handleDataSourcesSubtree() {
 
 	switch h.r.Method {
 	case http.MethodGet:
-		resp, err := h.svc.GetDataSource(h.r.Context(), &apiv1.GetDataSourceRequest{Id: rest})
+		resp, err := h.svc.GetDataSource(h.r.Context(), &apiv1.GetDataSourceRequest{
+			TableId: tableID,
+			Name:    rest,
+		})
 		h.writeJSON(resp, err)
 	case http.MethodPatch:
 		var body apiv1.UpdateDataSourceRequest
 		if !h.readJSON(&body) {
 			return
 		}
-		body.Id = rest
+		if body.TableId == "" {
+			body.TableId = tableID
+		}
+		body.Name = rest
 		resp, err := h.svc.UpdateDataSource(h.r.Context(), &body)
 		h.writeJSON(resp, err)
 	case http.MethodDelete:
-		resp, err := h.svc.DeleteDataSource(h.r.Context(), &apiv1.DeleteDataSourceRequest{Id: rest})
+		resp, err := h.svc.DeleteDataSource(h.r.Context(), &apiv1.DeleteDataSourceRequest{
+			TableId: tableID,
+			Name:    rest,
+		})
 		h.writeJSON(resp, err)
 	default:
 		http.NotFound(h.w, h.r)

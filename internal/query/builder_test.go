@@ -8,19 +8,19 @@ import (
 )
 
 func TestBuildWhereEQ(t *testing.T) {
-	cols := []ColumnMeta{{ID: "col1", PgColumn: "c_amount"}}
+	cols := []ColumnMeta{{ID: "col1", Name: "amount"}}
 	attrMap := AttrMapFromColumns("_b", cols)
 	sql, args, err := BuildWhere(dsl.Where{Type: "EQ", Attr: "col1", Val: 42}, attrMap, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(sql, "c_amount") || len(args) != 1 || args[0] != 42 {
+	if !strings.Contains(sql, "amount") || len(args) != 1 || args[0] != 42 {
 		t.Fatalf("got sql=%q args=%v", sql, args)
 	}
 }
 
 func TestBuildWhereIN(t *testing.T) {
-	cols := []ColumnMeta{{ID: "col1", PgColumn: "c_status"}}
+	cols := []ColumnMeta{{ID: "col1", Name: "status"}}
 	attrMap := AttrMapFromColumns("_b", cols)
 	sql, args, err := BuildWhere(dsl.Where{Type: "IN", Attr: "col1", Val: []any{"a", "b"}}, attrMap, 1)
 	if err != nil {
@@ -32,7 +32,7 @@ func TestBuildWhereIN(t *testing.T) {
 }
 
 func TestBuildOrderBy(t *testing.T) {
-	cols := []ColumnMeta{{ID: "c1", PgColumn: "c_name"}}
+	cols := []ColumnMeta{{ID: "c1", Name: "name"}}
 	attrMap := AttrMapFromColumns("_b", cols)
 	sql := BuildOrderBy([]OrderSpec{{Attribute: "c1", SortOrder: "DESC"}}, attrMap, "id")
 	if !strings.Contains(sql, "DESC") {

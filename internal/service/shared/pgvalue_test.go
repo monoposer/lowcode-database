@@ -1,0 +1,31 @@
+package shared
+
+import "testing"
+
+func TestFormatUUID_bytes(t *testing.T) {
+	raw := []byte{0x04, 0xbf, 0x94, 0xdc, 0xc1, 0xd0, 0x41, 0x66, 0x98, 0xab, 0x07, 0x1d, 0x78, 0xd3, 0x27, 0xa4}
+	got, ok := FormatUUID(raw)
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	if got != "04bf94dc-c1d0-4166-98ab-071d78d327a4" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestPGValueToNative_uuidColumn(t *testing.T) {
+	raw := []byte{0x04, 0xbf, 0x94, 0xdc, 0xc1, 0xd0, 0x41, 0x66, 0x98, 0xab, 0x07, 0x1d, 0x78, 0xd3, 0x27, 0xa4}
+	got := PGValueToNative(raw, "uuid")
+	if got != "04bf94dc-c1d0-4166-98ab-071d78d327a4" {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestPGValueToNative_arrayByteFallback(t *testing.T) {
+	var arr [16]byte
+	copy(arr[:], []byte{0x04, 0xbf, 0x94, 0xdc, 0xc1, 0xd0, 0x41, 0x66, 0x98, 0xab, 0x07, 0x1d, 0x78, 0xd3, 0x27, 0xa4})
+	got := PGValueToNative(arr, "uuid")
+	if got != "04bf94dc-c1d0-4166-98ab-071d78d327a4" {
+		t.Fatalf("got %v", got)
+	}
+}

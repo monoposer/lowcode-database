@@ -1077,6 +1077,9 @@ components:
           type: string
         tableName:
           type: string
+        idType:
+          type: string
+          description: Logical type id of the physical row id column (from PG catalog).
         createdAt:
           type: string
           format: date-time
@@ -1282,6 +1285,9 @@ components:
           type: string
         schemaName:
           type: string
+        idType:
+          type: string
+          description: Built-in column type id for the physical row id column (default uuid).
 
     CreateTableResponse:
       type: object

@@ -16,8 +16,9 @@ type Type struct {
 type Table struct {
 	Id         string    `json:"id,omitempty"`
 	Name       string    `json:"name,omitempty"`
+	Label      string    `json:"label,omitempty"`
 	SchemaName string    `json:"schemaName,omitempty"`
-	TableName  string    `json:"tableName,omitempty"`
+	IdType     string    `json:"idType,omitempty"` // logical type id of physical id column (from PG catalog)
 	CreatedAt  time.Time `json:"createdAt,omitempty"`
 	UpdatedAt  time.Time `json:"updatedAt,omitempty"`
 }
@@ -26,8 +27,8 @@ type Column struct {
 	Id         string         `json:"id,omitempty"`
 	TableId    string         `json:"tableId,omitempty"`
 	Name       string         `json:"name,omitempty"`
+	Label      string         `json:"label,omitempty"`
 	TypeId     string         `json:"typeId,omitempty"`
-	PgColumn   string         `json:"pgColumn,omitempty"`
 	IsNullable bool           `json:"isNullable,omitempty"`
 	Position   int32          `json:"position,omitempty"`
 	Config     map[string]any `json:"config,omitempty"`
@@ -132,7 +133,9 @@ type ListTypesResponse struct {
 
 type CreateTableRequest struct {
 	Name       string `json:"name,omitempty"`
+	Label      string `json:"label,omitempty"`
 	SchemaName string `json:"schemaName,omitempty"`
+	IdType     string `json:"idType,omitempty"` // built-in column type id for row id (default uuid)
 }
 
 type CreateTableResponse struct {
@@ -187,6 +190,7 @@ type GetTableSchemaResponse struct {
 type AddColumnRequest struct {
 	TableId    string         `json:"tableId,omitempty"`
 	Name       string         `json:"name,omitempty"`
+	Label      string         `json:"label,omitempty"`
 	TypeId     string         `json:"typeId,omitempty"`
 	IsNullable bool           `json:"isNullable,omitempty"`
 	Position   int32          `json:"position,omitempty"`
@@ -199,7 +203,9 @@ type AddColumnResponse struct {
 
 type UpdateColumnRequest struct {
 	Id         string         `json:"id,omitempty"`
+	TableId    string         `json:"tableId,omitempty"`
 	Name       string         `json:"name,omitempty"`
+	Label      string         `json:"label,omitempty"`
 	TypeId     string         `json:"typeId,omitempty"`
 	IsNullable *bool          `json:"isNullable,omitempty"`
 	Position   int32          `json:"position,omitempty"`
@@ -211,7 +217,8 @@ type UpdateColumnResponse struct {
 }
 
 type DeleteColumnRequest struct {
-	Id string `json:"id,omitempty"`
+	Id      string `json:"id,omitempty"`
+	TableId string `json:"tableId,omitempty"`
 }
 
 type DeleteColumnResponse struct{}

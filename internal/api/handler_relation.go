@@ -25,7 +25,11 @@ func (h *handler) handleCreateRelation() {
 }
 
 func (h *handler) handleDeleteRelation() {
-	id := strings.TrimPrefix(h.r.URL.Path, "/v1/relations/")
-	resp, err := h.svc.DeleteRelation(h.r.Context(), &apiv1.DeleteRelationRequest{Id: id})
+	name := strings.TrimPrefix(h.r.URL.Path, "/v1/relations/")
+	sourceTableID := h.r.URL.Query().Get("table_id")
+	resp, err := h.svc.DeleteRelation(h.r.Context(), &apiv1.DeleteRelationRequest{
+		SourceTableId: sourceTableID,
+		Name:          name,
+	})
 	h.writeJSON(resp, err)
 }
