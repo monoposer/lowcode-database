@@ -19,7 +19,7 @@ var registry = map[string]Type{}
 
 func init() {
 	for _, t := range []Type{
-		// scalars (000001 + 000003 + 000007)
+		// scalars
 		{ID: "text", Name: "text", PgType: "text"},
 		{ID: "number", Name: "number", PgType: "numeric"},
 		{ID: "bool", Name: "bool", PgType: "boolean"},

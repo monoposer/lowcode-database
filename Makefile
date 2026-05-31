@@ -1,4 +1,4 @@
-.PHONY: all run migrate migrate-meta migrate-data playground test test-integration e2e e2e-generate docker-up docker-down
+.PHONY: all run migrate migrate-meta migrate-data playground test test-integration e2e e2e-generate docker-build docker-up docker-down
 
 all: test
 
@@ -30,6 +30,9 @@ e2e-generate:
 
 e2e:
 	cd e2e && npm install && npx playwright install chromium && npm test
+
+docker-build:
+	docker build -t lowcode-database:latest .
 
 docker-up:
 	docker compose up -d postgres redis
