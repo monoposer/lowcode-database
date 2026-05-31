@@ -7,7 +7,6 @@
     "pretest": "npm run generate",
     "test": "playwright test",
     "test:api": "playwright test --project=api",
-    "test:ui": "playwright test --project=playground",
     "test:headed": "playwright test --headed",
     "report": "playwright show-report"
   },

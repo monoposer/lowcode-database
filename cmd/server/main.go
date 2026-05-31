@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -60,7 +59,7 @@ func main() {
 	}
 
 	var (
-		httpAddr = flag.String("http-addr", cfg.HTTPAddr, "HTTP JSON API + static listen address")
+		httpAddr = flag.String("http-addr", cfg.HTTPAddr, "HTTP JSON API listen address")
 	)
 	flag.Parse()
 
@@ -104,10 +103,7 @@ func main() {
 		mux.Handle("/metrics", promhttp.Handler())
 	}
 	api.RegisterOpenAPI(mux)
-
-	cwd, _ := os.Getwd()
-	staticDir := filepath.Join(cwd, "static")
-	mux.Handle("/", http.FileServer(http.Dir(staticDir)))
+	mux.HandleFunc("/", api.RootHandler)
 
 	handler := withCORS(withRequestLog(appLog, mux))
 

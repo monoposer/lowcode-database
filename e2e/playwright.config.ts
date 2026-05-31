@@ -1,7 +1,6 @@
 import { defineConfig, devices } from '@playwright/test'
 
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:8080'
-const PLAYGROUND_BASE = process.env.PLAYGROUND_URL || 'http://localhost:5173'
 const repoRoot = process.env.E2E_REPO_ROOT || '..'
 
 const dbEnv = {
@@ -38,30 +37,13 @@ export default defineConfig({
         },
       },
     },
-    {
-      name: 'playground',
-      testMatch: /playground\.spec\.ts/,
-      use: {
-        ...devices['Desktop Chrome'],
-        baseURL: PLAYGROUND_BASE,
-      },
-    },
   ],
-  webServer: [
-    {
-      command: 'go run ./cmd/server',
-      cwd: repoRoot,
-      env: dbEnv,
-      url: `${API_BASE}/v1/types`,
-      reuseExistingServer: !process.env.CI,
-      timeout: 120_000,
-    },
-    {
-      command: 'npm run build && npx vite preview --port 5173 --host 127.0.0.1',
-      cwd: `${repoRoot}/playground`,
-      url: PLAYGROUND_BASE,
-      reuseExistingServer: !process.env.CI,
-      timeout: 180_000,
-    },
-  ],
+  webServer: {
+    command: 'go run ./cmd/server',
+    cwd: repoRoot,
+    env: dbEnv,
+    url: `${API_BASE}/v1/types`,
+    reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
+  },
 })

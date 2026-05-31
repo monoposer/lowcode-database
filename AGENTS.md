@@ -8,6 +8,7 @@
 |------|------|
 | treelab-metadata | Entity/View/Choice 元数据模式参考 |
 | treelab-scm-service | 行级查询、View 数据源、DSL 过滤参考 |
+| [lowcode-database-playground](https://github.com/solat/lowcode-database-playground) | Vite + AG Grid 调试 UI（独立仓库） |
 
 ## 本地启动
 
@@ -32,13 +33,14 @@
 | `internal/logger/` | JSON 结构化日志 |
 | `docker/postgres/migrations/` | Meta/Data SQL 迁移文件 |
 | `internal/db/` | 双库 TenantManager |
-| `playground/` | Vite + AG Grid 调试 UI |
+
+调试 UI 见独立仓库 **lowcode-database-playground**。
 
 ## 架构要点
 
 - **Meta DB**：`lc_tables`、`lc_columns`、`lc_choices`（ENUM 注册）、`lc_relations`、`lc_data_sources`、`lc_tenants` 等
 - **Data DB**：物理表 `lc_t_*`、PG ENUM 类型、索引（以 PG catalog 为准）
-- **Choice**：data DB 的 PG ENUM（`lc_e_{tenant}_{name}`），catalog 为唯一来源
+- **Choice**：data DB 的 PG ENUM（类型名与 logical name 相同），catalog 为唯一来源
 - **Index**：读写直接对接 PostgreSQL（`pg_index` / `pg_class`），不依赖 `lc_indexes` 镜像
 
 ## 性能与可观测性

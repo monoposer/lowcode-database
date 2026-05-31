@@ -30,7 +30,7 @@ func (s *LowcodeService) choiceToAPI(ctx context.Context, tid, schemaName, pgTyp
 		Name:       logicalName,
 		Label:      logicalName,
 		SchemaName: schemaName,
-		PgTypeName: pgTypeName,
+		PgTypeName: logicalName,
 		Values:     values,
 	}, nil
 }
@@ -138,7 +138,11 @@ func (s *LowcodeService) UpdateChoice(ctx context.Context, req *apiv1.UpdateChoi
 		if err != nil {
 			return nil, err
 		}
-		if err := s.addPgEnumValues(ctx, data, schema, pgType, literals); err != nil {
+		if req.ReplaceValues {
+			if err := s.replacePgEnumValues(ctx, data, schema, pgType, literals); err != nil {
+				return nil, fmt.Errorf("replace enum values: %w", err)
+			}
+		} else if err := s.addPgEnumValues(ctx, data, schema, pgType, literals); err != nil {
 			return nil, fmt.Errorf("add enum values: %w", err)
 		}
 	}

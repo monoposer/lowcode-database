@@ -11,7 +11,7 @@ type Type struct {
 	ID     string
 	Name   string
 	PgType string
-	Kind   string // formula, relationship, lookup, rollup, enum, relation_fk; empty for scalars
+	Kind   string // formula, relationship, lookup, rollup, relation_fk; empty for scalars
 	Config map[string]any
 }
 
@@ -46,13 +46,12 @@ func init() {
 		{ID: "geometry", Name: "geometry", PgType: "geometry", Config: map[string]any{"postgis": true}},
 		{ID: "geography", Name: "geography", PgType: "geography", Config: map[string]any{"postgis": true}},
 		{ID: "point", Name: "point", PgType: "geometry(Point,4326)", Config: map[string]any{"postgis": true}},
-		// virtual / special
-		{ID: "formula", Name: "formula", PgType: "jsonb", Kind: "formula", Config: map[string]any{"kind": "formula"}},
-		{ID: "relationship", Name: "relationship", PgType: "jsonb", Kind: "relationship", Config: map[string]any{"kind": "relationship"}},
-		{ID: "lookup", Name: "lookup", PgType: "jsonb", Kind: "lookup", Config: map[string]any{"kind": "lookup"}},
-		{ID: "rollup", Name: "rollup", PgType: "jsonb", Kind: "rollup", Config: map[string]any{"kind": "rollup"}},
-		{ID: "relation_fk", Name: "relation_fk", PgType: "bigint", Kind: "relation_fk", Config: map[string]any{"kind": "relation_fk"}},
-		{ID: "enum", Name: "enum", PgType: "", Kind: "enum", Config: map[string]any{"kind": "enum"}},
+		// virtual — no physical PG column; PgType empty
+		{ID: "formula", Name: "formula", Kind: "formula"},
+		{ID: "relationship", Name: "relationship", Kind: "relationship"},
+		{ID: "lookup", Name: "lookup", Kind: "lookup"},
+		{ID: "rollup", Name: "rollup", Kind: "rollup"},
+		{ID: "relation_fk", Name: "relation_fk", PgType: "bigint", Kind: "relation_fk"},
 	} {
 		register(t)
 	}
@@ -104,8 +103,18 @@ func Kind(id string) string {
 	return ""
 }
 
+// IsBuiltIn reports whether id is a registered built-in column type.
+func IsBuiltIn(id string) bool {
+	_, ok := Get(id)
+	return ok
+}
+
 // PgType returns the default PostgreSQL type name for a type id.
+// Virtual columns return "" (no fixed PG type). Choice columns use type_id = choice name — resolve via service.
 func PgType(id string) string {
+	if IsVirtual(id) {
+		return ""
+	}
 	if t, ok := Get(id); ok {
 		return t.PgType
 	}

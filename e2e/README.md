@@ -1,6 +1,8 @@
 # E2E (Playwright)
 
-End-to-end tests against a running **Postgres**, the **Go HTTP server** (`:8080`), and the **Playground** preview (`:5173`).
+API end-to-end tests against **Postgres** and the **Go HTTP server** (`:8080`).
+
+Playground UI tests live in the separate repo [lowcode-database-playground](https://github.com/solat/lowcode-database-playground).
 
 ## Prerequisites
 
@@ -21,9 +23,8 @@ Or manually:
 cd e2e
 npm install
 npx playwright install chromium
-npm test              # runs generate + all projects
+npm test              # runs generate + API project
 npm run test:api      # API only
-npm run test:ui       # Playground UI only
 ```
 
 Environment (optional):
@@ -34,7 +35,6 @@ Environment (optional):
 | `DEFAULT_TENANT_DATA_DSN` | `postgresql://postgres:postgres@localhost:5432/lowcode_data` |
 | `E2E_TENANT_ID` | `default` |
 | `API_BASE_URL` | `http://localhost:8080` |
-| `PLAYGROUND_URL` | `http://localhost:5173` |
 | `E2E_SKIP_MIGRATE` | unset (set `1` to skip migrate in global setup) |
 
 ## Auto-generated tests
@@ -55,6 +55,6 @@ This writes [`tests/api.generated.spec.ts`](tests/api.generated.spec.ts):
 Hand-written specs:
 
 - [`tests/api-workflow.spec.ts`](tests/api-workflow.spec.ts) — full workflow (tables, relations, formula, data source, webhooks, CRUD)
-- [`tests/playground.spec.ts`](tests/playground.spec.ts) — Playground UI (table/column/row + formula editor)
+- [`tests/api-datasource.spec.ts`](tests/api-datasource.spec.ts) — DataSource CRUD + query
 
 Report: `npm run report` after a failed run.

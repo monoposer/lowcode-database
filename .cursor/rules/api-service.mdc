@@ -36,7 +36,7 @@ handler → LowcodeService method → MetaPool / DataPool
 
 ## Choice 操作
 
-- 创建 ENUM：`createPgEnumType`（data DB，`lc_e_{tenant}_{name}`）
+- 创建 ENUM：`createPgEnumType`（data DB，类型名 = choice logical name）
 - 列表/读值：`listTenantChoiceEnums` / `listPgEnumValues` ← `pg_type` / `pg_enum`
 - 列引用：`config.choice_name`（逻辑名）或完整 `pg_type_name`
 

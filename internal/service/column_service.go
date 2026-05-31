@@ -37,19 +37,35 @@ func (s *LowcodeService) AddColumn(ctx context.Context, req *apiv1.AddColumnRequ
 		return nil, err
 	}
 
-	colType, err := columntype.Resolve(req.TypeId)
-	if err != nil {
-		return nil, err
-	}
-	typeID := colType.ID
-	pgType := colType.PgType
-	kind := colType.Kind
-	typeConfig := colType.Config
+	colType, resolveErr := columntype.Resolve(req.TypeId)
 
 	cfg := req.Config
 	if cfg == nil {
 		cfg = map[string]any{}
 	}
+
+	var typeID, pgType, kind string
+	var typeConfig map[string]any
+	var isChoiceCol bool
+	var choiceRef string
+
+	if resolveErr == nil {
+		typeID = colType.ID
+		pgType = colType.PgType
+		kind = colType.Kind
+		typeConfig = colType.Config
+	} else {
+		var err error
+		choiceRef, isChoiceCol, err = s.resolveChoiceColumnRef(ctx, tid, req.TypeId, cfg)
+		if err != nil {
+			return nil, err
+		}
+		if !isChoiceCol {
+			return nil, fmt.Errorf("unknown column type %q", req.TypeId)
+		}
+		typeID = choiceRef
+	}
+
 	if kind == "relationship" {
 		var err error
 		cfg, err = NormalizeRelationshipConfig(cfg)
@@ -72,9 +88,13 @@ func (s *LowcodeService) AddColumn(ctx context.Context, req *apiv1.AddColumnRequ
 			return nil, err
 		}
 	}
-	if kind == "enum" {
-		if cfgString(cfg, "choice_id") == "" && cfgString(cfg, "choice_name") == "" {
-			return nil, fmt.Errorf("enum column config requires choice_id or choice_name")
+	if kind == "formula" {
+		expr := formulaExpression(cfg)
+		if expr == "" {
+			return nil, fmt.Errorf("formula column requires config.expression")
+		}
+		if err := s.validateFormulaExpression(ctx, tableKey, expr); err != nil {
+			return nil, err
 		}
 	}
 
@@ -89,26 +109,19 @@ func (s *LowcodeService) AddColumn(ctx context.Context, req *apiv1.AddColumnRequ
 		if !req.IsNullable {
 			nullSQL = "NOT NULL"
 		}
-		colType := effectivePgType(pgType, typeConfig)
-		if kind == "enum" {
-			choiceRef := cfgString(cfg, "choice_id")
-			if choiceRef == "" {
-				choiceRef = cfgString(cfg, "choice_name")
-			}
-			enumSchema, enumType, err := s.resolveChoicePgType(ctx, tid, choiceRef)
+		colTypeSQL := effectivePgType(pgType, typeConfig)
+		if isChoiceCol {
+			var err error
+			colTypeSQL, err = s.choiceColumnDDLType(ctx, tid, choiceRef)
 			if err != nil {
 				return nil, err
 			}
-			colType = fmt.Sprintf("%s.%s",
-				pgx.Identifier{enumSchema}.Sanitize(),
-				pgx.Identifier{enumType}.Sanitize(),
-			)
 		}
 		alter := fmt.Sprintf(`ALTER TABLE %s.%s ADD COLUMN %s %s %s`,
 			pgx.Identifier{schemaName}.Sanitize(),
 			pgx.Identifier{tableName}.Sanitize(),
 			pgx.Identifier{pgColumn}.Sanitize(),
-			colType,
+			colTypeSQL,
 			nullSQL,
 		)
 		if _, err := data.Exec(ctx, alter); err != nil {
@@ -161,7 +174,7 @@ func (s *LowcodeService) AddColumn(ctx context.Context, req *apiv1.AddColumnRequ
 		c.Config = cfgOut
 	}
 
-	s.invalidateTableMetaCache(ctx, tableName)
+	s.invalidateTableMetaCache(ctx, tableKey)
 	return &apiv1.AddColumnResponse{Column: &c}, nil
 }
 
@@ -249,23 +262,31 @@ func (s *LowcodeService) DeleteColumn(ctx context.Context, req *apiv1.DeleteColu
 	return &apiv1.DeleteColumnResponse{}, nil
 }
 
-// 简化：UpdateColumn 目前只更新元数据，不做 PG 表 rename/alter。
+// UpdateColumn updates column metadata and applies PG ALTER for type/nullability when needed.
 func (s *LowcodeService) UpdateColumn(ctx context.Context, req *apiv1.UpdateColumnRequest) (*apiv1.UpdateColumnResponse, error) {
 	tid, err := s.tenantID(ctx)
 	if err != nil {
 		return nil, err
 	}
 	meta := s.tenants.MetaPool()
+
+	var curTypeID, tableKey, pgColumn, schemaName, tableName string
+	var curNullable bool
+	err = meta.QueryRow(ctx, `
+		SELECT c.type_id, c.table_id, c.pg_column, c.is_nullable,
+		       t.schema_name, t.table_name
+		FROM lc_columns c
+		JOIN lc_tables t ON c.table_id = t.name AND c.tenant_id = t.tenant_id
+		WHERE c.id = $1 AND c.tenant_id = $2`,
+		req.Id, tid,
+	).Scan(&curTypeID, &tableKey, &pgColumn, &curNullable, &schemaName, &tableName)
+	if err != nil {
+		return nil, err
+	}
+
 	cfgArg := req.Config
 	if req.Config != nil {
-		var typeID, tableKey string
-		if err := meta.QueryRow(ctx, `
-			SELECT type_id, table_id FROM lc_columns WHERE id = $1 AND tenant_id = $2`,
-			req.Id, tid,
-		).Scan(&typeID, &tableKey); err != nil {
-			return nil, err
-		}
-		switch columntype.Kind(typeID) {
+		switch columntype.Kind(curTypeID) {
 		case "relationship":
 			norm, err := NormalizeRelationshipConfig(req.Config)
 			if err != nil {
@@ -276,11 +297,53 @@ func (s *LowcodeService) UpdateColumn(ctx context.Context, req *apiv1.UpdateColu
 			if err := s.validateLookupColumnConfig(ctx, tid, tableKey, req.Config); err != nil {
 				return nil, err
 			}
+		case "formula":
+			expr := formulaExpression(req.Config)
+			if expr == "" {
+				return nil, fmt.Errorf("formula column requires config.expression")
+			}
+			if err := s.validateFormulaExpression(ctx, tableKey, expr); err != nil {
+				return nil, err
+			}
 		}
 	}
+
+	isVirtual := columntype.IsVirtual(curTypeID)
+	newTypeID := curTypeID
+	if req.TypeId != "" {
+		newTypeID = req.TypeId
+	}
+
+	if newTypeID != curTypeID {
+		if err := s.alterColumnType(ctx, schemaName, tableName, pgColumn, curTypeID, newTypeID); err != nil {
+			return nil, err
+		}
+	}
+
+	if req.IsNullable != nil && !isVirtual && *req.IsNullable != curNullable {
+		data, err := s.tenants.DataPool(ctx)
+		if err != nil {
+			return nil, err
+		}
+		nullSQL := "DROP NOT NULL"
+		if !*req.IsNullable {
+			nullSQL = "SET NOT NULL"
+		}
+		alter := fmt.Sprintf(`ALTER TABLE %s.%s ALTER COLUMN %s %s`,
+			pgx.Identifier{schemaName}.Sanitize(),
+			pgx.Identifier{tableName}.Sanitize(),
+			pgx.Identifier{pgColumn}.Sanitize(),
+			nullSQL,
+		)
+		if _, err := data.Exec(ctx, alter); err != nil {
+			return nil, fmt.Errorf("alter column nullability: %w", err)
+		}
+	}
+
 	const q = `
 		UPDATE lc_columns
 		SET name = COALESCE(NULLIF($2, ''), name),
+		    type_id = COALESCE(NULLIF($7, ''), type_id),
 		    is_nullable = COALESCE($3, is_nullable),
 		    position = COALESCE(NULLIF($4, 0), position),
 		    config = COALESCE($5, config),
@@ -290,7 +353,7 @@ func (s *LowcodeService) UpdateColumn(ctx context.Context, req *apiv1.UpdateColu
 	`
 	var c apiv1.Column
 	var cfgMap map[string]any
-	row := meta.QueryRow(ctx, q, req.Id, req.Name, req.IsNullable, req.Position, cfgArg, tid)
+	row := meta.QueryRow(ctx, q, req.Id, req.Name, req.IsNullable, req.Position, cfgArg, tid, req.TypeId)
 	var createdAt, updatedAt time.Time
 	if err := row.Scan(&c.Id, &c.TableId, &c.Name, &c.TypeId, &c.PgColumn, &c.IsNullable, &c.Position, &cfgMap, &createdAt, &updatedAt); err != nil {
 		return nil, err
@@ -302,4 +365,37 @@ func (s *LowcodeService) UpdateColumn(ctx context.Context, req *apiv1.UpdateColu
 	}
 	s.invalidateTableMetaCache(ctx, c.TableId)
 	return &apiv1.UpdateColumnResponse{Column: &c}, nil
+}
+
+func (s *LowcodeService) alterColumnType(ctx context.Context, schemaName, tableName, pgColumn, fromTypeID, toTypeID string) error {
+	if columntype.IsVirtual(fromTypeID) || columntype.IsVirtual(toTypeID) {
+		return fmt.Errorf("cannot change type for virtual columns")
+	}
+	if !columntype.IsBuiltIn(fromTypeID) || !columntype.IsBuiltIn(toTypeID) {
+		return fmt.Errorf("column type change not supported for choice columns")
+	}
+	if columntype.Kind(fromTypeID) == "relation_fk" || columntype.Kind(toTypeID) == "relation_fk" {
+		return fmt.Errorf("column type change not supported for relation_fk")
+	}
+	newColType, err := columntype.Resolve(toTypeID)
+	if err != nil {
+		return err
+	}
+	pgTypeSQL := effectivePgType(newColType.PgType, newColType.Config)
+	data, err := s.tenants.DataPool(ctx)
+	if err != nil {
+		return err
+	}
+	alter := fmt.Sprintf(`ALTER TABLE %s.%s ALTER COLUMN %s TYPE %s USING %s::%s`,
+		pgx.Identifier{schemaName}.Sanitize(),
+		pgx.Identifier{tableName}.Sanitize(),
+		pgx.Identifier{pgColumn}.Sanitize(),
+		pgTypeSQL,
+		pgx.Identifier{pgColumn}.Sanitize(),
+		pgTypeSQL,
+	)
+	if _, err := data.Exec(ctx, alter); err != nil {
+		return fmt.Errorf("alter column type: %w", err)
+	}
+	return nil
 }

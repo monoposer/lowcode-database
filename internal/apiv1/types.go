@@ -200,6 +200,7 @@ type AddColumnResponse struct {
 type UpdateColumnRequest struct {
 	Id         string         `json:"id,omitempty"`
 	Name       string         `json:"name,omitempty"`
+	TypeId     string         `json:"typeId,omitempty"`
 	IsNullable *bool          `json:"isNullable,omitempty"`
 	Position   int32          `json:"position,omitempty"`
 	Config     map[string]any `json:"config,omitempty"`
