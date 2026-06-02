@@ -217,6 +217,7 @@ func (s *Data) buildLookupJoinSpecs(ctx context.Context, tableID string, argAcc 
 	}
 	defer rows.Close()
 
+	aliases := newJoinAliasRegistry()
 	var specs []lookupJoinSpec
 	for rows.Next() {
 		var colName string
@@ -245,11 +246,7 @@ func (s *Data) buildLookupJoinSpecs(ctx context.Context, tableID string, argAcc 
 		if err != nil {
 			continue
 		}
-		short := strings.ReplaceAll(colName, "-", "")
-		if len(short) > 8 {
-			short = short[:8]
-		}
-		alias := "lk_" + short
+		alias := aliases.sharedRelRowAlias(rel.Id)
 		var filter map[string]any
 		if raw, ok := cfg["filter"].(map[string]any); ok && len(raw) > 0 {
 			filter = raw
@@ -258,7 +255,7 @@ func (s *Data) buildLookupJoinSpecs(ctx context.Context, tableID string, argAcc 
 		if err != nil {
 			continue
 		}
-		resolved, err := s.resolveLookupTargetValue(ctx, rel.TargetTableId, fieldID, alias, argAcc, map[string]bool{})
+		resolved, err := s.resolveLookupTargetValue(ctx, rel.TargetTableId, fieldID, alias, argAcc, map[string]bool{}, aliases)
 		if err != nil {
 			return nil, fmt.Errorf("lookup %q: %w", colName, err)
 		}

@@ -29,10 +29,12 @@ handler → LowcodeService method → MetaPool / DataPool
 
 ## 列类型
 
+- 物理列名与逻辑 `name` 相同；`ColumnPgColumnByRef` 即解析逻辑名
 - 物理列：`AddColumn` 执行 `ALTER TABLE ... ADD COLUMN`（`typeId` 必须为 `internal/columntype` 内置类型）
 - `enum` 列：`config.choice_name` → 解析 PG 类型 `{schema}.{pg_type_name}`
 - `relation_fk`：PG 类型与目标列一致（默认 target `id` 的 uuid/int8 等）+ 可选 `add_fk` 外键
-- 虚拟列：只写 `lc_columns`，`pg_column` 为 `v_*` 占位
+- 虚拟列（`formula` / `relationship` / `lookup` / `rollup`）：只写 `lc_columns`，data DB 无对应列；查询时 SQL 展开
+- 值类型：`config.result_type_id` → API `resultTypeId`（lookup 推导，formula/rollup 可推断或覆盖）
 
 ## Choice 操作
 

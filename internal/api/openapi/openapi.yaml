@@ -1889,6 +1889,15 @@ components:
         filter:
           type: object
           additionalProperties: true
+        params:
+          type: object
+          additionalProperties: true
+          description: Replaces `{param}` placeholders in the data source filter.
+        columnIds:
+          type: array
+          items:
+            type: string
+          description: Optional subset of the data source view projection (column_names). Omitted = return all columns defined on the data source (empty column_names = SELECT *).
       description: Data source id is taken from the path.
 
     QueryDataSourceResponse:

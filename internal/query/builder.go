@@ -53,13 +53,22 @@ func BuildWhere(w dsl.Where, attrToPg map[string]string, argStart int) (string, 
 			join = " OR "
 		}
 		return strings.Join(parts, join), args, nil
-	case "EQ", "NEQ", "GT", "GTE", "LT", "LTE", "LIKE":
+	case "LIKE":
+		pg, ok := attrToPg[w.Attr]
+		if !ok {
+			return "", nil, fmt.Errorf("unknown filter attribute %q", w.Attr)
+		}
+		if !strings.Contains(pg, ".") {
+			pg = pgx.Identifier{pg}.Sanitize()
+		}
+		return pg + " LIKE " + fmt.Sprintf("$%d", argStart), []any{likeContainsPattern(w.Val)}, nil
+	case "EQ", "NEQ", "GT", "GTE", "LT", "LTE":
 		pg, ok := attrToPg[w.Attr]
 		if !ok {
 			return "", nil, fmt.Errorf("unknown filter attribute %q", w.Attr)
 		}
 		op := map[string]string{
-			"EQ": " = ", "NEQ": " <> ", "GT": " > ", "GTE": " >= ", "LT": " < ", "LTE": " <= ", "LIKE": " LIKE ",
+			"EQ": " = ", "NEQ": " <> ", "GT": " > ", "GTE": " >= ", "LT": " < ", "LTE": " <= ",
 		}[w.Type]
 		if !strings.Contains(pg, ".") {
 			pg = pgx.Identifier{pg}.Sanitize()
@@ -123,6 +132,33 @@ func BuildWhere(w dsl.Where, attrToPg map[string]string, argStart int) (string, 
 	default:
 		return "", nil, fmt.Errorf("unsupported filter type %q", w.Type)
 	}
+}
+
+// likeContainsPattern turns a filter value into a SQL LIKE "contains" pattern (%…%).
+// Literal % and _ in the input are escaped; if the value already contains %, it is used as-is.
+func likeContainsPattern(val any) any {
+	s, ok := val.(string)
+	if !ok {
+		return val
+	}
+	if strings.Contains(s, "%") {
+		return escapeLikeLiteral(s)
+	}
+	return "%" + escapeLikeLiteral(s) + "%"
+}
+
+func escapeLikeLiteral(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '\\', '%', '_':
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // BuildOrderBy renders ORDER BY clause (without keyword).

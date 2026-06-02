@@ -24,16 +24,17 @@ type Table struct {
 }
 
 type Column struct {
-	Id         string         `json:"id,omitempty"`
-	TableId    string         `json:"tableId,omitempty"`
-	Name       string         `json:"name,omitempty"`
-	Label      string         `json:"label,omitempty"`
-	TypeId     string         `json:"typeId,omitempty"`
-	IsNullable bool           `json:"isNullable,omitempty"`
-	Position   int32          `json:"position,omitempty"`
-	Config     map[string]any `json:"config,omitempty"`
-	CreatedAt  time.Time      `json:"createdAt,omitempty"`
-	UpdatedAt  time.Time      `json:"updatedAt,omitempty"`
+	Id           string         `json:"id,omitempty"`
+	TableId      string         `json:"tableId,omitempty"`
+	Name         string         `json:"name,omitempty"`
+	Label        string         `json:"label,omitempty"`
+	TypeId       string         `json:"typeId,omitempty"`
+	ResultTypeId string         `json:"resultTypeId,omitempty"` // scalar/array value type for filters and cells
+	IsNullable   bool           `json:"isNullable,omitempty"`
+	Position     int32          `json:"position,omitempty"`
+	Config       map[string]any `json:"config,omitempty"`
+	CreatedAt    time.Time      `json:"createdAt,omitempty"`
+	UpdatedAt    time.Time      `json:"updatedAt,omitempty"`
 }
 
 type Index struct {

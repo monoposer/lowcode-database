@@ -26,6 +26,7 @@ type querySpec struct {
 	Filter          map[string]any
 	Sort            []*apiv1.SortOrder
 	ColumnIds       []string
+	ColumnRestrict  bool // when true, ColumnIds limits output (empty = id only)
 	PageSize        int32
 	PageToken       string
 	ExpandColumnIds []string
@@ -55,13 +56,33 @@ func (s *Data) QueryDataSource(ctx context.Context, req *apiv1.QueryDataSourceRe
 		s.recordDataSourceQuery(ctx, tid, req.TableId, req.DataSourceId, start, err, 0, "")
 		return nil, err
 	}
+	baseFilter := ds.Filter
+	if len(req.Params) > 0 {
+		baseFilter, err = dsl.SubstituteParams(ds.Filter, req.Params)
+		if err != nil {
+			s.recordDataSourceQuery(ctx, tid, req.TableId, req.DataSourceId, start, err, 0, "")
+			return nil, err
+		}
+	}
+	// Data source = SQL view definition; response columns = projection (optionally narrowed by req.ColumnIds).
+	colIds, err := s.resolveDataSourceViewProjection(ctx, ds.TableId, ds.ColumnIds, req.ColumnIds)
+	if err != nil {
+		s.recordDataSourceQuery(ctx, tid, req.TableId, req.DataSourceId, start, err, 0, "")
+		return nil, err
+	}
+	if len(req.ColumnIds) > 0 && len(colIds) == 0 {
+		err := fmt.Errorf("no columns match data source projection")
+		s.recordDataSourceQuery(ctx, tid, req.TableId, req.DataSourceId, start, err, 0, "")
+		return nil, err
+	}
 	resp, err := s.executeQuery(ctx, querySpec{
-		TableID:   ds.TableId,
-		Filter:    mergeFilters(ds.Filter, req.Filter),
-		Sort:      ds.Sort,
-		ColumnIds: ds.ColumnIds,
-		PageSize:  req.PageSize,
-		PageToken: req.PageToken,
+		TableID:        ds.TableId,
+		Filter:         mergeFilters(baseFilter, req.Filter),
+		Sort:           ds.Sort,
+		ColumnIds:      colIds,
+		ColumnRestrict: true,
+		PageSize:       req.PageSize,
+		PageToken:      req.PageToken,
 	})
 	rowCount := int32(0)
 	if resp != nil {
@@ -206,7 +227,19 @@ func (s *Data) executeQuery(ctx context.Context, spec querySpec) (resp *apiv1.Qu
 	}
 
 	selCols := physCols
-	if len(spec.ColumnIds) > 0 {
+	if spec.ColumnRestrict {
+		want := map[string]struct{}{}
+		for _, id := range spec.ColumnIds {
+			want[id] = struct{}{}
+		}
+		var subset []shared.ColumnMeta
+		for _, c := range physCols {
+			if schema.ColumnRefInSet(c, want) {
+				subset = append(subset, c)
+			}
+		}
+		selCols = subset
+	} else if len(spec.ColumnIds) > 0 {
 		want := map[string]struct{}{}
 		for _, id := range spec.ColumnIds {
 			want[id] = struct{}{}
@@ -220,6 +253,10 @@ func (s *Data) executeQuery(ctx context.Context, spec querySpec) (resp *apiv1.Qu
 		if len(subset) > 0 {
 			selCols = subset
 		}
+	}
+	var colAllow map[string]struct{}
+	if spec.ColumnRestrict {
+		colAllow = columnAllowSet(spec.ColumnIds)
 	}
 
 	pageSize := normalizePageSize(spec.PageSize, s.B.MaxRow)
@@ -247,39 +284,15 @@ func (s *Data) executeQuery(ctx context.Context, spec querySpec) (resp *apiv1.Qu
 		attrMap[c.Name] = baseAlias + "." + pgx.Identifier{c.Name}.Sanitize()
 	}
 
+	args := []any{}
 	whereParts := []string{}
-	countArgs := []any{}
-	argIdx := 1
 
 	if spec.PageToken != "" {
-		whereParts = append(whereParts, schema.PageTokenIDCompare(baseAlias, idPgType, argIdx))
-		countArgs = append(countArgs, spec.PageToken)
-		argIdx++
+		whereParts = append(whereParts, schema.PageTokenIDCompare(baseAlias, idPgType, len(args)+1))
+		args = append(args, spec.PageToken)
 	}
 
-	filterWhere, err := dsl.Parse(spec.Filter)
-	if err != nil {
-		return nil, fmt.Errorf("filter: %w", err)
-	}
-	if filterWhere.Type != "" {
-		wSQL, wArgs, err := query.BuildWhere(filterWhere, attrMap, argIdx)
-		if err != nil {
-			return nil, err
-		}
-		if wSQL != "" {
-			whereParts = append(whereParts, wSQL)
-			countArgs = append(countArgs, wArgs...)
-			argIdx += len(wArgs)
-		}
-	}
-
-	whereSQL := ""
-	if len(whereParts) > 0 {
-		whereSQL = " WHERE " + strings.Join(whereParts, " AND ")
-	}
-
-	queryArgs := append([]any{}, countArgs...)
-	argAcc := &argAccumulator{args: &queryArgs}
+	argAcc := &argAccumulator{args: &args}
 	lookupSpecs, err := s.buildLookupJoinSpecs(ctx, tableID, argAcc)
 	if err != nil {
 		return nil, err
@@ -292,25 +305,20 @@ func (s *Data) executeQuery(ctx context.Context, spec querySpec) (resp *apiv1.Qu
 	var rollupComputedSpecs []rollupComputed
 	rollupSQLByName := map[string]string{}
 	for _, plan := range rollupPlans {
-		rSQL, rArgs, err := s.buildRollupSQL(plan, baseAlias, len(queryArgs)+1)
+		rSQL, rArgs, err := s.buildRollupSQL(plan, baseAlias, len(args)+1)
 		if err != nil {
 			return nil, err
 		}
 		rollupComputedSpecs = append(rollupComputedSpecs, rollupComputed{ColumnName: plan.ColumnName, SQL: rSQL})
 		rollupSQLByName[plan.ColumnName] = rSQL
-		queryArgs = append(queryArgs, rArgs...)
+		args = append(args, rArgs...)
 	}
 
 	formulaSteps, err := s.buildFormulaSteps(allCols, baseAlias, lookupSpecs, rollupSQLByName)
 	if err != nil {
 		return nil, err
 	}
-	for _, step := range formulaSteps {
-		columnSQL += ", " + step.SelectRef() + " AS " + pgx.Identifier{"f_" + step.Name}.Sanitize()
-	}
-	for _, r := range rollupComputedSpecs {
-		columnSQL += ", (" + r.SQL + ") AS " + pgx.Identifier{"r_" + r.ColumnName}.Sanitize()
-	}
+	extendAttrMapVirtual(attrMap, allCols, lookupSpecs, rollupSQLByName, formulaSteps)
 
 	fromSQL := fmt.Sprintf(`%s.%s AS %s`,
 		pgx.Identifier{schemaName}.Sanitize(),
@@ -320,30 +328,64 @@ func (s *Data) executeQuery(ctx context.Context, spec querySpec) (resp *apiv1.Qu
 	for _, step := range formulaSteps {
 		fromSQL += step.LateralJoinSQL()
 	}
+	hostRelJoined := map[string]struct{}{}
+	for _, lk := range lookupSpecs {
+		relKey := hostRelJoinKey(lk.TargetSchema, lk.TargetTable, lk.BaseFKPgCol)
+		if _, done := hostRelJoined[relKey]; !done {
+			onSQL := fmt.Sprintf(`%s.%s = %s.id`,
+				pgx.Identifier{baseAlias}.Sanitize(),
+				pgx.Identifier{lk.BaseFKPgCol}.Sanitize(),
+				pgx.Identifier{lk.Alias}.Sanitize(),
+			)
+			if len(lk.Filter) > 0 && len(lk.TargetCols) > 0 {
+				filterSQL, filterArgs, err := linkedTableFilterSQL(map[string]any{"filter": lk.Filter}, lk.Alias, lk.TargetCols, len(args)+1)
+				if err != nil {
+					return nil, err
+				}
+				if filterSQL != "" {
+					onSQL += " AND (" + filterSQL + ")"
+					args = append(args, filterArgs...)
+				}
+			}
+			fromSQL += fmt.Sprintf(` LEFT JOIN %s.%s AS %s ON %s`,
+				pgx.Identifier{lk.TargetSchema}.Sanitize(),
+				pgx.Identifier{lk.TargetTable}.Sanitize(),
+				pgx.Identifier{lk.Alias}.Sanitize(),
+				onSQL,
+			)
+			hostRelJoined[relKey] = struct{}{}
+		}
+		fromSQL += lk.ExtraFromSQL
+	}
+
+	filterWhere, err := dsl.Parse(spec.Filter)
+	if err != nil {
+		return nil, fmt.Errorf("filter: %w", err)
+	}
+	if filterWhere.Type != "" {
+		wSQL, wArgs, err := query.BuildWhere(filterWhere, attrMap, len(args)+1)
+		if err != nil {
+			return nil, err
+		}
+		if wSQL != "" {
+			whereParts = append(whereParts, wSQL)
+			args = append(args, wArgs...)
+		}
+	}
+
+	whereSQL := ""
+	if len(whereParts) > 0 {
+		whereSQL = " WHERE " + strings.Join(whereParts, " AND ")
+	}
+
+	for _, step := range formulaSteps {
+		columnSQL += ", " + step.SelectRef() + " AS " + pgx.Identifier{"f_" + step.Name}.Sanitize()
+	}
+	for _, r := range rollupComputedSpecs {
+		columnSQL += ", (" + r.SQL + ") AS " + pgx.Identifier{"r_" + r.ColumnName}.Sanitize()
+	}
 	for _, lk := range lookupSpecs {
 		columnSQL += ", " + lk.SelectExpr + " AS " + pgx.Identifier{"lkval_" + lk.LookupColumnName}.Sanitize()
-		onSQL := fmt.Sprintf(`%s.%s = %s.id`,
-			pgx.Identifier{baseAlias}.Sanitize(),
-			pgx.Identifier{lk.BaseFKPgCol}.Sanitize(),
-			pgx.Identifier{lk.Alias}.Sanitize(),
-		)
-		if len(lk.Filter) > 0 && len(lk.TargetCols) > 0 {
-			filterSQL, filterArgs, err := linkedTableFilterSQL(map[string]any{"filter": lk.Filter}, lk.Alias, lk.TargetCols, len(queryArgs)+1)
-			if err != nil {
-				return nil, err
-			}
-			if filterSQL != "" {
-				onSQL += " AND (" + filterSQL + ")"
-				queryArgs = append(queryArgs, filterArgs...)
-			}
-		}
-		fromSQL += fmt.Sprintf(` LEFT JOIN %s.%s AS %s ON %s`,
-			pgx.Identifier{lk.TargetSchema}.Sanitize(),
-			pgx.Identifier{lk.TargetTable}.Sanitize(),
-			pgx.Identifier{lk.Alias}.Sanitize(),
-			onSQL,
-		)
-		fromSQL += lk.ExtraFromSQL
 	}
 
 	var orders []query.OrderSpec
@@ -356,20 +398,15 @@ func (s *Data) executeQuery(ctx context.Context, spec querySpec) (resp *apiv1.Qu
 		orderClause = " ORDER BY " + orderSQL
 	}
 
-	limitArg := len(queryArgs) + 1
-	queryArgs = append(queryArgs, pageSize+1)
-
-	countSQL := fmt.Sprintf(`SELECT COUNT(*) FROM %s.%s AS %s%s`,
-		pgx.Identifier{schemaName}.Sanitize(),
-		pgx.Identifier{tableName}.Sanitize(),
-		pgx.Identifier{baseAlias}.Sanitize(),
-		whereSQL,
-	)
+	countSQL := fmt.Sprintf(`SELECT COUNT(*) FROM %s%s`, fromSQL, whereSQL)
 	var total int32
-	s.logSQL("count", tableID, countSQL, countArgs)
-	if err := data.QueryRow(ctx, countSQL, countArgs...).Scan(&total); err != nil {
+	s.logSQL("count", tableID, countSQL, args)
+	if err := data.QueryRow(ctx, countSQL, args...).Scan(&total); err != nil {
 		return nil, err
 	}
+
+	limitArg := len(args) + 1
+	queryArgs := append(append([]any{}, args...), pageSize+1)
 
 	querySQL := fmt.Sprintf(`SELECT %s FROM %s%s%s LIMIT $%d`,
 		columnSQL, fromSQL, whereSQL, orderClause, limitArg,
@@ -441,6 +478,16 @@ func (s *Data) executeQuery(ctx context.Context, spec querySpec) (resp *apiv1.Qu
 			if rollupVals[i] != nil && *rollupVals[i] != nil {
 				row.Cells[r.ColumnName] = shared.DBCellValue(*rollupVals[i], "")
 			}
+		}
+
+		if colAllow != nil {
+			filtered := make(map[string]*apiv1.Value, len(row.Cells))
+			for k, v := range row.Cells {
+				if columnAllowed(k, colAllow) {
+					filtered[k] = v
+				}
+			}
+			row.Cells = filtered
 		}
 
 		if len(spec.ExpandColumnIds) > 0 || len(spec.ExpandPaths) > 0 {

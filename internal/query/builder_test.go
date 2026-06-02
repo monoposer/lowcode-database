@@ -31,6 +31,21 @@ func TestBuildWhereIN(t *testing.T) {
 	}
 }
 
+func TestBuildWhereLIKEContains(t *testing.T) {
+	cols := []ColumnMeta{{ID: "name", Name: "name"}}
+	attrMap := AttrMapFromColumns("_b", cols)
+	sql, args, err := BuildWhere(dsl.Where{Type: "LIKE", Attr: "name", Val: "客"}, attrMap, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sql, " LIKE ") {
+		t.Fatalf("sql: %q", sql)
+	}
+	if len(args) != 1 || args[0] != "%客%" {
+		t.Fatalf("args: %v", args)
+	}
+}
+
 func TestBuildOrderBy(t *testing.T) {
 	cols := []ColumnMeta{{ID: "c1", Name: "name"}}
 	attrMap := AttrMapFromColumns("_b", cols)

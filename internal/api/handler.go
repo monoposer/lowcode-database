@@ -96,12 +96,12 @@ func (h *handler) dispatch() {
 		h.handleDeleteRelation()
 
 	// --- data sources (list / view definition + query) ---
-	case h.match("GET", "/v1/data-sources"):
-		h.handleListDataSources()
-	case h.match("POST", "/v1/data-sources"):
-		h.handleCreateDataSource()
 	case strings.HasPrefix(h.r.URL.Path, "/v1/data-sources/"):
 		h.handleDataSourcesSubtree()
+	case h.match("GET", "/v1/data-sources") && h.r.URL.Path == "/v1/data-sources":
+		h.handleListDataSources()
+	case h.match("POST", "/v1/data-sources") && h.r.URL.Path == "/v1/data-sources":
+		h.handleCreateDataSource()
 
 	default:
 		http.NotFound(h.w, h.r)

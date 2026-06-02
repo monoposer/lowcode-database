@@ -43,7 +43,11 @@ func (s *Data) resolveLookupTargetValue(
 	tableID, columnName, rowAlias string,
 	argAcc *argAccumulator,
 	visiting map[string]bool,
+	aliases *joinAliasRegistry,
 ) (resolvedLookupValue, error) {
+	if aliases == nil {
+		aliases = newJoinAliasRegistry()
+	}
 	key := tableID + ":" + columnName
 	if visiting[key] {
 		return resolvedLookupValue{}, fmt.Errorf("lookup target cycle at %q on table %q", columnName, tableID)
@@ -68,17 +72,17 @@ func (s *Data) resolveLookupTargetValue(
 
 	switch col.Kind {
 	case "lookup":
-		return s.resolveLookupColumnValue(ctx, tableID, col, rowAlias, argAcc, visiting)
+		return s.resolveLookupColumnValue(ctx, tableID, col, rowAlias, argAcc, visiting, aliases)
 	case "rollup":
 		return s.resolveRollupColumnValue(ctx, tableID, col, rowAlias, argAcc, allCols)
 	case "formula":
-		return s.resolveFormulaColumnValue(ctx, tableID, col.Name, rowAlias, argAcc, visiting, allCols)
+		return s.resolveFormulaColumnValue(ctx, tableID, col.Name, rowAlias, argAcc, visiting, allCols, aliases)
 	default:
 		if col.IsVirtual {
 			return resolvedLookupValue{}, fmt.Errorf("lookup target %q (%s) is not supported", columnName, col.Kind)
 		}
 		return resolvedLookupValue{
-			SelectExpr: pgx.Identifier{rowAlias}.Sanitize() + "." + pgx.Identifier{col.Name}.Sanitize(),
+			SelectExpr: quotedAlias(rowAlias) + "." + pgx.Identifier{col.Name}.Sanitize(),
 			PgType:     col.PgType,
 		}, nil
 	}
@@ -91,6 +95,7 @@ func (s *Data) resolveLookupColumnValue(
 	rowAlias string,
 	argAcc *argAccumulator,
 	visiting map[string]bool,
+	aliases *joinAliasRegistry,
 ) (resolvedLookupValue, error) {
 	relName := shared.CfgString(col.Config, "relation_column_id")
 	fieldName := shared.CfgString(col.Config, "target_column_id")
@@ -117,23 +122,25 @@ func (s *Data) resolveLookupColumnValue(
 	if err != nil {
 		return resolvedLookupValue{}, err
 	}
-	joinAlias := rowAlias + "_lk_" + col.Name
-	joinSQL := fmt.Sprintf(
-		` LEFT JOIN %s.%s AS %s ON %s.%s = %s.id`,
-		pgx.Identifier{tgtSchema}.Sanitize(),
-		pgx.Identifier{tgtTable}.Sanitize(),
-		pgx.Identifier{joinAlias}.Sanitize(),
-		pgx.Identifier{rowAlias}.Sanitize(),
-		pgx.Identifier{baseFKPg}.Sanitize(),
-		pgx.Identifier{joinAlias}.Sanitize(),
-	)
-	inner, err := s.resolveLookupTargetValue(ctx, rel.TargetTableId, fieldName, joinAlias, argAcc, visiting)
+	joinAlias, hopSQL := aliases.ensureHopJoin(rowAlias, tgtSchema, tgtTable, col.Name, func(a string) string {
+		return fmt.Sprintf(
+			`LEFT JOIN %s.%s AS %s ON %s.%s = %s.id`,
+			pgx.Identifier{tgtSchema}.Sanitize(),
+			pgx.Identifier{tgtTable}.Sanitize(),
+			quotedAlias(a),
+			quotedAlias(rowAlias),
+			pgx.Identifier{baseFKPg}.Sanitize(),
+			quotedAlias(a),
+		)
+	})
+	inner, err := s.resolveLookupTargetValue(ctx, rel.TargetTableId, fieldName, joinAlias, argAcc, visiting, aliases)
 	if err != nil {
 		return resolvedLookupValue{}, err
 	}
+	extra := hopSQL + inner.ExtraFrom
 	return resolvedLookupValue{
 		SelectExpr: inner.SelectExpr,
-		ExtraFrom:  joinSQL + inner.ExtraFrom,
+		ExtraFrom:  extra,
 		PgType:     inner.PgType,
 	}, nil
 }
@@ -177,8 +184,9 @@ func (s *Data) resolveFormulaColumnValue(
 	argAcc *argAccumulator,
 	visiting map[string]bool,
 	allCols []shared.FullColumnMeta,
+	aliases *joinAliasRegistry,
 ) (resolvedLookupValue, error) {
-	baseRefs, extraFrom, err := s.tableExprRefs(ctx, tableID, rowAlias, argAcc, visiting, allCols)
+	baseRefs, extraFrom, err := s.tableExprRefs(ctx, tableID, rowAlias, argAcc, visiting, allCols, aliases)
 	if err != nil {
 		return resolvedLookupValue{}, err
 	}
@@ -188,7 +196,7 @@ func (s *Data) resolveFormulaColumnValue(
 		return resolvedLookupValue{}, err
 	}
 	for _, st := range steps {
-		extraFrom += st.LateralJoinSQL()
+		extraFrom += aliases.appendJoin(st.LateralJoinSQL())
 	}
 	var selectExpr string
 	for _, st := range steps {
@@ -221,7 +229,11 @@ func (s *Data) tableExprRefs(
 	argAcc *argAccumulator,
 	visiting map[string]bool,
 	allCols []shared.FullColumnMeta,
+	aliases *joinAliasRegistry,
 ) (map[string]string, string, error) {
+	if aliases == nil {
+		aliases = newJoinAliasRegistry()
+	}
 	refs := map[string]string{}
 	var extraFrom strings.Builder
 	for _, c := range allCols {
@@ -236,7 +248,7 @@ func (s *Data) tableExprRefs(
 	for _, c := range allCols {
 		switch c.Kind {
 		case "lookup":
-			res, err := s.resolveLookupColumnValue(ctx, tableID, &c, rowAlias, argAcc, mapsCloneBool(visiting))
+			res, err := s.resolveLookupColumnValue(ctx, tableID, &c, rowAlias, argAcc, mapsCloneBool(visiting), aliases)
 			if err != nil {
 				return nil, "", err
 			}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/solat/lowcode-database/internal/api"
@@ -96,6 +97,27 @@ func TestHandlerCreateTableAndQuery(t *testing.T) {
 	}
 
 	_, _ = svc.DeleteTable(testutil.Ctx(), &apiv1.DeleteTableRequest{Id: tableName})
+}
+
+func TestHandlerDataSourceQueryNotCreate(t *testing.T) {
+	svc, cleanup := testutil.SetupIntegration(t)
+	defer cleanup()
+
+	h := api.NewHandler(svc)
+	body := []byte(`{"pageSize":10}`)
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/data-sources/nonexistent_ds:query?table_id=nonexistent_tbl",
+		bytes.NewReader(body),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-Id", "test")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code == http.StatusBadRequest && strings.Contains(w.Body.String(), "name is required") {
+		t.Fatalf("query route hit CreateDataSource: %s", w.Body.String())
+	}
 }
 
 func TestHandlerMissingTenant(t *testing.T) {
