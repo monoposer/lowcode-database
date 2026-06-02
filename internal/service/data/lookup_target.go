@@ -43,7 +43,11 @@ func (s *Data) resolveLookupTargetValue(
 	tableID, columnName, rowAlias string,
 	argAcc *argAccumulator,
 	visiting map[string]bool,
+	aliases *joinAliasRegistry,
 ) (resolvedLookupValue, error) {
+	if aliases == nil {
+		aliases = newJoinAliasRegistry()
+	}
 	key := tableID + ":" + columnName
 	if visiting[key] {
 		return resolvedLookupValue{}, fmt.Errorf("lookup target cycle at %q on table %q", columnName, tableID)
@@ -68,17 +72,17 @@ func (s *Data) resolveLookupTargetValue(
 
 	switch col.Kind {
 	case "lookup":
-		return s.resolveLookupColumnValue(ctx, tableID, col, rowAlias, argAcc, visiting)
+		return s.resolveLookupColumnValue(ctx, tableID, col, rowAlias, argAcc, visiting, aliases)
 	case "rollup":
 		return s.resolveRollupColumnValue(ctx, tableID, col, rowAlias, argAcc, allCols)
 	case "formula":
-		return s.resolveFormulaColumnValue(ctx, tableID, col.Name, rowAlias, argAcc, visiting, allCols)
+		return s.resolveFormulaColumnValue(ctx, tableID, col.Name, rowAlias, argAcc, visiting, allCols, aliases)
 	default:
 		if col.IsVirtual {
 			return resolvedLookupValue{}, fmt.Errorf("lookup target %q (%s) is not supported", columnName, col.Kind)
 		}
 		return resolvedLookupValue{
-			SelectExpr: pgx.Identifier{rowAlias}.Sanitize() + "." + pgx.Identifier{col.Name}.Sanitize(),
+			SelectExpr: quotedAlias(rowAlias) + "." + pgx.Identifier{col.Name}.Sanitize(),
 			PgType:     col.PgType,
 		}, nil
 	}
@@ -91,6 +95,7 @@ func (s *Data) resolveLookupColumnValue(
 	rowAlias string,
 	argAcc *argAccumulator,
 	visiting map[string]bool,
+	aliases *joinAliasRegistry,
 ) (resolvedLookupValue, error) {
 	relName := shared.CfgString(col.Config, "relation_column_id")
 	fieldName := shared.CfgString(col.Config, "target_column_id")
@@ -106,6 +111,28 @@ func (s *Data) resolveLookupColumnValue(
 		return resolvedLookupValue{}, fmt.Errorf("lookup %q: relationship %q not found", col.Name, relName)
 	}
 	rel := rels[0]
+	tgtSchema, tgtTable, err := s.tableSchemaName(ctx, rel.TargetTableId)
+	if err != nil {
+		return resolvedLookupValue{}, err
+	}
+	if rel.Cardinality == "many" && rel.LinkColumnId != "" {
+		linkPg, err := schema.New(s.B).ColumnPgColumnByRef(ctx, tid, rel.TargetTableId, rel.LinkColumnId)
+		if err != nil {
+			return resolvedLookupValue{}, err
+		}
+		inner, err := s.resolveLookupTargetValue(ctx, rel.TargetTableId, fieldName, "_r", argAcc, visiting, aliases)
+		if err != nil {
+			return resolvedLookupValue{}, err
+		}
+		arrayPgType := shared.ScalarPgTypeToArray(inner.PgType)
+		selectExpr := shared.LookupManyAggregateSQL(
+			inner.SelectExpr, linkPg, tgtSchema, tgtTable, rowAlias, "", inner.ExtraFrom, arrayPgType,
+		)
+		return resolvedLookupValue{
+			SelectExpr: selectExpr,
+			PgType:     arrayPgType,
+		}, nil
+	}
 	if rel.Cardinality != "one" || rel.TargetColumnId == "" {
 		return resolvedLookupValue{}, fmt.Errorf("lookup %q: relationship must be cardinality one", col.Name)
 	}
@@ -113,27 +140,25 @@ func (s *Data) resolveLookupColumnValue(
 	if err != nil {
 		return resolvedLookupValue{}, err
 	}
-	tgtSchema, tgtTable, err := s.tableSchemaName(ctx, rel.TargetTableId)
+	joinAlias, hopSQL := aliases.ensureHopJoin(rowAlias, tgtSchema, tgtTable, col.Name, func(a string) string {
+		return fmt.Sprintf(
+			`LEFT JOIN %s.%s AS %s ON %s.%s = %s.id`,
+			pgx.Identifier{tgtSchema}.Sanitize(),
+			pgx.Identifier{tgtTable}.Sanitize(),
+			quotedAlias(a),
+			quotedAlias(rowAlias),
+			pgx.Identifier{baseFKPg}.Sanitize(),
+			quotedAlias(a),
+		)
+	})
+	inner, err := s.resolveLookupTargetValue(ctx, rel.TargetTableId, fieldName, joinAlias, argAcc, visiting, aliases)
 	if err != nil {
 		return resolvedLookupValue{}, err
 	}
-	joinAlias := rowAlias + "_lk_" + col.Name
-	joinSQL := fmt.Sprintf(
-		` LEFT JOIN %s.%s AS %s ON %s.%s = %s.id`,
-		pgx.Identifier{tgtSchema}.Sanitize(),
-		pgx.Identifier{tgtTable}.Sanitize(),
-		pgx.Identifier{joinAlias}.Sanitize(),
-		pgx.Identifier{rowAlias}.Sanitize(),
-		pgx.Identifier{baseFKPg}.Sanitize(),
-		pgx.Identifier{joinAlias}.Sanitize(),
-	)
-	inner, err := s.resolveLookupTargetValue(ctx, rel.TargetTableId, fieldName, joinAlias, argAcc, visiting)
-	if err != nil {
-		return resolvedLookupValue{}, err
-	}
+	extra := hopSQL + inner.ExtraFrom
 	return resolvedLookupValue{
 		SelectExpr: inner.SelectExpr,
-		ExtraFrom:  joinSQL + inner.ExtraFrom,
+		ExtraFrom:  extra,
 		PgType:     inner.PgType,
 	}, nil
 }
@@ -177,18 +202,21 @@ func (s *Data) resolveFormulaColumnValue(
 	argAcc *argAccumulator,
 	visiting map[string]bool,
 	allCols []shared.FullColumnMeta,
+	aliases *joinAliasRegistry,
 ) (resolvedLookupValue, error) {
-	baseRefs, extraFrom, err := s.tableExprRefs(ctx, tableID, rowAlias, argAcc, visiting, allCols)
+	needed := collectFormulaNeededRefs(formulaName, allCols)
+	baseRefs, extraFrom, err := s.tableExprRefs(ctx, tableID, rowAlias, argAcc, visiting, allCols, aliases, needed)
 	if err != nil {
 		return resolvedLookupValue{}, err
 	}
-	defs := shared.FormulaDefs(allCols)
+	allDefs := shared.FormulaDefs(allCols)
+	defs := filterFormulaDefs(allDefs, needed)
 	steps, err := formulacompile.BuildSteps(rowAlias, baseRefs, defs)
 	if err != nil {
 		return resolvedLookupValue{}, err
 	}
 	for _, st := range steps {
-		extraFrom += st.LateralJoinSQL()
+		extraFrom += aliases.appendJoin(st.LateralJoinSQL())
 	}
 	var selectExpr string
 	for _, st := range steps {
@@ -215,16 +243,27 @@ func (s *Data) resolveFormulaColumnValue(
 }
 
 // tableExprRefs builds {{name}} → SQL refs for formulas/rollups/lookups on one table row alias.
+// When needed is non-nil, only columns in that set are resolved (virtual columns are skipped otherwise).
 func (s *Data) tableExprRefs(
 	ctx context.Context,
 	tableID, rowAlias string,
 	argAcc *argAccumulator,
 	visiting map[string]bool,
 	allCols []shared.FullColumnMeta,
+	aliases *joinAliasRegistry,
+	needed map[string]struct{},
 ) (map[string]string, string, error) {
+	if aliases == nil {
+		aliases = newJoinAliasRegistry()
+	}
 	refs := map[string]string{}
 	var extraFrom strings.Builder
 	for _, c := range allCols {
+		if needed != nil {
+			if _, ok := needed[c.Name]; !ok {
+				continue
+			}
+		}
 		if !c.IsVirtual && c.Kind != "relation_fk" {
 			refs[c.Name] = c.Name
 			continue
@@ -234,9 +273,14 @@ func (s *Data) tableExprRefs(
 		}
 	}
 	for _, c := range allCols {
+		if needed != nil {
+			if _, ok := needed[c.Name]; !ok {
+				continue
+			}
+		}
 		switch c.Kind {
 		case "lookup":
-			res, err := s.resolveLookupColumnValue(ctx, tableID, &c, rowAlias, argAcc, mapsCloneBool(visiting))
+			res, err := s.resolveLookupColumnValue(ctx, tableID, &c, rowAlias, argAcc, mapsCloneBool(visiting), aliases)
 			if err != nil {
 				return nil, "", err
 			}
@@ -251,6 +295,48 @@ func (s *Data) tableExprRefs(
 		}
 	}
 	return refs, extraFrom.String(), nil
+}
+
+func collectFormulaNeededRefs(formulaName string, allCols []shared.FullColumnMeta) map[string]struct{} {
+	exprByName := map[string]string{}
+	for _, c := range allCols {
+		if c.Kind != "formula" {
+			continue
+		}
+		if e := shared.FormulaExpression(c.Config); e != "" {
+			exprByName[c.Name] = e
+		}
+	}
+	needed := map[string]struct{}{}
+	var walk func(name string)
+	walk = func(name string) {
+		if _, ok := needed[name]; ok {
+			return
+		}
+		needed[name] = struct{}{}
+		expr, isFormula := exprByName[name]
+		if !isFormula {
+			return
+		}
+		for _, ref := range formulacompile.Refs(expr) {
+			walk(ref)
+		}
+	}
+	walk(formulaName)
+	return needed
+}
+
+func filterFormulaDefs(allDefs []formulacompile.Def, needed map[string]struct{}) []formulacompile.Def {
+	if len(needed) == 0 {
+		return allDefs
+	}
+	out := make([]formulacompile.Def, 0, len(allDefs))
+	for _, d := range allDefs {
+		if _, ok := needed[d.Name]; ok {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 func (s *Data) tableSchemaName(ctx context.Context, tableID string) (schemaName, tableName string, err error) {

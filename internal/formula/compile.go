@@ -12,7 +12,7 @@ import (
 var columnRefRe = regexp.MustCompile(`\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}`)
 
 // Compile parses an Excel / formulajs-style expression and returns PostgreSQL SQL.
-// Logical column names in {{name}} are mapped to alias.pg_column before calling pg-formula.
+// Logical column names in {{name}} are mapped to physical SQL identifiers before calling pg-formula.
 func Compile(expr, alias string, nameToPg map[string]string) (string, error) {
 	expr = strings.TrimSpace(expr)
 	if expr == "" {

@@ -28,10 +28,15 @@ func linkedTableFilterSQL(cfg map[string]any, alias string, cols []shared.Column
 	}
 	attrMap := map[string]string{}
 	aliasQ := pgx.Identifier{alias}.Sanitize()
+	attrPgTypes := map[string]string{}
 	for _, c := range cols {
 		colQ := aliasQ + "." + pgx.Identifier{c.Name}.Sanitize()
 		attrMap[c.Id] = colQ
 		attrMap[c.Name] = colQ
+		if c.PgType != "" {
+			attrPgTypes[c.Id] = c.PgType
+			attrPgTypes[c.Name] = c.PgType
+		}
 	}
-	return query.BuildWhere(w, attrMap, argStart)
+	return query.BuildWhereWithTypes(w, attrMap, attrPgTypes, argStart)
 }

@@ -49,3 +49,10 @@ func ValueString(v *Value) string {
 	}
 	return *v.StringValue
 }
+
+func ValueNumber(v *Value) float64 {
+	if v == nil || v.NumberValue == nil {
+		return 0
+	}
+	return *v.NumberValue
+}

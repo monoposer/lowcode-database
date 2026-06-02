@@ -75,6 +75,28 @@ func RollupAggregateSQL(aggregate, targetPgCol, linkPgCol, targetSchema, targetT
 	)`, fn, colExpr, schemaQ, tableQ, where)
 }
 
+// LookupManyAggregateSQL builds a correlated subquery that array_agg's a column from related rows (cardinality many).
+func LookupManyAggregateSQL(valueExpr, linkPgCol, targetSchema, targetTable, baseAlias, extraWhere, extraFrom, arrayPgType string) string {
+	schemaQ := pgx.Identifier{targetSchema}.Sanitize()
+	tableQ := pgx.Identifier{targetTable}.Sanitize()
+	linkQ := pgx.Identifier{linkPgCol}.Sanitize()
+	baseQ := pgx.Identifier{baseAlias}.Sanitize()
+	where := fmt.Sprintf(`_r.%s = %s.id`, linkQ, baseQ)
+	if strings.TrimSpace(extraWhere) != "" {
+		where += " AND (" + extraWhere + ")"
+	}
+	cast := strings.TrimSpace(arrayPgType)
+	if cast == "" {
+		cast = "text[]"
+	}
+	fromExtra := extraFrom
+	return fmt.Sprintf(`(
+		SELECT COALESCE(array_agg(%s ORDER BY _r.id), '{}'::%s)
+		FROM %s.%s AS _r%s
+		WHERE %s
+	)`, valueExpr, cast, schemaQ, tableQ, fromExtra, where)
+}
+
 func IsVirtualKind(kind string) bool {
 	return columntype.IsVirtualKind(kind)
 }

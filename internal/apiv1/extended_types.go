@@ -198,6 +198,8 @@ type QueryDataSourceRequest struct {
 	PageSize     int32          `json:"pageSize,omitempty"`
 	PageToken    string         `json:"pageToken,omitempty"`
 	Filter       map[string]any `json:"filter,omitempty"`
+	Params       map[string]any `json:"params,omitempty"`   // replaces {param} placeholders in data source filter
+	ColumnIds    []string       `json:"columnIds,omitempty"` // optional subset of data source column_names (view projection)
 }
 
 type QueryDataSourceResponse struct {

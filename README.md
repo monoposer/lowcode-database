@@ -5,9 +5,14 @@
 - **Type**：列类型定义
 - **Table**：动态创建/删除逻辑表
 - **Column**：按列增删改（底层 ALTER TABLE）
-- **Row/Cell**：创建/更新/删除单行和批量行
+- **Row/Cell**：创建/更新/删除单行；`bulkUpsert` / `bulkDelete` 批量写
 - **Index**：按列创建/删除索引
-- **Relationship**：虚拟列类型，支持一对多、多对一/一对一；ListRows 时可指定 `expand_column_ids` 带出子表/关联表数据
+- **Relationship / Lookup / Formula / Rollup**：虚拟列（只读投影或计算；写入见下文）
+- **relation_fk**：物理外键列，PG 类型与目标列一致，可选 `add_fk` 约束
+- **Choice（PG ENUM）**：自定义枚举列
+- **DataSource**：表视图（列投影 + filter + sort），`QueryDataSource` 查询
+- **Relation 注册表**：`lc_relations` + ER 图 API
+- **Relationship 展开**：ListRows 时 `expand_column_ids` / `expand_paths` 带出关联数据
 - **Webhook（类 NocoDB）**：行级变更后向配置的 URL 发送 HTTP POST（JSON），可订阅 `records.after.insert` 等事件；见下文
 - **HTTP JSON API**：`net/http` + `ServeMux`，路径 `/v1/*`（无 gRPC）
 - 支持 **单库模式** 与 **多租户（数据库级隔离）模式**
@@ -67,7 +72,13 @@ make run
 {
   "type": "records.after.insert",
   "tableId": "<逻辑表名>",
-  "data": { "row": { "id": "...", "cells": { } } }
+  "data": {
+    "row": {
+      "id": "...",
+      "amount": 99.5,
+      "name": "Acme"
+    }
+  }
 }
 ```
 
@@ -127,8 +138,8 @@ cp .env.example .env && npm install && npm run dev   # http://localhost:5173
 
 **ListRows — `expand_column_ids`**（relationship 列 id 列表，可多值 query 参数）：
 
-- `cardinality` 为 **many**：`cells[列id]` 为 JSON：`{ "rows": [ { "id", "cells" }, ... ] }`（与旧行为一致）。
-- `cardinality` 为 **one**：`cells[列id]` 为单个对象 `{ "id", "cells" }`；无关联行时为 JSON `null`。
+- `cardinality` 为 **many**：该 relationship 列的值为 `{ "rows": [ { "id", "cells": { "列名": 值 } }, ... ] }`。
+- `cardinality` 为 **one**：该列值为 `{ "id", "cells": { "列名": 值 } }`；无关联行时为 JSON `null`。
 
 HTTP 示例：`GET /v1/tables/{table_id}/rows?expand_column_ids=col-uuid-1&expand_column_ids=col-uuid-2`
 
@@ -141,7 +152,7 @@ HTTP 示例：`GET /v1/tables/{table_id}/rows?expand_column_ids=col-uuid-1&expan
 
 示例：`GET /v1/tables/{table_id}/rows?expand_paths=relToOrder.orderName`
 
-结果写入 `cells`，**键为完整路径字符串**（与 `expand_column_ids` 的列 id 键不冲突）：`cells["relToOrder.orderName"]`。
+结果写入行内对应键，**键为完整路径字符串**（如 `relToOrder.orderName`）。
 
 ### lookup（虚拟列）
 
@@ -150,11 +161,110 @@ HTTP 示例：`GET /v1/tables/{table_id}/rows?expand_column_ids=col-uuid-1&expan
 - `relation_column_id`：本表某 **relationship** 列 id（该列规范化后须为 `cardinality: one`）
 - `target_column_id`：关联表上要读取的**物理列** id
 
-**ListRows** 通过 `LEFT JOIN` 关联表在主查询中算出 lookup 值，写入 `cells[lookup列id]`；外键为空或关联缺失时为 JSON `null`。
+**ListRows** 通过 `LEFT JOIN` 关联表在主查询中算出 lookup 值，写入对应 lookup 列名键；外键为空或关联缺失时为 JSON `null`。
 
 HTTP 无需额外参数；只要表上存在 lookup 列，列表结果中会带上该虚拟列。
 
 创建 lookup 列时使用 `typeId: "lookup"`（内置列类型 id）。
+
+### relation_fk（物理外键列）
+
+列类型 **relation_fk** 在 data 库中创建**真实 PG 列**，类型与目标引用列一致（默认目标表 `id` 的 uuid/int8 等）。`config`：
+
+- `target_table_id`：目标表逻辑名（必填）
+- `target_column_id`：目标表被引用列（可选，默认 `id`）
+- `add_fk`：为 `true` 时追加 `FOREIGN KEY` 约束
+
+写入时与普通物理列相同，直接传标量 FK 值。与 **relationship** 虚拟列配合：many 关系在子表上通常用 uuid/text 列 + relationship 定义；跨表非 id 引用（如 vendor `legacy_id`）用 relation_fk。
+
+### formula / rollup（虚拟列，只读）
+
+- **formula**：`config.expression` 支持 `{{columnName}}` 引用同表物理列，ListRows / Query 时 SQL 计算。
+- **rollup**：在 relationship 上对子表字段聚合（count/sum 等），只读。
+
+## 行读写 JSON 格式
+
+创建、更新、ListRows 响应均使用**扁平行**：列名（或列 id）与 `id` 同级，标量值为原生 JSON 类型。
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "amount": 99.5,
+  "vendor_ref": 1001,
+  "vendor_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+创建行时可省略 `id`（由服务端生成）。适用于 `POST /v1/tables/{tableId}/rows`、`PATCH .../rows/{rowId}`、`POST .../rows:bulkUpsert`。
+
+### 写入规则
+
+| 列类型 | 能否写入 | 说明 |
+|--------|----------|------|
+| 标量（text/number/uuid/…） | 是 | 直接写 PG 列 |
+| choice（ENUM） | 是 | 值为枚举字符串 |
+| relation_fk | 是 | 写 FK 标量 |
+| relationship | **否** | 虚拟列；many 关系通过**子表 link 列**关联，one 关系通过**本表 target_column_id 物理列** |
+| lookup | **否**（单行 API） | 只读投影；应写 relationship 对应的 **FK 物理列**（如 `goodsId`） |
+| lookup | **是**（`rows:saveGraph`） | 可传 lookup 列名（如 `goods_name`），服务端按 schema 解析为 FK |
+| formula / rollup | **否** | 只读计算 |
+
+单行 API 写 lookup 列无效；`rows:saveGraph` 可传 lookup 列名或嵌套 one relationship 对象。
+
+### 常用行 API
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/v1/tables/{tableId}/rows` | 分页列表，支持 expand |
+| POST | `/v1/tables/{tableId}/rows` | 创建单行 |
+| PATCH | `/v1/tables/{tableId}/rows/{rowId}` | 更新单行 |
+| DELETE | `/v1/tables/{tableId}/rows/{rowId}` | 删除 |
+| POST | `/v1/tables/{tableId}/rows:query` | DSL 过滤查询 |
+| POST | `/v1/tables/{tableId}/rows:bulkUpsert` | 批量 insert/update（**单表**，事务内） |
+| POST | `/v1/tables/{tableId}/rows:saveGraph` | 嵌套保存主行 + relationship 子图（单事务） |
+| POST | `/v1/tables/{tableId}/rows:bulkDelete` | 批量按 id 删除 |
+
+## 嵌套保存 `rows:saveGraph`
+
+`POST /v1/tables/{tableId}/rows:saveGraph` 在单事务内保存主行及 relationship 嵌套数据。JSON 形状由 **relationship cardinality** 决定（schema 驱动）：
+
+| cardinality | payload 形状 | 行为 |
+|-------------|--------------|------|
+| **one**（如 `supply`） | object | 在关联表 create/update，写入本表 FK 列 |
+| **many**（如 `items`） | array | upsert 子行，自动填充 link 列 |
+
+**请求示例：**
+
+```json
+{
+  "order_remark": "rush",
+  "supply": { "code": "SUP-001" },
+  "items": [
+    { "qty": 2, "goods": { "name": "Apple" } },
+    { "qty": 1, "goods_name": "Banana" }
+  ]
+}
+```
+
+- **one 嵌套**（如 `supply`）：在 supply 表创建/更新行，并写入 `supply_id`。
+- **many 数组**（如 `items`）：upsert 子行；默认 merge（只增改）。整单替换子行时加 `"_sync": { "items": "replace" }`。
+- **lookup 列名**（如 `goods_name`）：按 schema 查已有行并写 FK（不 create）。
+- **lookup vs one 嵌套**：`supply: { "code": "..." }` 创建关联行；`supply_code: "..."` 仅引用已有行。显式 FK 列优先。
+- **formula / rollup**：忽略。
+
+**响应**与请求同形，在对应位置回填 `id` 及解析出的 FK（如 `supply_id`）：
+
+```json
+{
+  "id": "...",
+  "order_remark": "rush",
+  "supply_id": "...",
+  "supply": { "id": "...", "code": "SUP-001" },
+  "items": [
+    { "id": "...", "qty": 2, "goods_id": "...", "goods": { "id": "...", "name": "Apple" } }
+  ]
+}
+```
 
 ## 常用命令汇总
 

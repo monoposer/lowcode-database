@@ -3,10 +3,12 @@ package platform
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/solat/lowcode-database/internal/apiv1"
 	"github.com/solat/lowcode-database/internal/service/schema"
@@ -72,6 +74,10 @@ func (s *Platform) CreateDataSource(ctx context.Context, req *apiv1.CreateDataSo
 		tid, tableName, req.Name, req.Label, filter, sortJSON, colNames, cfg)
 	ds, err := scanDataSourceRow(row)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return nil, fmt.Errorf("data source %q already exists for this table", req.Name)
+		}
 		return nil, err
 	}
 	return &apiv1.CreateDataSourceResponse{DataSource: ds}, nil

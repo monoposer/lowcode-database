@@ -113,6 +113,14 @@ func PGValueToNative(v any, pgType string) any {
 				return f
 			}
 		}
+	case []string:
+		out := make([]any, len(t))
+		for i, s := range t {
+			out[i] = s
+		}
+		return out
+	case []any:
+		return t
 	default:
 		return fmt.Sprint(v)
 	}

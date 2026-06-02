@@ -78,16 +78,6 @@ func NewLowcodeService(tenants *db.TenantManager, maxRow int, hooks *webhook.Dis
 	}
 }
 
-// ValidateColumnName re-exports shared validation for cmd utilities.
-func ValidateColumnName(name string) error {
-	return shared.ValidateColumnName(name)
-}
-
-// ValidateTableName re-exports shared validation.
-func ValidateTableName(name string) error {
-	return shared.ValidateTableName(name)
-}
-
 // DataSourceQueryStats returns rolling average latency for a data source.
 func (s *LowcodeService) DataSourceQueryStats(ctx context.Context, dataSourceID string) (metrics.QueryStats, error) {
 	tid, err := s.Schema.B.TenantID(ctx)

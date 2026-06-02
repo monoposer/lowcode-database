@@ -100,6 +100,14 @@ func (h *handler) handleTableResource(tableID, tail string) {
 		body.TableId = tableID
 		resp, err := h.svc.BulkUpsertRows(h.r.Context(), &body)
 		h.writeJSON(resp, err)
+	case tail == "rows:saveGraph" && h.r.Method == http.MethodPost:
+		var body apiv1.SaveGraphRequest
+		if !h.readJSON(&body) {
+			return
+		}
+		body.TableId = tableID
+		resp, err := h.svc.SaveGraph(h.r.Context(), &body)
+		h.writeJSON(resp, err)
 	case tail == "rows:bulkDelete" && h.r.Method == http.MethodPost:
 		var body apiv1.BulkDeleteRowsRequest
 		if !h.readJSON(&body) {

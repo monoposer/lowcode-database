@@ -114,6 +114,12 @@ func (s *Schema) AddColumn(ctx context.Context, req *apiv1.AddColumnRequest) (*a
 
 	isVirtual := shared.IsVirtualKind(kind)
 
+	var errResult error
+	cfg, errResult = s.ApplyColumnResultType(ctx, tid, tableKey, req.Name, typeID, kind, cfg)
+	if errResult != nil {
+		return nil, errResult
+	}
+
 	if !isVirtual {
 		nullSQL := "NULL"
 		if !req.IsNullable {
@@ -189,6 +195,9 @@ func (s *Schema) AddColumn(ctx context.Context, req *apiv1.AddColumnRequest) (*a
 	if cfgOut != nil {
 		c.Config = cfgOut
 	}
+	if err := s.EnsureColumnResultType(ctx, tid, tableKey, &c); err != nil {
+		return nil, err
+	}
 	PublicColumn(&c)
 
 	s.B.InvalidateTableMetaCache(ctx, tableKey)
@@ -229,6 +238,9 @@ func (s *Schema) ListColumns(ctx context.Context, req *apiv1.ListColumnsRequest)
 		c.UpdatedAt = updatedAt
 		if cfg != nil {
 			c.Config = cfg
+		}
+		if err := s.EnsureColumnResultType(ctx, tid, tableName, &c); err != nil {
+			return nil, err
 		}
 		PublicColumn(&c)
 		res.Columns = append(res.Columns, &c)
@@ -334,6 +346,19 @@ func (s *Schema) UpdateColumn(ctx context.Context, req *apiv1.UpdateColumnReques
 			if err := s.ValidateFormulaExpression(ctx, tableKey, curName, expr); err != nil {
 				return nil, err
 			}
+		case "rollup":
+			norm, err := s.NormalizeRollupConfig(ctx, tid, tableKey, req.Config)
+			if err != nil {
+				return nil, err
+			}
+			cfgArg = norm
+		}
+		if cfgArg != nil {
+			var err error
+			cfgArg, err = s.ApplyColumnResultType(ctx, tid, tableKey, curName, curTypeID, columntype.Kind(curTypeID), cfgArg)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -412,6 +437,9 @@ func (s *Schema) UpdateColumn(ctx context.Context, req *apiv1.UpdateColumnReques
 	c.UpdatedAt = updatedAt
 	if cfgMap != nil {
 		c.Config = cfgMap
+	}
+	if err := s.EnsureColumnResultType(ctx, tid, c.TableId, &c); err != nil {
+		return nil, err
 	}
 	PublicColumn(&c)
 	s.B.InvalidateTableMetaCache(ctx, c.TableId)
