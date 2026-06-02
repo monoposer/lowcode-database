@@ -19,15 +19,15 @@ type Config struct {
 	DataDSNTemplate string
 
 	// DefaultTenantID + DefaultTenantDataDSN bootstrap one lc_tenants row on startup (e.g. single-tenant stack).
-	DefaultTenantID        string
-	DefaultTenantDataDSN   string
+	DefaultTenantID      string
+	DefaultTenantDataDSN string
 
 	HTTPAddr string
 	MaxRow   int
 
 	// Redis (optional): metadata cache + metrics backend
-	RedisURL       string
-	CacheEnabled   bool
+	RedisURL        string
+	CacheEnabled    bool
 	CacheTTLSeconds int
 
 	// MetricsBackend: noop | redis | prometheus
@@ -37,6 +37,8 @@ type Config struct {
 	// SlowQueryThresholdMS triggers warn logs when SQL exceeds this duration.
 	SlowQueryThresholdMS int
 	LogLevel             string
+	// LogSQL logs row-query SQL and bind args at info level (for local debugging).
+	LogSQL bool
 }
 
 // Load reads configuration from environment variables, optionally populating
@@ -45,20 +47,21 @@ func Load() (*Config, error) {
 	loadDotEnvIfPresent()
 
 	cfg := &Config{
-		MetaDatabaseURL:        firstNonEmpty(os.Getenv("META_DATABASE_URL"), os.Getenv("DATABASE_URL")),
-		DataAdminDatabaseURL:   os.Getenv("DATA_ADMIN_DATABASE_URL"),
-		DataDSNTemplate:        os.Getenv("DATA_DSN_TEMPLATE"),
-		DefaultTenantID:        getenvDefault("DEFAULT_TENANT_ID", "default"),
-		DefaultTenantDataDSN:   firstNonEmpty(os.Getenv("DEFAULT_TENANT_DATA_DSN"), os.Getenv("SINGLE_DATABASE_URL")),
-		HTTPAddr:               getenvDefault("HTTP_ADDR", ":8080"),
-		MaxRow:                 getenvInt("MAX_ROW", 100),
-		RedisURL:               os.Getenv("REDIS_URL"),
-		CacheEnabled:           getenvBool("CACHE_ENABLED", os.Getenv("REDIS_URL") != ""),
-		CacheTTLSeconds:        getenvInt("CACHE_TTL_SECONDS", 300),
-		MetricsBackend:         getenvDefault("METRICS_BACKEND", "noop"),
-		MetricsWindowSize:      getenvInt("METRICS_WINDOW_SIZE", 100),
-		SlowQueryThresholdMS:   getenvInt("SLOW_QUERY_THRESHOLD_MS", 500),
-		LogLevel:               getenvDefault("LOG_LEVEL", "info"),
+		MetaDatabaseURL:      firstNonEmpty(os.Getenv("META_DATABASE_URL"), os.Getenv("DATABASE_URL")),
+		DataAdminDatabaseURL: os.Getenv("DATA_ADMIN_DATABASE_URL"),
+		DataDSNTemplate:      os.Getenv("DATA_DSN_TEMPLATE"),
+		DefaultTenantID:      getenvDefault("DEFAULT_TENANT_ID", "default"),
+		DefaultTenantDataDSN: firstNonEmpty(os.Getenv("DEFAULT_TENANT_DATA_DSN"), os.Getenv("SINGLE_DATABASE_URL")),
+		HTTPAddr:             getenvDefault("HTTP_ADDR", ":8080"),
+		MaxRow:               getenvInt("MAX_ROW", 1000),
+		RedisURL:             os.Getenv("REDIS_URL"),
+		CacheEnabled:         getenvBool("CACHE_ENABLED", os.Getenv("REDIS_URL") != ""),
+		CacheTTLSeconds:      getenvInt("CACHE_TTL_SECONDS", 300),
+		MetricsBackend:       getenvDefault("METRICS_BACKEND", "noop"),
+		MetricsWindowSize:    getenvInt("METRICS_WINDOW_SIZE", 100),
+		SlowQueryThresholdMS: getenvInt("SLOW_QUERY_THRESHOLD_MS", 500),
+		LogLevel:             getenvDefault("LOG_LEVEL", "info"),
+		LogSQL:               getenvBool("LOG_SQL", false),
 	}
 
 	if cfg.MetaDatabaseURL == "" {

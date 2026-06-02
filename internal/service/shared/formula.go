@@ -14,6 +14,32 @@ func CompileFormulaExpression(expr, alias string, nameToPg map[string]string) (s
 	return formulacompile.Compile(expr, alias, nameToPg)
 }
 
+// FormulaDefs collects non-empty formula column definitions from table metadata.
+func FormulaDefs(cols []FullColumnMeta) []formulacompile.Def {
+	var defs []formulacompile.Def
+	for _, c := range cols {
+		if c.Kind != "formula" {
+			continue
+		}
+		expr := FormulaExpression(c.Config)
+		if expr == "" {
+			continue
+		}
+		defs = append(defs, formulacompile.Def{Name: c.Name, Expr: expr})
+	}
+	return defs
+}
+
+// FormulaRefAllowed reports whether {{column_name}} may reference this column in a formula.
+func FormulaRefAllowed(kind string) bool {
+	switch kind {
+	case "formula", "lookup", "rollup":
+		return true
+	default:
+		return !IsVirtualKind(kind)
+	}
+}
+
 func FormulaExpression(cfg map[string]any) string {
 	if cfg == nil {
 		return ""

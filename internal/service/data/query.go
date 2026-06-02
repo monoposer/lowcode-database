@@ -11,6 +11,8 @@ import (
 
 	"github.com/solat/lowcode-database/internal/apiv1"
 	"github.com/solat/lowcode-database/internal/dsl"
+	formulacompile "github.com/solat/lowcode-database/internal/formula"
+	"github.com/solat/lowcode-database/internal/logger"
 	"github.com/solat/lowcode-database/internal/query"
 	"github.com/solat/lowcode-database/internal/service/catalog"
 	"github.com/solat/lowcode-database/internal/service/platform"
@@ -222,12 +224,7 @@ func (s *Data) executeQuery(ctx context.Context, spec querySpec) (resp *apiv1.Qu
 
 	pageSize := normalizePageSize(spec.PageSize, s.B.MaxRow)
 
-	lookupSpecs, err := s.buildLookupJoinSpecs(ctx, tableID)
-	if err != nil {
-		return nil, err
-	}
-
-	formulaSpecs, rollupPlans, err := s.buildComputedSpecs(ctx, tableID, allCols)
+	rollupPlans, err := s.buildRollupPlans(ctx, tableID, allCols)
 	if err != nil {
 		return nil, err
 	}
@@ -244,14 +241,6 @@ func (s *Data) executeQuery(ctx context.Context, spec querySpec) (resp *apiv1.Qu
 		columnSQL += ", " + baseAlias + "." + pgx.Identifier{c.Name}.Sanitize()
 		qCols[i] = query.ColumnMeta{ID: c.Id, Name: c.Name, PgType: c.PgType}
 	}
-	for _, lk := range lookupSpecs {
-		columnSQL += ", " + pgx.Identifier{lk.Alias}.Sanitize() + "." + pgx.Identifier{lk.TargetPgCol}.Sanitize() +
-			" AS " + pgx.Identifier{"lkval_" + lk.LookupColumnName}.Sanitize()
-	}
-	for _, f := range formulaSpecs {
-		columnSQL += ", (" + f.SQL + ") AS " + pgx.Identifier{"f_" + f.ColumnName}.Sanitize()
-	}
-
 	attrMap := query.AttrMapFromColumns(baseAlias, qCols)
 	for _, c := range physCols {
 		attrMap[c.Id] = baseAlias + "." + pgx.Identifier{c.Name}.Sanitize()
@@ -290,19 +279,34 @@ func (s *Data) executeQuery(ctx context.Context, spec querySpec) (resp *apiv1.Qu
 	}
 
 	queryArgs := append([]any{}, countArgs...)
+	argAcc := &argAccumulator{args: &queryArgs}
+	lookupSpecs, err := s.buildLookupJoinSpecs(ctx, tableID, argAcc)
+	if err != nil {
+		return nil, err
+	}
 
 	type rollupComputed struct {
 		ColumnName string
 		SQL        string
 	}
 	var rollupComputedSpecs []rollupComputed
+	rollupSQLByName := map[string]string{}
 	for _, plan := range rollupPlans {
 		rSQL, rArgs, err := s.buildRollupSQL(plan, baseAlias, len(queryArgs)+1)
 		if err != nil {
 			return nil, err
 		}
 		rollupComputedSpecs = append(rollupComputedSpecs, rollupComputed{ColumnName: plan.ColumnName, SQL: rSQL})
+		rollupSQLByName[plan.ColumnName] = rSQL
 		queryArgs = append(queryArgs, rArgs...)
+	}
+
+	formulaSteps, err := s.buildFormulaSteps(allCols, baseAlias, lookupSpecs, rollupSQLByName)
+	if err != nil {
+		return nil, err
+	}
+	for _, step := range formulaSteps {
+		columnSQL += ", " + step.SelectRef() + " AS " + pgx.Identifier{"f_" + step.Name}.Sanitize()
 	}
 	for _, r := range rollupComputedSpecs {
 		columnSQL += ", (" + r.SQL + ") AS " + pgx.Identifier{"r_" + r.ColumnName}.Sanitize()
@@ -313,7 +317,11 @@ func (s *Data) executeQuery(ctx context.Context, spec querySpec) (resp *apiv1.Qu
 		pgx.Identifier{tableName}.Sanitize(),
 		pgx.Identifier{baseAlias}.Sanitize(),
 	)
+	for _, step := range formulaSteps {
+		fromSQL += step.LateralJoinSQL()
+	}
 	for _, lk := range lookupSpecs {
+		columnSQL += ", " + lk.SelectExpr + " AS " + pgx.Identifier{"lkval_" + lk.LookupColumnName}.Sanitize()
 		onSQL := fmt.Sprintf(`%s.%s = %s.id`,
 			pgx.Identifier{baseAlias}.Sanitize(),
 			pgx.Identifier{lk.BaseFKPgCol}.Sanitize(),
@@ -335,6 +343,7 @@ func (s *Data) executeQuery(ctx context.Context, spec querySpec) (resp *apiv1.Qu
 			pgx.Identifier{lk.Alias}.Sanitize(),
 			onSQL,
 		)
+		fromSQL += lk.ExtraFromSQL
 	}
 
 	var orders []query.OrderSpec
@@ -357,6 +366,7 @@ func (s *Data) executeQuery(ctx context.Context, spec querySpec) (resp *apiv1.Qu
 		whereSQL,
 	)
 	var total int32
+	s.logSQL("count", tableID, countSQL, countArgs)
 	if err := data.QueryRow(ctx, countSQL, countArgs...).Scan(&total); err != nil {
 		return nil, err
 	}
@@ -364,6 +374,7 @@ func (s *Data) executeQuery(ctx context.Context, spec querySpec) (resp *apiv1.Qu
 	querySQL := fmt.Sprintf(`SELECT %s FROM %s%s%s LIMIT $%d`,
 		columnSQL, fromSQL, whereSQL, orderClause, limitArg,
 	)
+	s.logSQL("select", tableID, querySQL, queryArgs)
 	rows, err := data.Query(ctx, querySQL, queryArgs...)
 	if err != nil {
 		return nil, err
@@ -373,7 +384,7 @@ func (s *Data) executeQuery(ctx context.Context, spec querySpec) (resp *apiv1.Qu
 	var out apiv1.QueryRowsResponse
 	var lastID string
 	for rows.Next() {
-		nScan := 1 + len(selCols) + len(lookupSpecs) + len(formulaSpecs) + len(rollupComputedSpecs)
+		nScan := 1 + len(selCols) + len(formulaSteps) + len(rollupComputedSpecs) + len(lookupSpecs)
 		scanTargets := make([]any, nScan)
 		var id string
 		scanTargets[0] = &id
@@ -383,22 +394,22 @@ func (s *Data) executeQuery(ctx context.Context, spec querySpec) (resp *apiv1.Qu
 			scanTargets[i+1] = values[i]
 		}
 		off := 1 + len(selCols)
-		lkVals := make([]*any, len(lookupSpecs))
-		for i := range lookupSpecs {
-			lkVals[i] = new(any)
-			scanTargets[off+i] = lkVals[i]
-		}
-		off += len(lookupSpecs)
-		formulaVals := make([]*any, len(formulaSpecs))
-		for i := range formulaSpecs {
+		formulaVals := make([]*any, len(formulaSteps))
+		for i := range formulaSteps {
 			formulaVals[i] = new(any)
 			scanTargets[off+i] = formulaVals[i]
 		}
-		off += len(formulaSpecs)
+		off += len(formulaSteps)
 		rollupVals := make([]*any, len(rollupComputedSpecs))
 		for i := range rollupComputedSpecs {
 			rollupVals[i] = new(any)
 			scanTargets[off+i] = rollupVals[i]
+		}
+		off += len(rollupComputedSpecs)
+		lkVals := make([]*any, len(lookupSpecs))
+		for i := range lookupSpecs {
+			lkVals[i] = new(any)
+			scanTargets[off+i] = lkVals[i]
 		}
 		if err := rows.Scan(scanTargets...); err != nil {
 			return nil, err
@@ -419,11 +430,11 @@ func (s *Data) executeQuery(ctx context.Context, spec querySpec) (resp *apiv1.Qu
 				row.Cells[lk.LookupColumnName] = &apiv1.Value{JsonValue: json.RawMessage("null")}
 			}
 		}
-		for i, f := range formulaSpecs {
+		for i, step := range formulaSteps {
 			if formulaVals[i] != nil && *formulaVals[i] != nil {
-				row.Cells[f.ColumnName] = shared.DBCellValue(*formulaVals[i], "")
+				row.Cells[step.Name] = shared.DBCellValue(*formulaVals[i], "")
 			} else {
-				row.Cells[f.ColumnName] = &apiv1.Value{JsonValue: json.RawMessage("null")}
+				row.Cells[step.Name] = &apiv1.Value{JsonValue: json.RawMessage("null")}
 			}
 		}
 		for i, r := range rollupComputedSpecs {
@@ -453,6 +464,18 @@ func (s *Data) executeQuery(ctx context.Context, spec querySpec) (resp *apiv1.Qu
 	return &out, nil
 }
 
+func (s *Data) logSQL(op, tableID, sql string, args []any) {
+	if s.B.Log == nil || !s.B.LogSQL {
+		return
+	}
+	s.B.Log.Info("sql query",
+		"op", op,
+		"table_id", tableID,
+		"sql", sql,
+		"args", logger.FormatSQLArgs(args),
+	)
+}
+
 func (s *Data) logQueryExecution(tableID string, start time.Time, rowCount int, total int32, err error) {
 	if s.B.Log == nil {
 		return
@@ -467,6 +490,10 @@ func (s *Data) logQueryExecution(tableID string, start time.Time, rowCount int, 
 	if err != nil {
 		attrs = append(attrs, "error", err.Error())
 		s.B.Log.Warn("query failed", attrs...)
+		return
+	}
+	if s.B.LogSQL {
+		s.B.Log.Info("query done", attrs...)
 		return
 	}
 	if duration >= s.B.SlowQueryThreshold {
@@ -488,11 +515,6 @@ func normalizePageSize(pageSize, maxRow int32) int32 {
 		pageSize = 100
 	}
 	return pageSize
-}
-
-type formulaSpec struct {
-	ColumnName string
-	SQL        string
 }
 
 type rollupPlan struct {
@@ -521,28 +543,44 @@ func (s *Data) buildRollupSQL(plan rollupPlan, baseAlias string, argStart int) (
 	return sql, args, nil
 }
 
-func (s *Data) buildComputedSpecs(ctx context.Context, tableID string, allCols []shared.FullColumnMeta) ([]formulaSpec, []rollupPlan, error) {
-	const baseAlias = "_b"
+func (s *Data) buildFormulaSteps(
+	allCols []shared.FullColumnMeta,
+	baseAlias string,
+	lookupSpecs []lookupJoinSpec,
+	rollupSQLByName map[string]string,
+) ([]formulacompile.Step, error) {
+	defs := shared.FormulaDefs(allCols)
+	if len(defs) == 0 {
+		return nil, nil
+	}
+	baseRefs := s.formulaNameToPg(allCols, lookupSpecs, rollupSQLByName)
+	return formulacompile.BuildSteps(baseAlias, baseRefs, defs)
+}
+
+func (s *Data) formulaNameToPg(
+	allCols []shared.FullColumnMeta,
+	lookupSpecs []lookupJoinSpec,
+	rollupSQLByName map[string]string,
+) map[string]string {
 	nameToPg := map[string]string{}
 	for _, c := range allCols {
-		if !c.IsVirtual {
+		if shared.FormulaRefAllowed(c.Kind) {
 			nameToPg[c.Name] = c.Name
 		}
 	}
-	var formulas []formulaSpec
+	for _, lk := range lookupSpecs {
+		nameToPg[lk.LookupColumnName] = lk.SelectExpr
+	}
+	for name, sql := range rollupSQLByName {
+		nameToPg[name] = sql
+	}
+	return nameToPg
+}
+
+func (s *Data) buildRollupPlans(ctx context.Context, tableID string, allCols []shared.FullColumnMeta) ([]rollupPlan, error) {
 	var rollups []rollupPlan
 	for _, c := range allCols {
 		switch c.Kind {
-		case "formula":
-			expr := shared.FormulaExpression(c.Config)
-			if expr == "" {
-				continue
-			}
-			sql, err := shared.CompileFormulaExpression(expr, baseAlias, nameToPg)
-			if err != nil {
-				return nil, nil, err
-			}
-			formulas = append(formulas, formulaSpec{ColumnName: c.Name, SQL: sql})
 		case "rollup":
 			relID := shared.CfgString(c.Config, "relation_column_id")
 			fieldID := shared.CfgString(c.Config, "target_column_id")
@@ -589,7 +627,7 @@ func (s *Data) buildComputedSpecs(ctx context.Context, tableID string, allCols [
 			})
 		}
 	}
-	return formulas, rollups, nil
+	return rollups, nil
 }
 
 func filterPhysicalCols(all []shared.FullColumnMeta) []shared.ColumnMeta {

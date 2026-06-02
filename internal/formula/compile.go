@@ -22,7 +22,7 @@ func Compile(expr, alias string, nameToPg map[string]string) (string, error) {
 		alias = "_b"
 	}
 
-	rewritten, err := rewriteColumnRefs(expr, alias, nameToPg)
+	rewritten, sqlExprs, err := rewriteColumnRefs(expr, alias, nameToPg)
 	if err != nil {
 		return "", err
 	}
@@ -32,10 +32,14 @@ func Compile(expr, alias string, nameToPg map[string]string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("formula: %w", err)
 	}
+	for placeholder, subSQL := range sqlExprs {
+		sql = strings.ReplaceAll(sql, placeholder, subSQL)
+	}
 	return sql, nil
 }
 
-func rewriteColumnRefs(expr, alias string, nameToPg map[string]string) (string, error) {
+func rewriteColumnRefs(expr, alias string, nameToPg map[string]string) (string, map[string]string, error) {
+	sqlExprs := map[string]string{}
 	var err error
 	out := columnRefRe.ReplaceAllStringFunc(expr, func(m string) string {
 		if err != nil {
@@ -51,13 +55,31 @@ func rewriteColumnRefs(expr, alias string, nameToPg map[string]string) (string, 
 			err = fmt.Errorf("formula references unknown column %q", sub[1])
 			return m
 		}
-		// pg-formula: {{table.col}} → table.col in SQL output
-		return "{{" + alias + "." + pg + "}}"
+		ref, placeholder, isSQL := formatColumnRef(alias, sub[1], pg)
+		if isSQL {
+			sqlExprs[placeholder] = strings.TrimSpace(pg)
+		}
+		return ref
 	})
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return out, nil
+	return out, sqlExprs, nil
+}
+
+// formatColumnRef maps a logical column to pg-formula reference syntax.
+// SQL subexpressions (rollup) use a placeholder token replaced after ToPostgres.
+// Qualified names (lookup join) pass through as table.column.
+func formatColumnRef(alias, logicalName, pg string) (ref string, sqlPlaceholder string, isSQL bool) {
+	trimmed := strings.TrimSpace(pg)
+	if strings.HasPrefix(trimmed, "(") {
+		placeholder := alias + ".__lc_" + logicalName + "__"
+		return "{{" + placeholder + "}}", placeholder, true
+	}
+	if strings.Contains(pg, ".") {
+		return "{{" + pg + "}}", "", false
+	}
+	return "{{" + alias + "." + pg + "}}", "", false
 }
 
 // normalizeSingleQuotedStrings maps SQL-style 'text' literals to Excel "text" for pg-formula.

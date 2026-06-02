@@ -67,3 +67,47 @@ func TestCompileLeadingEquals(t *testing.T) {
 		t.Fatalf("got %q", sql)
 	}
 }
+
+func TestCompileRollupSubqueryRef(t *testing.T) {
+	rollupSQL := `(
+		SELECT COUNT(*) FROM public.orders AS _r
+		WHERE _r.vendor_id = _b.id
+	)`
+	sql, err := Compile("CONCAT({{goods_count}}, '+1')", "_b", map[string]string{
+		"goods_count": rollupSQL,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sql, "COUNT(*)") || !strings.Contains(sql, "'+1'") {
+		t.Fatalf("expected rollup subquery in SQL, got %q", sql)
+	}
+	if strings.Contains(sql, "__lc_goods_count__") {
+		t.Fatalf("placeholder must be replaced, got %q", sql)
+	}
+}
+
+func TestCompileFormulaRefUsesStub(t *testing.T) {
+	sql, err := Compile("{{base}} + {{other}}", "_b", map[string]string{
+		"base":  "score",
+		"other": StubRef("other"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sql, "_b.score") {
+		t.Fatalf("got %q", sql)
+	}
+}
+
+func TestCompileLookupQualifiedRef(t *testing.T) {
+	sql, err := Compile("CONCAT({{username}}, '-x')", "_b", map[string]string{
+		"username": "lk_user.username",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sql, "lk_user.username") {
+		t.Fatalf("got %q", sql)
+	}
+}

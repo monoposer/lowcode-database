@@ -1,17 +1,17 @@
 package schema
 
 import (
-	"github.com/solat/lowcode-database/internal/service/shared"
 	"context"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/solat/lowcode-database/internal/columntype"
+	"github.com/solat/lowcode-database/internal/service/shared"
 )
 
 // ValidateLookupColumnConfig ensures lookup points at a same-table relationship (cardinality one)
-// and a physical column on the related table. Config column refs must be logical names.
+// and a supported column on the related table (physical, formula, lookup, or rollup).
 func (s *Schema) ValidateLookupColumnConfig(ctx context.Context, tenantID, tableKey string, cfg map[string]any) error {
 	relColName := shared.CfgString(cfg, "relation_column_id")
 	fieldColName := shared.CfgString(cfg, "target_column_id")
@@ -53,12 +53,63 @@ func (s *Schema) ValidateLookupColumnConfig(ctx context.Context, tenantID, table
 		fieldColName, tenantID, resolvedTarget,
 	).Scan(&fieldTypeID); err != nil {
 		if err == pgx.ErrNoRows {
-			return fmt.Errorf("lookup target_column_id must be a physical column on the related table %q", resolvedTarget)
+			return fmt.Errorf("lookup target_column_id %q not found on related table %q", fieldColName, resolvedTarget)
 		}
 		return err
 	}
-	if columntype.IsVirtual(fieldTypeID) {
-		return fmt.Errorf("lookup target_column_id must be a physical column on the related table %q", resolvedTarget)
+	kind := columntype.Kind(fieldTypeID)
+	if !shared.LookupTargetAllowed(kind) {
+		return fmt.Errorf("lookup target_column_id %q (%s) cannot be used as a lookup target", fieldColName, fieldTypeID)
+	}
+	if kind == "lookup" {
+		if err := s.validateLookupTargetChain(ctx, tenantID, resolvedTarget, fieldColName, nil); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+func (s *Schema) validateLookupTargetChain(ctx context.Context, tenantID, tableKey, colName string, stack map[string]bool) error {
+	if stack == nil {
+		stack = make(map[string]bool)
+	}
+	key := tableKey + ":" + colName
+	if stack[key] {
+		return fmt.Errorf("lookup target cycle involving %q on table %q", colName, tableKey)
+	}
+	stack[key] = true
+	defer delete(stack, key)
+
+	meta := s.B.Tenants.MetaPool()
+	var typeID string
+	var cfg map[string]any
+	err := meta.QueryRow(ctx, `
+		SELECT type_id, config FROM lc_columns
+		WHERE name = $1 AND tenant_id = $2 AND table_id = $3`,
+		colName, tenantID, tableKey,
+	).Scan(&typeID, &cfg)
+	if err != nil {
+		return err
+	}
+	if columntype.Kind(typeID) != "lookup" {
+		return nil
+	}
+	relName := shared.CfgString(cfg, "relation_column_id")
+	targetCol := shared.CfgString(cfg, "target_column_id")
+	if relName == "" || targetCol == "" {
+		return fmt.Errorf("lookup %q: incomplete config", colName)
+	}
+	var relCfg map[string]any
+	if err := meta.QueryRow(ctx, `
+		SELECT config FROM lc_columns
+		WHERE name = $1 AND tenant_id = $2 AND table_id = $3 AND type_id = 'relationship'`,
+		relName, tenantID, tableKey,
+	).Scan(&relCfg); err != nil {
+		return err
+	}
+	targetTable, err := s.B.ResolveTableName(ctx, shared.CfgString(relCfg, "target_table_id"))
+	if err != nil {
+		return err
+	}
+	return s.validateLookupTargetChain(ctx, tenantID, targetTable, targetCol, stack)
 }

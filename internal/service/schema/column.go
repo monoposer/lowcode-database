@@ -107,7 +107,7 @@ func (s *Schema) AddColumn(ctx context.Context, req *apiv1.AddColumnRequest) (*a
 		if expr == "" {
 			return nil, fmt.Errorf("formula column requires config.expression")
 		}
-		if err := s.ValidateFormulaExpression(ctx, tableKey, expr); err != nil {
+		if err := s.ValidateFormulaExpression(ctx, tableKey, req.Name, expr); err != nil {
 			return nil, err
 		}
 	}
@@ -331,7 +331,7 @@ func (s *Schema) UpdateColumn(ctx context.Context, req *apiv1.UpdateColumnReques
 			if expr == "" {
 				return nil, fmt.Errorf("formula column requires config.expression")
 			}
-			if err := s.ValidateFormulaExpression(ctx, tableKey, expr); err != nil {
+			if err := s.ValidateFormulaExpression(ctx, tableKey, curName, expr); err != nil {
 				return nil, err
 			}
 		}
