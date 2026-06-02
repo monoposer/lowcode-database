@@ -58,6 +58,12 @@ func WithLogger(l *logger.Logger, slowQueryThreshold time.Duration) Option {
 	}
 }
 
+func WithLogSQL(enabled bool) Option {
+	return func(b *shared.Base) {
+		b.LogSQL = enabled
+	}
+}
+
 func NewLowcodeService(tenants *db.TenantManager, maxRow int, hooks *webhook.Dispatcher, opts ...Option) *LowcodeService {
 	base := shared.NewBase(tenants, maxRow, hooks)
 	for _, opt := range opts {

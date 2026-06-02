@@ -20,6 +20,7 @@ type Base struct {
 	DSMetrics          metrics.DataSourceMetrics
 	Log                *logger.Logger
 	SlowQueryThreshold time.Duration
+	LogSQL             bool
 }
 
 func NewBase(tenants *db.TenantManager, maxRow int, hooks *webhook.Dispatcher) *Base {

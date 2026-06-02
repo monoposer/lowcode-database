@@ -188,14 +188,15 @@ type lookupJoinSpec struct {
 	Alias             string
 	TargetSchema      string
 	TargetTable       string
-	TargetPgCol       string
+	SelectExpr        string
 	TargetValuePgType string
 	BaseFKPgCol       string
 	Filter            map[string]any
 	TargetCols        []shared.ColumnMeta
+	ExtraFromSQL      string
 }
 
-func (s *Data) buildLookupJoinSpecs(ctx context.Context, tableID string) ([]lookupJoinSpec, error) {
+func (s *Data) buildLookupJoinSpecs(ctx context.Context, tableID string, argAcc *argAccumulator) ([]lookupJoinSpec, error) {
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
@@ -240,18 +241,8 @@ func (s *Data) buildLookupJoinSpecs(ctx context.Context, tableID string) ([]look
 		if baseFKPg, err = schema.New(s.B).ColumnPgColumnByRef(ctx, tid, tableID, rel.TargetColumnId); err != nil {
 			continue
 		}
-		targetResolved, err := s.B.ResolveTableName(ctx, rel.TargetTableId)
+		tgtSchema, tgtTable, err := s.tableSchemaName(ctx, rel.TargetTableId)
 		if err != nil {
-			continue
-		}
-		var tgtSchema, tgtTable, tgtCol string
-		if err := meta.QueryRow(ctx, `
-			SELECT t.schema_name, t.name, c.name
-			FROM lc_columns c
-			JOIN lc_tables t ON c.table_id = t.name AND c.tenant_id = t.tenant_id
-			WHERE c.name = $1 AND c.tenant_id = $2 AND c.table_id = $3`,
-			fieldID, tid, targetResolved,
-		).Scan(&tgtSchema, &tgtTable, &tgtCol); err != nil {
 			continue
 		}
 		short := strings.ReplaceAll(colName, "-", "")
@@ -267,9 +258,22 @@ func (s *Data) buildLookupJoinSpecs(ctx context.Context, tableID string) ([]look
 		if err != nil {
 			continue
 		}
-		var tgtValuePgType string
-		for _, tc := range targetCols {
-			if tc.Name == tgtCol || tc.Name == fieldID {
+		resolved, err := s.resolveLookupTargetValue(ctx, rel.TargetTableId, fieldID, alias, argAcc, map[string]bool{})
+		if err != nil {
+			return nil, fmt.Errorf("lookup %q: %w", colName, err)
+		}
+		tgtValuePgType := resolved.PgType
+		if tgtValuePgType == "" {
+			for _, tc := range targetCols {
+				if tc.Name == fieldID {
+					tgtValuePgType = tc.PgType
+					break
+				}
+			}
+		}
+		allTarget, _, _, _ := catalog.New(s.B).LoadAllColumnMeta(ctx, rel.TargetTableId)
+		for _, tc := range allTarget {
+			if tc.Name == fieldID && tc.PgType != "" {
 				tgtValuePgType = tc.PgType
 				break
 			}
@@ -279,11 +283,12 @@ func (s *Data) buildLookupJoinSpecs(ctx context.Context, tableID string) ([]look
 			Alias:             alias,
 			TargetSchema:      tgtSchema,
 			TargetTable:       tgtTable,
-			TargetPgCol:       tgtCol,
+			SelectExpr:        resolved.SelectExpr,
 			TargetValuePgType: tgtValuePgType,
 			BaseFKPgCol:       baseFKPg,
 			Filter:            filter,
 			TargetCols:        targetCols,
+			ExtraFromSQL:      resolved.ExtraFrom,
 		})
 	}
 	return specs, rows.Err()

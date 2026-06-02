@@ -95,7 +95,11 @@ func main() {
 		service.WithCache(metaCache, time.Duration(cfg.CacheTTLSeconds)*time.Second),
 		service.WithMetrics(dsMetrics),
 		service.WithLogger(appLog, time.Duration(cfg.SlowQueryThresholdMS)*time.Millisecond),
+		service.WithLogSQL(cfg.LogSQL),
 	)
+	if cfg.LogSQL {
+		appLog.Info("sql logging enabled", "env", "LOG_SQL")
+	}
 
 	mux := http.NewServeMux()
 	mux.Handle("/v1/", api.NewHandler(lcSvc))
