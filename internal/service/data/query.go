@@ -330,6 +330,9 @@ func (s *Data) executeQuery(ctx context.Context, spec querySpec) (resp *apiv1.Qu
 	}
 	hostRelJoined := map[string]struct{}{}
 	for _, lk := range lookupSpecs {
+		if lk.Cardinality == "many" {
+			continue
+		}
 		relKey := hostRelJoinKey(lk.TargetSchema, lk.TargetTable, lk.BaseFKPgCol)
 		if _, done := hostRelJoined[relKey]; !done {
 			onSQL := fmt.Sprintf(`%s.%s = %s.id`,
@@ -363,7 +366,20 @@ func (s *Data) executeQuery(ctx context.Context, spec querySpec) (resp *apiv1.Qu
 		return nil, fmt.Errorf("filter: %w", err)
 	}
 	if filterWhere.Type != "" {
-		wSQL, wArgs, err := query.BuildWhere(filterWhere, attrMap, len(args)+1)
+		attrPgTypes := map[string]string{}
+		for _, c := range physCols {
+			if c.PgType == "" {
+				continue
+			}
+			attrPgTypes[c.Id] = c.PgType
+			attrPgTypes[c.Name] = c.PgType
+		}
+		for _, lk := range lookupSpecs {
+			if lk.TargetValuePgType != "" {
+				attrPgTypes[lk.LookupColumnName] = lk.TargetValuePgType
+			}
+		}
+		wSQL, wArgs, err := query.BuildWhereWithTypes(filterWhere, attrMap, attrPgTypes, len(args)+1)
 		if err != nil {
 			return nil, err
 		}

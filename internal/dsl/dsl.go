@@ -9,7 +9,7 @@ import (
 
 // Where is a parsed filter node.
 type Where struct {
-	Type string // AND, OR, EQ, NEQ, IN, NIN, LIKE, GT, GTE, LT, LTE, EMPTY, NOT_EMPTY
+	Type string // AND, OR, EQ, NEQ, IN, NIN, LIKE, GT, GTE, LT, LTE, EMPTY, NOT_EMPTY, ARRAY_HAS, ARRAY_NOT_HAS, ARRAY_OVERLAP, ARRAY_NOT_OVERLAP, ARRAY_CONTAINS, ARRAY_NOT_CONTAINS
 	Attr string
 	Val  any
 	Vals []Where
@@ -77,7 +77,13 @@ func parseNode(m map[string]any) (Where, error) {
 			return Where{}, fmt.Errorf("filter %s requires attr", t)
 		}
 		return Where{Type: t, Attr: attr, Val: m["val"]}, nil
-	case "IN", "NIN":
+	case "IN", "NIN", "ARRAY_OVERLAP", "ARRAY_NOT_OVERLAP", "ARRAY_CONTAINS", "ARRAY_NOT_CONTAINS":
+		attr, _ := m["attr"].(string)
+		if attr == "" {
+			return Where{}, fmt.Errorf("filter %s requires attr", t)
+		}
+		return Where{Type: t, Attr: attr, Val: m["val"]}, nil
+	case "ARRAY_HAS", "ARRAY_NOT_HAS":
 		attr, _ := m["attr"].(string)
 		if attr == "" {
 			return Where{}, fmt.Errorf("filter %s requires attr", t)

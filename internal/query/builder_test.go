@@ -46,6 +46,101 @@ func TestBuildWhereLIKEContains(t *testing.T) {
 	}
 }
 
+func TestBuildWhereArrayHas(t *testing.T) {
+	cols := []ColumnMeta{{ID: "tags", Name: "multi_select", PgType: "text[]"}}
+	attrMap := AttrMapFromColumns("_b", cols)
+	attrTypes := AttrPgTypesFromColumns(cols)
+	sql, args, err := BuildWhereWithTypes(
+		dsl.Where{Type: "ARRAY_HAS", Attr: "tags", Val: "数据1"},
+		attrMap, attrTypes, 1,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sql, "@> ARRAY[$1]::text[]") {
+		t.Fatalf("sql: %q", sql)
+	}
+	if len(args) != 1 || args[0] != "数据1" {
+		t.Fatalf("args: %v", args)
+	}
+}
+
+func TestBuildWhereArrayOverlap(t *testing.T) {
+	cols := []ColumnMeta{{ID: "tags", Name: "multi_select", PgType: "text[]"}}
+	attrMap := AttrMapFromColumns("_b", cols)
+	attrTypes := AttrPgTypesFromColumns(cols)
+	sql, args, err := BuildWhereWithTypes(
+		dsl.Where{Type: "ARRAY_OVERLAP", Attr: "tags", Val: []any{"a", "b"}},
+		attrMap, attrTypes, 1,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sql, " && ") || !strings.Contains(sql, "text[]") {
+		t.Fatalf("sql: %q", args)
+	}
+	if len(args) != 1 {
+		t.Fatalf("args: %v", args)
+	}
+}
+
+func TestBuildWhereArrayHasVirtualLookup(t *testing.T) {
+	subquery := `(SELECT COALESCE(array_agg(_r."name"), '{}'::text[]) FROM child _r WHERE _r.order_id = _b.id)`
+	attrMap := map[string]string{"goods_name": subquery}
+	attrTypes := map[string]string{"goods_name": "text[]"}
+	sql, args, err := BuildWhereWithTypes(
+		dsl.Where{Type: "ARRAY_HAS", Attr: "goods_name", Val: "商品"},
+		attrMap, attrTypes, 1,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sql, "@> ARRAY[$1]::text[]") {
+		t.Fatalf("sql: %q", sql)
+	}
+	if len(args) != 1 || args[0] != "商品" {
+		t.Fatalf("args: %v", args)
+	}
+}
+
+func TestBuildWhereLIKEOnArrayColumn(t *testing.T) {
+	cols := []ColumnMeta{{ID: "tags", Name: "multi_select", PgType: "text[]"}}
+	attrMap := AttrMapFromColumns("_b", cols)
+	attrTypes := AttrPgTypesFromColumns(cols)
+	sql, _, err := BuildWhereWithTypes(
+		dsl.Where{Type: "LIKE", Attr: "tags", Val: "数据1"},
+		attrMap, attrTypes, 1,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(sql, " LIKE ") {
+		t.Fatalf("expected @> not LIKE, sql: %q", sql)
+	}
+	if !strings.Contains(sql, "@> ARRAY[$1]::text[]") {
+		t.Fatalf("sql: %q", sql)
+	}
+}
+
+func TestBuildWhereArrayNotHas(t *testing.T) {
+	cols := []ColumnMeta{{ID: "tags", Name: "multi_select", PgType: "text[]"}}
+	attrMap := AttrMapFromColumns("_b", cols)
+	attrTypes := AttrPgTypesFromColumns(cols)
+	sql, args, err := BuildWhereWithTypes(
+		dsl.Where{Type: "ARRAY_NOT_HAS", Attr: "tags", Val: "数据1"},
+		attrMap, attrTypes, 1,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sql, "NOT (") || !strings.Contains(sql, "@> ARRAY[$1]::text[]") {
+		t.Fatalf("sql: %q", sql)
+	}
+	if len(args) != 1 || args[0] != "数据1" {
+		t.Fatalf("args: %v", args)
+	}
+}
+
 func TestBuildOrderBy(t *testing.T) {
 	cols := []ColumnMeta{{ID: "c1", Name: "name"}}
 	attrMap := AttrMapFromColumns("_b", cols)

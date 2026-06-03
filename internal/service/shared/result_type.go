@@ -102,3 +102,50 @@ func RollupResultTypeId(aggregate, targetResultType string) string {
 		return "number"
 	}
 }
+
+// ScalarResultTypeToArray maps a scalar result type id to its array counterpart (many-cardinality lookup).
+func ScalarResultTypeToArray(scalar string) string {
+	if IsArrayResultType(scalar) {
+		return scalar
+	}
+	switch scalar {
+	case "int8", "integer", "number":
+		return "int8_array"
+	case "double", "precision", "numeric":
+		return "double_array"
+	case "bool":
+		return "bool_array"
+	case "json", "jsonb":
+		return "jsonb_array"
+	case "uuid":
+		return "uuid_array"
+	case "timestamptz", "timestamp", "date":
+		return "timestamptz_array"
+	default:
+		return "text_array"
+	}
+}
+
+// ScalarPgTypeToArray maps a scalar PostgreSQL type to an array pg type for array_agg.
+func ScalarPgTypeToArray(pgType string) string {
+	pgType = strings.TrimSpace(pgType)
+	if strings.HasSuffix(pgType, "[]") {
+		return pgType
+	}
+	switch strings.ToLower(pgType) {
+	case "bigint", "int8":
+		return "bigint[]"
+	case "double precision", "float8":
+		return "double precision[]"
+	case "boolean", "bool":
+		return "boolean[]"
+	case "uuid":
+		return "uuid[]"
+	case "timestamptz", "timestamp with time zone":
+		return "timestamptz[]"
+	case "jsonb", "json":
+		return "jsonb[]"
+	default:
+		return "text[]"
+	}
+}

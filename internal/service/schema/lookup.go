@@ -10,8 +10,7 @@ import (
 	"github.com/solat/lowcode-database/internal/service/shared"
 )
 
-// ValidateLookupColumnConfig ensures lookup points at a same-table relationship (cardinality one)
-// and a supported column on the related table (physical, formula, lookup, or rollup).
+// ValidateLookupColumnConfig ensures lookup points at a same-table relationship and a supported target column.
 func (s *Schema) ValidateLookupColumnConfig(ctx context.Context, tenantID, tableKey string, cfg map[string]any) error {
 	relColName := shared.CfgString(cfg, "relation_column_id")
 	fieldColName := shared.CfgString(cfg, "target_column_id")
@@ -36,8 +35,15 @@ func (s *Schema) ValidateLookupColumnConfig(ctx context.Context, tenantID, table
 	if err != nil {
 		return fmt.Errorf("lookup: invalid relationship config: %w", err)
 	}
-	if shared.EffectiveRelationshipCardinality(norm, shared.CfgString(norm, "link_column_id"), shared.CfgString(norm, "target_column_id")) != "one" {
-		return fmt.Errorf("lookup only supports relationship columns with cardinality one (target_column_id link)")
+	card := shared.EffectiveRelationshipCardinality(norm, shared.CfgString(norm, "link_column_id"), shared.CfgString(norm, "target_column_id"))
+	if card != "one" && card != "many" {
+		return fmt.Errorf("lookup requires relationship with cardinality one or many")
+	}
+	if card == "one" && shared.CfgString(norm, "target_column_id") == "" {
+		return fmt.Errorf("lookup with cardinality one requires relationship target_column_id")
+	}
+	if card == "many" && shared.CfgString(norm, "link_column_id") == "" {
+		return fmt.Errorf("lookup with cardinality many requires relationship link_column_id")
 	}
 	targetTable := shared.CfgString(norm, "target_table_id")
 	if targetTable == "" {

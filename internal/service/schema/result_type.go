@@ -124,6 +124,7 @@ func (s *Schema) lookupResultTypeID(ctx context.Context, tenantID, hostTable str
 	if err != nil {
 		return "text", nil
 	}
+	card := shared.EffectiveRelationshipCardinality(normRel, shared.CfgString(normRel, "link_column_id"), shared.CfgString(normRel, "target_column_id"))
 	targetTable, err := s.B.ResolveTableName(ctx, shared.CfgString(normRel, "target_table_id"))
 	if err != nil {
 		return "", err
@@ -132,7 +133,14 @@ func (s *Schema) lookupResultTypeID(ctx context.Context, tenantID, hostTable str
 	if err != nil {
 		return "", err
 	}
-	return s.resolveColumnResultTypeID(ctx, tenantID, targetTable, fieldName, targetTypeID, targetCfg, visiting)
+	targetRT, err := s.resolveColumnResultTypeID(ctx, tenantID, targetTable, fieldName, targetTypeID, targetCfg, visiting)
+	if err != nil {
+		return "", err
+	}
+	if card == "many" {
+		return shared.ScalarResultTypeToArray(targetRT), nil
+	}
+	return targetRT, nil
 }
 
 func (s *Schema) loadColumnMeta(ctx context.Context, tenantID, tableKey, colName string) (typeID string, cfg map[string]any, err error) {

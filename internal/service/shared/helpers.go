@@ -90,9 +90,7 @@ func valueToAnyRaw(v *apiv1.Value) any {
 		return v.BytesValue
 	}
 	if v.JsonValue != nil {
-		if m, ok := v.JsonValue.(map[string]any); ok {
-			return m
-		}
+		return v.JsonValue
 	}
 	return nil
 }

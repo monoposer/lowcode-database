@@ -5,6 +5,19 @@ import (
 	"testing"
 )
 
+func TestLookupManyAggregateSQL(t *testing.T) {
+	sql := LookupManyAggregateSQL(`_r."productName"`, "order_id", "public", "order_items", "_b", `_r.status = 'active'`, "", "text[]")
+	if !strings.Contains(sql, "array_agg") || !strings.Contains(sql, "order_id") {
+		t.Fatalf("sql: %q", sql)
+	}
+}
+
+func TestScalarResultTypeToArray(t *testing.T) {
+	if got := ScalarResultTypeToArray("text"); got != "text_array" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestRollupAggregateSQL_quotesCamelCaseTable(t *testing.T) {
 	sql := RollupAggregateSQL("sum", "amount", "orderId", "public", "orderGoods", "_b", "")
 	if !strings.Contains(sql, `"orderGoods"`) {

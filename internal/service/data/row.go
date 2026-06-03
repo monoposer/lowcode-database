@@ -185,12 +185,14 @@ func (s *Data) DeleteRow(ctx context.Context, req *apiv1.DeleteRowRequest) (*api
 
 type lookupJoinSpec struct {
 	LookupColumnName  string
+	Cardinality       string
 	Alias             string
 	TargetSchema      string
 	TargetTable       string
 	SelectExpr        string
 	TargetValuePgType string
 	BaseFKPgCol       string
+	LinkPgCol         string
 	Filter            map[string]any
 	TargetCols        []shared.ColumnMeta
 	ExtraFromSQL      string
@@ -235,18 +237,10 @@ func (s *Data) buildLookupJoinSpecs(ctx context.Context, tableID string, argAcc 
 			continue
 		}
 		rel := rels[0]
-		if rel.Cardinality != "one" || rel.TargetColumnId == "" {
-			continue
-		}
-		var baseFKPg string
-		if baseFKPg, err = schema.New(s.B).ColumnPgColumnByRef(ctx, tid, tableID, rel.TargetColumnId); err != nil {
-			continue
-		}
 		tgtSchema, tgtTable, err := s.tableSchemaName(ctx, rel.TargetTableId)
 		if err != nil {
 			continue
 		}
-		alias := aliases.sharedRelRowAlias(rel.Id)
 		var filter map[string]any
 		if raw, ok := cfg["filter"].(map[string]any); ok && len(raw) > 0 {
 			filter = raw
@@ -255,6 +249,53 @@ func (s *Data) buildLookupJoinSpecs(ctx context.Context, tableID string, argAcc 
 		if err != nil {
 			continue
 		}
+
+		if rel.Cardinality == "many" && rel.LinkColumnId != "" {
+			linkPg, err := schema.New(s.B).ColumnPgColumnByRef(ctx, tid, rel.TargetTableId, rel.LinkColumnId)
+			if err != nil {
+				continue
+			}
+			resolved, err := s.resolveLookupTargetValue(ctx, rel.TargetTableId, fieldID, "_r", argAcc, map[string]bool{}, aliases)
+			if err != nil {
+				return nil, fmt.Errorf("lookup %q: %w", colName, err)
+			}
+			extraWhere := ""
+			if len(filter) > 0 && len(targetCols) > 0 {
+				wSQL, wArgs, err := linkedTableFilterSQL(map[string]any{"filter": filter}, "_r", targetCols, argAcc.nextArgStart())
+				if err != nil {
+					return nil, fmt.Errorf("lookup %q filter: %w", colName, err)
+				}
+				if wSQL != "" {
+					extraWhere = wSQL
+					argAcc.append(wArgs...)
+				}
+			}
+			arrayPgType := shared.ScalarPgTypeToArray(resolved.PgType)
+			selectExpr := shared.LookupManyAggregateSQL(
+				resolved.SelectExpr, linkPg, tgtSchema, tgtTable, "_b", extraWhere, resolved.ExtraFrom, arrayPgType,
+			)
+			specs = append(specs, lookupJoinSpec{
+				LookupColumnName:  colName,
+				Cardinality:       "many",
+				TargetSchema:      tgtSchema,
+				TargetTable:       tgtTable,
+				SelectExpr:        selectExpr,
+				TargetValuePgType: arrayPgType,
+				LinkPgCol:         linkPg,
+				Filter:            filter,
+				TargetCols:        targetCols,
+			})
+			continue
+		}
+
+		if rel.Cardinality != "one" || rel.TargetColumnId == "" {
+			continue
+		}
+		var baseFKPg string
+		if baseFKPg, err = schema.New(s.B).ColumnPgColumnByRef(ctx, tid, tableID, rel.TargetColumnId); err != nil {
+			continue
+		}
+		alias := aliases.sharedRelRowAlias(rel.Id)
 		resolved, err := s.resolveLookupTargetValue(ctx, rel.TargetTableId, fieldID, alias, argAcc, map[string]bool{}, aliases)
 		if err != nil {
 			return nil, fmt.Errorf("lookup %q: %w", colName, err)
@@ -277,6 +318,7 @@ func (s *Data) buildLookupJoinSpecs(ctx context.Context, tableID string, argAcc 
 		}
 		specs = append(specs, lookupJoinSpec{
 			LookupColumnName:  colName,
+			Cardinality:       "one",
 			Alias:             alias,
 			TargetSchema:      tgtSchema,
 			TargetTable:       tgtTable,
