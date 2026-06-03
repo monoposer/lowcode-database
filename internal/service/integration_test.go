@@ -1,11 +1,43 @@
 package service_test
 
 import (
+	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/solat/lowcode-database/internal/apiv1"
 	"github.com/solat/lowcode-database/internal/testutil"
 )
+
+func saveGraphItems(t *testing.T, resp apiv1.SaveGraphResponse) []map[string]any {
+	t.Helper()
+	switch v := resp["items"].(type) {
+	case []map[string]any:
+		return v
+	case []any:
+		out := make([]map[string]any, 0, len(v))
+		for _, it := range v {
+			m, ok := it.(map[string]any)
+			if !ok {
+				t.Fatalf("item=%+v", it)
+			}
+			out = append(out, m)
+		}
+		return out
+	default:
+		t.Fatalf("items=%+v", resp["items"])
+		return nil
+	}
+}
+
+func saveGraphNested(t *testing.T, m map[string]any, key string) map[string]any {
+	t.Helper()
+	v, ok := m[key].(map[string]any)
+	if !ok {
+		t.Fatalf("%s=%+v", key, m[key])
+	}
+	return v
+}
 
 func TestIntegrationFullWorkflow(t *testing.T) {
 	svc, cleanup := testutil.SetupIntegration(t)
@@ -432,5 +464,540 @@ func TestIntegrationColumnTypes(t *testing.T) {
 	}
 	if len(cols.Columns) < len(typeSpecs) {
 		t.Fatalf("expected %d columns, got %d", len(typeSpecs), len(cols.Columns))
+	}
+}
+
+func TestIntegrationSaveGraph(t *testing.T) {
+	svc, cleanup := testutil.SetupIntegration(t)
+	defer cleanup()
+	ctx := testutil.Ctx()
+
+	orderTable := testutil.UniqueName("order")
+	itemTable := testutil.UniqueName("order_item")
+
+	if _, err := svc.CreateTable(ctx, &apiv1.CreateTableRequest{Name: orderTable}); err != nil {
+		t.Fatalf("create order table: %v", err)
+	}
+	if _, err := svc.CreateTable(ctx, &apiv1.CreateTableRequest{Name: itemTable}); err != nil {
+		t.Fatalf("create item table: %v", err)
+	}
+
+	amountCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: orderTable, Name: "amount", TypeId: "precision", Position: 1,
+	})
+	if err != nil {
+		t.Fatalf("add amount: %v", err)
+	}
+
+	qtyCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: itemTable, Name: "qty", TypeId: "int8", Position: 1,
+	})
+	if err != nil {
+		t.Fatalf("add qty: %v", err)
+	}
+	goodsCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: itemTable, Name: "goods_id", TypeId: "text", Position: 2,
+	})
+	if err != nil {
+		t.Fatalf("add goods_id: %v", err)
+	}
+	orderLinkCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: itemTable, Name: "order_id", TypeId: "uuid", Position: 3,
+	})
+	if err != nil {
+		t.Fatalf("add order_id: %v", err)
+	}
+
+	_, err = svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: orderTable, Name: "items", TypeId: "relationship", Position: 2,
+		Config: map[string]any{
+			"target_table_id": itemTable,
+			"link_column_id":  orderLinkCol.Column.Id,
+			"cardinality":     "many",
+		},
+	})
+	if err != nil {
+		t.Fatalf("add items relationship: %v", err)
+	}
+
+	// create with nested items
+	createBody := &apiv1.SaveGraphRequest{}
+	if err := json.Unmarshal([]byte(`{
+		"amount": 100,
+		"items": [
+			{ "qty": 2, "goods_id": "g1" },
+			{ "qty": 1, "goods_id": "g2" }
+		]
+	}`), createBody); err != nil {
+		t.Fatal(err)
+	}
+	createBody.TableId = orderTable
+
+	created, err := svc.SaveGraph(ctx, createBody)
+	if err != nil {
+		t.Fatalf("saveGraph create: %v", err)
+	}
+	if created["id"] == "" || created["id"] == nil {
+		t.Fatal("missing root id")
+	}
+	items := saveGraphItems(t, created)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+	item1ID, _ := items[0]["id"].(string)
+
+	// update: change amount, update one item, add one, deleteMissing removes others
+	updateRaw := fmt.Sprintf(`{
+		"id": %q,
+		"amount": 200,
+		"_sync": { "items": "replace" },
+		"items": [
+			{ "id": %q, "qty": 5, "goods_id": "g1-upd" },
+			{ "qty": 3, "goods_id": "g3" }
+		]
+	}`, created["id"], item1ID)
+	updateBody := &apiv1.SaveGraphRequest{}
+	if err := json.Unmarshal([]byte(updateRaw), updateBody); err != nil {
+		t.Fatal(err)
+	}
+	updateBody.TableId = orderTable
+	updated, err := svc.SaveGraph(ctx, updateBody)
+	if err != nil {
+		t.Fatalf("saveGraph update: %v", err)
+	}
+	if updated["amount"] != float64(200) && updated["amount"] != 200 {
+		t.Fatalf("amount not updated: %+v", updated)
+	}
+	if len(saveGraphItems(t, updated)) != 2 {
+		t.Fatalf("expected 2 items after update, got %+v", updated["items"])
+	}
+
+	list, err := svc.ListRows(ctx, &apiv1.ListRowsRequest{
+		TableId:         itemTable,
+		ExpandColumnIds: []string{},
+		PageSize:        50,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Rows) != 2 {
+		t.Fatalf("expected 2 item rows in DB, got %d", len(list.Rows))
+	}
+	_ = amountCol
+	_ = orderLinkCol
+	_ = qtyCol
+	_ = goodsCol
+}
+
+func TestIntegrationSaveGraphLookupWrite(t *testing.T) {
+	svc, cleanup := testutil.SetupIntegration(t)
+	defer cleanup()
+	ctx := testutil.Ctx()
+
+	goodsTable := testutil.UniqueName("goods")
+	orderTable := testutil.UniqueName("order")
+	itemTable := testutil.UniqueName("order_item")
+
+	for _, name := range []string{goodsTable, orderTable, itemTable} {
+		if _, err := svc.CreateTable(ctx, &apiv1.CreateTableRequest{Name: name}); err != nil {
+			t.Fatalf("create table %s: %v", name, err)
+		}
+	}
+
+	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: goodsTable, Name: "name", TypeId: "text", Position: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	goodsApple, err := svc.CreateRow(ctx, &apiv1.CreateRowRequest{
+		TableId: goodsTable,
+		Cells:   map[string]*apiv1.Value{"name": apiv1.StringValue("Apple")},
+	})
+	if err != nil {
+		t.Fatalf("create goods Apple: %v", err)
+	}
+	if _, err := svc.CreateRow(ctx, &apiv1.CreateRowRequest{
+		TableId: goodsTable,
+		Cells:   map[string]*apiv1.Value{"name": apiv1.StringValue("Banana")},
+	}); err != nil {
+		t.Fatalf("create goods Banana: %v", err)
+	}
+
+	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: orderTable, Name: "amount", TypeId: "precision", Position: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: itemTable, Name: "qty", TypeId: "int8", Position: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	goodsFKCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: itemTable, Name: "goods_id", TypeId: "uuid", Position: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	orderLinkCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: itemTable, Name: "order_id", TypeId: "uuid", Position: 3,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	goodsRelCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: itemTable, Name: "goods", TypeId: "relationship", Position: 4,
+		Config: map[string]any{
+			"target_table_id":  goodsTable,
+			"target_column_id": goodsFKCol.Column.Id,
+			"cardinality":      "one",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: itemTable, Name: "goods_name", TypeId: "lookup", Position: 5,
+		Config: map[string]any{
+			"relation_column_id": goodsRelCol.Column.Id,
+			"target_column_id":   "name",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: orderTable, Name: "items", TypeId: "relationship", Position: 2,
+		Config: map[string]any{
+			"target_table_id": itemTable,
+			"link_column_id":  orderLinkCol.Column.Id,
+			"cardinality":     "many",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	createBody := &apiv1.SaveGraphRequest{}
+	if err := json.Unmarshal([]byte(`{
+		"amount": 100,
+		"items": [
+			{ "qty": 2, "goods_name": "Apple" },
+			{ "qty": 1, "goods_name": "Banana" }
+		]
+	}`), createBody); err != nil {
+		t.Fatal(err)
+	}
+	createBody.TableId = orderTable
+	created, err := svc.SaveGraph(ctx, createBody)
+	if err != nil {
+		t.Fatalf("saveGraph create: %v", err)
+	}
+	if len(saveGraphItems(t, created)) != 2 {
+		t.Fatalf("expected 2 items, got %+v", created["items"])
+	}
+	item1 := saveGraphItems(t, created)[0]
+	item1ID, _ := item1["id"].(string)
+	if item1["goods_id"] != goodsApple.Row.Id {
+		t.Fatalf("expected goods_id=%q, got %+v", goodsApple.Row.Id, item1["goods_id"])
+	}
+
+	updateRaw := fmt.Sprintf(`{
+		"id": %q,
+		"amount": 200,
+		"_sync": { "items": "replace" },
+		"items": [
+			{ "id": %q, "qty": 5, "goods_name": "Banana" },
+			{ "qty": 3, "goods_name": "Apple" }
+		]
+	}`, created["id"], item1ID)
+	updateBody := &apiv1.SaveGraphRequest{}
+	if err := json.Unmarshal([]byte(updateRaw), updateBody); err != nil {
+		t.Fatal(err)
+	}
+	updateBody.TableId = orderTable
+	updated, err := svc.SaveGraph(ctx, updateBody)
+	if err != nil {
+		t.Fatalf("saveGraph update: %v", err)
+	}
+	if updated["amount"] != float64(200) && updated["amount"] != 200 {
+		t.Fatalf("amount not updated: %+v", updated)
+	}
+}
+
+func TestIntegrationSaveGraphOneRelCreate(t *testing.T) {
+	svc, cleanup := testutil.SetupIntegration(t)
+	defer cleanup()
+	ctx := testutil.Ctx()
+
+	warehouseTable := testutil.UniqueName("warehouse")
+	orderTable := testutil.UniqueName("order")
+
+	for _, name := range []string{warehouseTable, orderTable} {
+		if _, err := svc.CreateTable(ctx, &apiv1.CreateTableRequest{Name: name}); err != nil {
+			t.Fatalf("create table %s: %v", name, err)
+		}
+	}
+	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: warehouseTable, Name: "name", TypeId: "text", Position: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: orderTable, Name: "amount", TypeId: "precision", Position: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	warehouseFKCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: orderTable, Name: "warehouse_id", TypeId: "uuid", Position: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	warehouseRelCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: orderTable, Name: "warehouse", TypeId: "relationship", Position: 3,
+		Config: map[string]any{
+			"target_table_id":  warehouseTable,
+			"target_column_id": warehouseFKCol.Column.Id,
+			"cardinality":      "one",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = warehouseRelCol
+
+	body := &apiv1.SaveGraphRequest{}
+	if err := json.Unmarshal([]byte(`{
+		"amount": 100,
+		"warehouse": { "name": "华东仓" }
+	}`), body); err != nil {
+		t.Fatal(err)
+	}
+	body.TableId = orderTable
+	created, err := svc.SaveGraph(ctx, body)
+	if err != nil {
+		t.Fatalf("saveGraph: %v", err)
+	}
+	warehouse := saveGraphNested(t, created, "warehouse")
+	warehouseID, _ := warehouse["id"].(string)
+	if warehouseID == "" {
+		t.Fatal("missing created warehouse id")
+	}
+	if created["warehouse_id"] != warehouseID {
+		t.Fatalf("warehouse_id=%v want %q", created["warehouse_id"], warehouseID)
+	}
+}
+
+func TestIntegrationSaveGraphNestedOneRelCreate(t *testing.T) {
+	svc, cleanup := testutil.SetupIntegration(t)
+	defer cleanup()
+	ctx := testutil.Ctx()
+
+	goodsTable := testutil.UniqueName("goods")
+	orderTable := testutil.UniqueName("order")
+	itemTable := testutil.UniqueName("order_item")
+
+	for _, name := range []string{goodsTable, orderTable, itemTable} {
+		if _, err := svc.CreateTable(ctx, &apiv1.CreateTableRequest{Name: name}); err != nil {
+			t.Fatalf("create table %s: %v", name, err)
+		}
+	}
+	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: goodsTable, Name: "name", TypeId: "text", Position: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: orderTable, Name: "amount", TypeId: "precision", Position: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: itemTable, Name: "qty", TypeId: "int8", Position: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	goodsFKCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: itemTable, Name: "goods_id", TypeId: "uuid", Position: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	orderLinkCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: itemTable, Name: "order_id", TypeId: "uuid", Position: 3,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: itemTable, Name: "goods", TypeId: "relationship", Position: 4,
+		Config: map[string]any{
+			"target_table_id":  goodsTable,
+			"target_column_id": goodsFKCol.Column.Id,
+			"cardinality":      "one",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: orderTable, Name: "items", TypeId: "relationship", Position: 2,
+		Config: map[string]any{
+			"target_table_id": itemTable,
+			"link_column_id":  orderLinkCol.Column.Id,
+			"cardinality":     "many",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	body := &apiv1.SaveGraphRequest{}
+	if err := json.Unmarshal([]byte(`{
+		"amount": 100,
+		"items": [
+			{ "qty": 2, "goods": { "name": "Apple" } }
+		]
+	}`), body); err != nil {
+		t.Fatal(err)
+	}
+	body.TableId = orderTable
+	created, err := svc.SaveGraph(ctx, body)
+	if err != nil {
+		t.Fatalf("saveGraph: %v", err)
+	}
+	item := saveGraphItems(t, created)[0]
+	goodsID, _ := item["goods_id"].(string)
+	if goodsID == "" {
+		t.Fatalf("missing goods_id on item: %+v", item)
+	}
+	list, err := svc.ListRows(ctx, &apiv1.ListRowsRequest{TableId: goodsTable, PageSize: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Rows) != 1 || list.Rows[0].Id != goodsID {
+		t.Fatalf("expected one goods row id=%q, got %+v", goodsID, list.Rows)
+	}
+}
+
+func TestIntegrationSaveGraphCreateOrderShape(t *testing.T) {
+	svc, cleanup := testutil.SetupIntegration(t)
+	defer cleanup()
+	ctx := testutil.Ctx()
+
+	supplyTable := testutil.UniqueName("supply")
+	goodsTable := testutil.UniqueName("goods")
+	orderTable := testutil.UniqueName("order")
+	itemTable := testutil.UniqueName("order_item")
+
+	for _, name := range []string{supplyTable, goodsTable, orderTable, itemTable} {
+		if _, err := svc.CreateTable(ctx, &apiv1.CreateTableRequest{Name: name}); err != nil {
+			t.Fatalf("create table %s: %v", name, err)
+		}
+	}
+	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: supplyTable, Name: "code", TypeId: "text", Position: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: goodsTable, Name: "name", TypeId: "text", Position: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: orderTable, Name: "order_remark", TypeId: "text", Position: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	supplyFKCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: orderTable, Name: "supply_id", TypeId: "uuid", Position: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	supplyRelCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: orderTable, Name: "supply", TypeId: "relationship", Position: 3,
+		Config: map[string]any{
+			"target_table_id":  supplyTable,
+			"target_column_id": supplyFKCol.Column.Id,
+			"cardinality":      "one",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: orderTable, Name: "supply_code", TypeId: "lookup", Position: 4,
+		Config: map[string]any{
+			"relation_column_id": supplyRelCol.Column.Id,
+			"target_column_id":   "code",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: itemTable, Name: "qty", TypeId: "int8", Position: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	goodsFKCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: itemTable, Name: "goods_id", TypeId: "uuid", Position: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	orderLinkCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: itemTable, Name: "order_id", TypeId: "uuid", Position: 3,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: itemTable, Name: "goods", TypeId: "relationship", Position: 4,
+		Config: map[string]any{
+			"target_table_id":  goodsTable,
+			"target_column_id": goodsFKCol.Column.Id,
+			"cardinality":      "one",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		TableId: orderTable, Name: "items", TypeId: "relationship", Position: 5,
+		Config: map[string]any{
+			"target_table_id": itemTable,
+			"link_column_id":  orderLinkCol.Column.Id,
+			"cardinality":     "many",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	body := &apiv1.SaveGraphRequest{}
+	if err := json.Unmarshal([]byte(`{
+		"order_remark": "rush",
+		"supply": { "code": "SUP-001" },
+		"items": [
+			{ "qty": 2, "goods": { "name": "Apple" } }
+		]
+	}`), body); err != nil {
+		t.Fatal(err)
+	}
+	body.TableId = orderTable
+	created, err := svc.SaveGraph(ctx, body)
+	if err != nil {
+		t.Fatalf("saveGraph: %v", err)
+	}
+	if created["order_remark"] != "rush" {
+		t.Fatalf("order_remark=%+v", created["order_remark"])
+	}
+	supply := saveGraphNested(t, created, "supply")
+	supplyID, _ := supply["id"].(string)
+	if supplyID == "" {
+		t.Fatalf("missing supply row: %+v", created)
+	}
+	if created["supply_id"] != supplyID {
+		t.Fatalf("supply_id=%v want %q", created["supply_id"], supplyID)
+	}
+	if len(saveGraphItems(t, created)) != 1 {
+		t.Fatalf("items=%+v", created["items"])
 	}
 }

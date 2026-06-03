@@ -132,3 +132,90 @@ func TestHandlerMissingTenant(t *testing.T) {
 		t.Fatalf("expected 400, got %d", w.Code)
 	}
 }
+
+func TestHandlerSaveGraph(t *testing.T) {
+	svc, cleanup := testutil.SetupIntegration(t)
+	defer cleanup()
+	ctx := testutil.Ctx()
+
+	h := api.NewHandler(svc)
+	orderTable := testutil.UniqueName("order")
+	itemTable := testutil.UniqueName("order_item")
+
+	createTable := func(name string) {
+		body, _ := json.Marshal(map[string]any{"name": name})
+		req := httptest.NewRequest(http.MethodPost, "/v1/tables", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Tenant-Id", "test")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("create table %s: %d %s", name, w.Code, w.Body.String())
+		}
+	}
+	createTable(orderTable)
+	createTable(itemTable)
+	defer func() {
+		_, _ = svc.DeleteTable(ctx, &apiv1.DeleteTableRequest{Id: orderTable})
+		_, _ = svc.DeleteTable(ctx, &apiv1.DeleteTableRequest{Id: itemTable})
+	}()
+
+	addCol := func(tableID, name, typeID string, position int, config map[string]any) apiv1.Column {
+		payload := map[string]any{
+			"tableId": tableID, "name": name, "typeId": typeID, "position": position,
+		}
+		if config != nil {
+			payload["config"] = config
+		}
+		body, _ := json.Marshal(payload)
+		req := httptest.NewRequest(http.MethodPost, "/v1/columns", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Tenant-Id", "test")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("add column %s.%s: %d %s", tableID, name, w.Code, w.Body.String())
+		}
+		var resp apiv1.AddColumnResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
+		return *resp.Column
+	}
+
+	addCol(orderTable, "amount", "precision", 1, nil)
+	addCol(itemTable, "qty", "int8", 1, nil)
+	addCol(itemTable, "goods_id", "text", 2, nil)
+	orderLinkCol := addCol(itemTable, "order_id", "uuid", 3, nil)
+	addCol(orderTable, "items", "relationship", 2, map[string]any{
+		"target_table_id": itemTable,
+		"link_column_id":  orderLinkCol.Id,
+		"cardinality":     "many",
+	})
+
+	saveBody := []byte(`{
+		"amount": 42,
+		"items": [
+			{ "qty": 1, "goods_id": "g1" }
+		]
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/tables/"+orderTable+"/rows:saveGraph", bytes.NewReader(saveBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-Id", "test")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("saveGraph status %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["id"] == nil || resp["id"] == "" {
+		t.Fatalf("missing root row: %+v", resp)
+	}
+	items, ok := resp["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("expected 1 item, got %+v", resp["items"])
+	}
+}

@@ -445,6 +445,32 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
+  /v1/tables/{tableId}/rows:saveGraph:
+    post:
+      tags: [Tables]
+      summary: Save root row and nested many-relationship children in one transaction
+      operationId: saveGraphRows
+      parameters:
+        - $ref: "#/components/parameters/TenantIdHeader"
+        - $ref: "#/components/parameters/TableIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveGraphRowsBody"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SaveGraphRowsResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
   /v1/tables/{tableId}/rows:bulkDelete:
     post:
       tags: [Tables]
@@ -1453,6 +1479,63 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Row"
+
+    SaveGraphManyInput:
+      type: object
+      required: [data]
+      properties:
+        sync:
+          type: string
+          enum: [merge, replace]
+          default: merge
+          description: merge upserts only payload rows; replace also deletes siblings not in data.
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/SaveGraphChildRow"
+        rows:
+          type: array
+          deprecated: true
+          items:
+            $ref: "#/components/schemas/SaveGraphChildRow"
+        deleteMissing:
+          type: boolean
+          deprecated: true
+          description: Legacy; true maps to sync=replace.
+
+    SaveGraphOneInput:
+      type: object
+      additionalProperties: true
+      description: Nested one-relationship object; creates/updates related table row and sets local FK.
+
+    SaveGraphChildRow:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Existing child row id; omit to insert.
+        delete:
+          type: boolean
+          description: When true, delete this child row by id.
+      additionalProperties: true
+      description: Flat physical column fields, or use cells for legacy typed values.
+
+    SaveGraphRowsBody:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Root row id; omit to insert.
+      additionalProperties: true
+      description: >
+        Flat root physical columns plus relationship keys shaped by cardinality:
+        many = JSON array, one = JSON object. Optional root _sync maps relationship
+        names to merge|replace. Lookup column names still resolve to FK columns.
+
+    SaveGraphRowsResponse:
+      type: object
+      additionalProperties: true
+      description: Echo of the request with id and resolved FK fields filled in.
 
     BulkDeleteRowsBody:
       type: object

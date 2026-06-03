@@ -54,30 +54,7 @@ func (s *Data) BulkUpsertRows(ctx context.Context, req *apiv1.BulkUpsertRowsRequ
 			}
 			resp.Rows = append(resp.Rows, &apiv1.Row{Id: id, Cells: shared.NormalizeInputCells(item.Cells, cols)})
 		} else {
-			// update
-			var setParts []string
-			var args []any
-			argIdx := 1
-			for _, c := range cols {
-				val, ok := shared.CellByRef(item.Cells, c)
-				if !ok {
-					continue
-				}
-				setParts = append(setParts, fmt.Sprintf("%s = $%d", pgx.Identifier{c.Name}.Sanitize(), argIdx))
-				args = append(args, shared.ValueToAnyForColumn(val, c.PgType))
-				argIdx++
-			}
-			if len(setParts) == 0 {
-				continue
-			}
-			args = append(args, item.RowId)
-			update := fmt.Sprintf(`UPDATE %s.%s SET %s WHERE id = $%d`,
-				pgx.Identifier{schemaName}.Sanitize(),
-				pgx.Identifier{tableName}.Sanitize(),
-				strings.Join(setParts, ", "),
-				argIdx,
-			)
-			if _, err := tx.Exec(ctx, update, args...); err != nil {
+			if err := s.updateRowTx(ctx, tx, cols, schemaName, tableName, item.RowId, item.Cells); err != nil {
 				return nil, err
 			}
 			resp.Rows = append(resp.Rows, &apiv1.Row{Id: item.RowId, Cells: shared.NormalizeInputCells(item.Cells, cols)})
