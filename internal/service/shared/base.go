@@ -7,13 +7,13 @@ import (
 	"github.com/solat/lowcode-database/internal/db"
 	"github.com/solat/lowcode-database/internal/logger"
 	"github.com/solat/lowcode-database/internal/metrics"
-	"github.com/solat/lowcode-database/internal/webhook"
+	"github.com/solat/lowcode-database/internal/sink"
 )
 
 // Base holds shared dependencies for all domain services.
 type Base struct {
 	Tenants            *db.TenantManager
-	Hooks              *webhook.Dispatcher
+	Hooks              *sink.Dispatcher
 	MaxRow             int32
 	Cache              cache.MetaCache
 	CacheTTL           time.Duration
@@ -23,7 +23,7 @@ type Base struct {
 	LogSQL             bool
 }
 
-func NewBase(tenants *db.TenantManager, maxRow int, hooks *webhook.Dispatcher) *Base {
+func NewBase(tenants *db.TenantManager, maxRow int, hooks *sink.Dispatcher) *Base {
 	b := &Base{
 		Tenants:            tenants,
 		Hooks:              hooks,

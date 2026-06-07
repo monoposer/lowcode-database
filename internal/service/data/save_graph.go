@@ -11,7 +11,7 @@ import (
 	"github.com/solat/lowcode-database/internal/service/catalog"
 	"github.com/solat/lowcode-database/internal/service/schema"
 	"github.com/solat/lowcode-database/internal/service/shared"
-	"github.com/solat/lowcode-database/internal/webhook"
+	"github.com/solat/lowcode-database/internal/sink"
 )
 
 // SaveGraph upserts a root row and nested relationship rows in one transaction.
@@ -254,9 +254,9 @@ func (s *Data) emitSaveGraphHooks(ctx context.Context, isUpdate bool, tableID st
 	if s.B.Hooks == nil || outcome == nil {
 		return
 	}
-	event := webhook.RecordsAfterInsert
+	event := sink.RecordsAfterInsert
 	if isUpdate {
-		event = webhook.RecordsAfterUpdate
+		event = sink.RecordsAfterUpdate
 	}
 	s.B.Hooks.Emit(ctx, event, tableID, map[string]any{
 		"row": shared.RowToMap(outcome.RootRow()),
@@ -269,7 +269,7 @@ func (s *Data) emitSaveGraphHooks(ctx context.Context, isUpdate bool, tableID st
 		if rel, ok := oneRels[relName]; ok {
 			targetTable = rel.TargetTableId
 		}
-		s.B.Hooks.Emit(ctx, webhook.RecordsAfterBulkUpsert, targetTable, map[string]any{
+		s.B.Hooks.Emit(ctx, sink.RecordsAfterBulkUpsert, targetTable, map[string]any{
 			"rows": []any{shared.RowToMap(row)},
 		})
 	}
@@ -288,7 +288,7 @@ func (s *Data) emitSaveGraphHooks(ctx context.Context, isUpdate bool, tableID st
 		if len(rows) == 0 {
 			continue
 		}
-		s.B.Hooks.Emit(ctx, webhook.RecordsAfterBulkUpsert, rel.TargetTableId, map[string]any{
+		s.B.Hooks.Emit(ctx, sink.RecordsAfterBulkUpsert, rel.TargetTableId, map[string]any{
 			"rows": rows,
 		})
 	}

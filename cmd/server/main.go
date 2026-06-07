@@ -20,7 +20,7 @@ import (
 	"github.com/solat/lowcode-database/internal/metrics"
 	"github.com/solat/lowcode-database/internal/redisclient"
 	"github.com/solat/lowcode-database/internal/service"
-	"github.com/solat/lowcode-database/internal/webhook"
+	"github.com/solat/lowcode-database/internal/sink"
 )
 
 func withCORS(next http.Handler) http.Handler {
@@ -84,7 +84,7 @@ func main() {
 		log.Fatalf("init tenant manager: %v", err)
 	}
 
-	hooks := webhook.NewDispatcher(tenantMgr)
+	hooks := sink.NewDispatcher(tenantMgr)
 	metaCache := cache.New(cfg, rdb)
 	dsMetrics := metrics.New(cfg, rdb)
 	if cfg.MetricsBackend != "" && cfg.MetricsBackend != "noop" {

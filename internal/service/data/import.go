@@ -12,7 +12,7 @@ import (
 	"github.com/solat/lowcode-database/internal/apiv1"
 	"github.com/solat/lowcode-database/internal/service/catalog"
 	"github.com/solat/lowcode-database/internal/service/shared"
-	"github.com/solat/lowcode-database/internal/webhook"
+	"github.com/solat/lowcode-database/internal/sink"
 )
 
 // ImportRows inserts rows from JSON-like structs; keys are column display names or ids unless column_map overrides.
@@ -82,7 +82,7 @@ func (s *Data) ImportRows(ctx context.Context, req *apiv1.ImportRowsRequest) (*a
 		for _, r := range out {
 			rows = append(rows, shared.RowToMap(r))
 		}
-		s.B.Hooks.Emit(ctx, webhook.RecordsAfterBulkImport, tableID, map[string]any{
+		s.B.Hooks.Emit(ctx, sink.RecordsAfterBulkImport, tableID, map[string]any{
 			"rows":          rows,
 			"insertedCount": int(n),
 		})

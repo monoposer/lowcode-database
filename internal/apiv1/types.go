@@ -58,6 +58,8 @@ type Row struct {
 type Webhook struct {
 	Id          string         `json:"id,omitempty"`
 	Name        string         `json:"name,omitempty"`
+	SinkType    string         `json:"sinkType,omitempty"` // webhook | redis | rabbitmq | kafka
+	SinkConfig  map[string]any `json:"sinkConfig,omitempty"`
 	TargetUrl   string         `json:"targetUrl,omitempty"`
 	TableFilter string         `json:"tableFilter,omitempty"`
 	Events      []string       `json:"events,omitempty"`
@@ -70,6 +72,8 @@ type Webhook struct {
 
 type CreateWebhookRequest struct {
 	Name        string         `json:"name,omitempty"`
+	SinkType    string         `json:"sinkType,omitempty"`
+	SinkConfig  map[string]any `json:"sinkConfig,omitempty"`
 	TargetUrl   string         `json:"targetUrl,omitempty"`
 	TableFilter string         `json:"tableFilter,omitempty"`
 	Events      []string       `json:"events,omitempty"`
@@ -97,11 +101,13 @@ type DeleteWebhookResponse struct{}
 type UpdateWebhookRequest struct {
 	Id          string         `json:"id,omitempty"`
 	Name        string         `json:"name,omitempty"`
+	SinkType    string         `json:"sinkType,omitempty"`
+	SinkConfig  map[string]any `json:"sinkConfig,omitempty"`
 	TargetUrl   string         `json:"targetUrl,omitempty"`
 	TableFilter string         `json:"tableFilter,omitempty"`
 	Events      []string       `json:"events,omitempty"`
 	Headers     map[string]any `json:"headers,omitempty"`
-	Enabled     bool           `json:"enabled,omitempty"`
+	Enabled     *bool          `json:"enabled,omitempty"`
 	Secret      string         `json:"secret,omitempty"`
 }
 

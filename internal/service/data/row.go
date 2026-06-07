@@ -12,7 +12,7 @@ import (
 	"github.com/solat/lowcode-database/internal/service/catalog"
 	"github.com/solat/lowcode-database/internal/service/schema"
 	"github.com/solat/lowcode-database/internal/service/shared"
-	"github.com/solat/lowcode-database/internal/webhook"
+	"github.com/solat/lowcode-database/internal/sink"
 )
 
 const (
@@ -87,7 +87,7 @@ func (s *Data) CreateRow(ctx context.Context, req *apiv1.CreateRowRequest) (*api
 		},
 	}
 	if s.B.Hooks != nil {
-		s.B.Hooks.Emit(ctx, webhook.RecordsAfterInsert, tableID, map[string]any{
+		s.B.Hooks.Emit(ctx, sink.RecordsAfterInsert, tableID, map[string]any{
 			"row": shared.RowToMap(resp.Row),
 		})
 	}
@@ -147,7 +147,7 @@ func (s *Data) UpdateRow(ctx context.Context, req *apiv1.UpdateRowRequest) (*api
 		},
 	}
 	if s.B.Hooks != nil {
-		s.B.Hooks.Emit(ctx, webhook.RecordsAfterUpdate, tableID, map[string]any{
+		s.B.Hooks.Emit(ctx, sink.RecordsAfterUpdate, tableID, map[string]any{
 			"row": shared.RowToMap(resp.Row),
 		})
 	}
@@ -176,7 +176,7 @@ func (s *Data) DeleteRow(ctx context.Context, req *apiv1.DeleteRowRequest) (*api
 		return nil, err
 	}
 	if s.B.Hooks != nil {
-		s.B.Hooks.Emit(ctx, webhook.RecordsAfterDelete, tableID, map[string]any{
+		s.B.Hooks.Emit(ctx, sink.RecordsAfterDelete, tableID, map[string]any{
 			"rowId": req.RowId,
 		})
 	}

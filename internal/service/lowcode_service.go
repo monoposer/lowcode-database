@@ -14,7 +14,7 @@ import (
 	"github.com/solat/lowcode-database/internal/service/platform"
 	"github.com/solat/lowcode-database/internal/service/schema"
 	"github.com/solat/lowcode-database/internal/service/shared"
-	"github.com/solat/lowcode-database/internal/webhook"
+	"github.com/solat/lowcode-database/internal/sink"
 )
 
 // LowcodeService is the root facade; domain logic lives in subpackages.
@@ -64,7 +64,7 @@ func WithLogSQL(enabled bool) Option {
 	}
 }
 
-func NewLowcodeService(tenants *db.TenantManager, maxRow int, hooks *webhook.Dispatcher, opts ...Option) *LowcodeService {
+func NewLowcodeService(tenants *db.TenantManager, maxRow int, hooks *sink.Dispatcher, opts ...Option) *LowcodeService {
 	base := shared.NewBase(tenants, maxRow, hooks)
 	for _, opt := range opts {
 		opt(base)

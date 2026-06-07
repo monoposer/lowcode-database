@@ -1172,8 +1172,19 @@ components:
           type: string
         name:
           type: string
+        sinkType:
+          type: string
+          enum: [webhook, redis, rabbitmq, kafka]
+          description: Delivery sink (Sequin-style). Defaults to webhook.
+        sinkConfig:
+          type: object
+          additionalProperties: true
+          description: |
+            Sink-specific settings. Redis: url, mode (stream|pubsub), stream/channel.
+            RabbitMQ: url, exchange, routingKey. Kafka: brokers[], topic.
         targetUrl:
           type: string
+          description: HTTP POST URL (webhook sink; legacy field)
         tableFilter:
           type: string
         events:
@@ -1199,6 +1210,12 @@ components:
       properties:
         name:
           type: string
+        sinkType:
+          type: string
+          enum: [webhook, redis, rabbitmq, kafka]
+        sinkConfig:
+          type: object
+          additionalProperties: true
         targetUrl:
           type: string
         tableFilter:
@@ -1237,6 +1254,12 @@ components:
       properties:
         name:
           type: string
+        sinkType:
+          type: string
+          enum: [webhook, redis, rabbitmq, kafka]
+        sinkConfig:
+          type: object
+          additionalProperties: true
         targetUrl:
           type: string
         tableFilter:

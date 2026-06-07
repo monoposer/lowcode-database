@@ -10,7 +10,7 @@ import (
 	"github.com/solat/lowcode-database/internal/apiv1"
 	"github.com/solat/lowcode-database/internal/service/catalog"
 	"github.com/solat/lowcode-database/internal/service/shared"
-	"github.com/solat/lowcode-database/internal/webhook"
+	"github.com/solat/lowcode-database/internal/sink"
 )
 
 // -------- Bulk --------
@@ -69,7 +69,7 @@ func (s *Data) BulkUpsertRows(ctx context.Context, req *apiv1.BulkUpsertRowsRequ
 		for _, r := range resp.Rows {
 			rows = append(rows, shared.RowToMap(r))
 		}
-		s.B.Hooks.Emit(ctx, webhook.RecordsAfterBulkUpsert, tableID, map[string]any{
+		s.B.Hooks.Emit(ctx, sink.RecordsAfterBulkUpsert, tableID, map[string]any{
 			"rows": rows,
 		})
 	}
@@ -147,7 +147,7 @@ func (s *Data) BulkDeleteRows(ctx context.Context, req *apiv1.BulkDeleteRowsRequ
 		for i, id := range req.RowIds {
 			ids[i] = id
 		}
-		s.B.Hooks.Emit(ctx, webhook.RecordsAfterBulkDelete, tableID, map[string]any{
+		s.B.Hooks.Emit(ctx, sink.RecordsAfterBulkDelete, tableID, map[string]any{
 			"rowIds": ids,
 		})
 	}
