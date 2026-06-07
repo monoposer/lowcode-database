@@ -3,7 +3,7 @@ package data
 import (
 	"testing"
 
-	"github.com/solat/lowcode-database/internal/service/shared"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
 func TestColumnAllowSet(t *testing.T) {
@@ -16,7 +16,7 @@ func TestColumnAllowSet(t *testing.T) {
 func TestQueryableColumnNames(t *testing.T) {
 	names := queryableColumnNames([]shared.FullColumnMeta{
 		{Name: "id", Kind: "text"},
-		{Name: "rel", Kind: "relationship"},
+		{Name: "rel", Kind: "link"},
 		{Name: "total", Kind: "formula"},
 	})
 	if len(names) != 2 || names[0] != "id" || names[1] != "total" {

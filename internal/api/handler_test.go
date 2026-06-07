@@ -3,14 +3,16 @@ package api_test
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/monoposer/lowcode-database/internal/api"
+	"github.com/monoposer/lowcode-database/internal/apiv1/platform"
+
+	apiv1schema "github.com/monoposer/lowcode-database/internal/apiv1/schema"
+
+	"github.com/monoposer/lowcode-database/internal/testutil"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/solat/lowcode-database/internal/api"
-	"github.com/solat/lowcode-database/internal/apiv1"
-	"github.com/solat/lowcode-database/internal/testutil"
 )
 
 func TestHandlerListTypes(t *testing.T) {
@@ -18,7 +20,7 @@ func TestHandlerListTypes(t *testing.T) {
 	defer cleanup()
 
 	h := api.NewHandler(svc)
-	req := httptest.NewRequest(http.MethodGet, "/v1/types", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/admin/types", nil)
 	req.Header.Set("X-Tenant-Id", "test")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -26,7 +28,7 @@ func TestHandlerListTypes(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d body %s", w.Code, w.Body.String())
 	}
-	var resp apiv1.ListTypesResponse
+	var resp platform.ListTypesResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +45,7 @@ func TestHandlerCreateTableAndQuery(t *testing.T) {
 	tableName := testutil.UniqueName("api_tbl")
 
 	createBody, _ := json.Marshal(map[string]any{"name": tableName})
-	req := httptest.NewRequest(http.MethodPost, "/v1/tables", bytes.NewReader(createBody))
+	req := httptest.NewRequest(http.MethodPost, "/v1/admin/tables", bytes.NewReader(createBody))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Tenant-Id", "test")
 	w := httptest.NewRecorder()
@@ -55,7 +57,7 @@ func TestHandlerCreateTableAndQuery(t *testing.T) {
 	colBody, _ := json.Marshal(map[string]any{
 		"tableId": tableName, "name": "title", "typeId": "text", "position": 1,
 	})
-	req = httptest.NewRequest(http.MethodPost, "/v1/columns", bytes.NewReader(colBody))
+	req = httptest.NewRequest(http.MethodPost, "/v1/admin/columns", bytes.NewReader(colBody))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Tenant-Id", "test")
 	w = httptest.NewRecorder()
@@ -63,7 +65,7 @@ func TestHandlerCreateTableAndQuery(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("add column status %d: %s", w.Code, w.Body.String())
 	}
-	var colResp apiv1.AddColumnResponse
+	var colResp apiv1schema.AddColumnResponse
 	_ = json.Unmarshal(w.Body.Bytes(), &colResp)
 
 	rowBody, _ := json.Marshal(map[string]any{
@@ -71,7 +73,7 @@ func TestHandlerCreateTableAndQuery(t *testing.T) {
 			colResp.Column.Id: map[string]any{"stringValue": "hello"},
 		},
 	})
-	req = httptest.NewRequest(http.MethodPost, "/v1/tables/"+tableName+"/rows", bytes.NewReader(rowBody))
+	req = httptest.NewRequest(http.MethodPost, "/v1/data/tables/"+tableName+"/rows", bytes.NewReader(rowBody))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Tenant-Id", "test")
 	w = httptest.NewRecorder()
@@ -80,7 +82,7 @@ func TestHandlerCreateTableAndQuery(t *testing.T) {
 		t.Fatalf("create row status %d: %s", w.Code, w.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/v1/tables/"+tableName+"/rows?pageSize=10", nil)
+	req = httptest.NewRequest(http.MethodGet, "/v1/data/tables/"+tableName+"/rows?pageSize=10", nil)
 	req.Header.Set("X-Tenant-Id", "test")
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -88,7 +90,7 @@ func TestHandlerCreateTableAndQuery(t *testing.T) {
 		t.Fatalf("list rows status %d: %s", w.Code, w.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/v1/schema/er", nil)
+	req = httptest.NewRequest(http.MethodGet, "/v1/admin/schema/er", nil)
 	req.Header.Set("X-Tenant-Id", "test")
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -96,10 +98,10 @@ func TestHandlerCreateTableAndQuery(t *testing.T) {
 		t.Fatalf("er diagram status %d: %s", w.Code, w.Body.String())
 	}
 
-	_, _ = svc.DeleteTable(testutil.Ctx(), &apiv1.DeleteTableRequest{Id: tableName})
+	_, _ = svc.DeleteTable(testutil.Ctx(), &apiv1schema.DeleteTableRequest{Id: tableName})
 }
 
-func TestHandlerDataSourceQueryNotCreate(t *testing.T) {
+func TestHandlerExecuteQueryNotCreate(t *testing.T) {
 	svc, cleanup := testutil.SetupIntegration(t)
 	defer cleanup()
 
@@ -107,7 +109,7 @@ func TestHandlerDataSourceQueryNotCreate(t *testing.T) {
 	body := []byte(`{"pageSize":10}`)
 	req := httptest.NewRequest(
 		http.MethodPost,
-		"/v1/data-sources/nonexistent_ds:query?table_id=nonexistent_tbl",
+		"/v1/data/queries/nonexistent_ds?table_id=nonexistent_tbl",
 		bytes.NewReader(body),
 	)
 	req.Header.Set("Content-Type", "application/json")
@@ -116,7 +118,7 @@ func TestHandlerDataSourceQueryNotCreate(t *testing.T) {
 	h.ServeHTTP(w, req)
 
 	if w.Code == http.StatusBadRequest && strings.Contains(w.Body.String(), "name is required") {
-		t.Fatalf("query route hit CreateDataSource: %s", w.Body.String())
+		t.Fatalf("query route hit CreateQuery: %s", w.Body.String())
 	}
 }
 
@@ -125,7 +127,7 @@ func TestHandlerMissingTenant(t *testing.T) {
 	defer cleanup()
 
 	h := api.NewHandler(svc)
-	req := httptest.NewRequest(http.MethodGet, "/v1/tables", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/admin/tables", nil)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
@@ -133,89 +135,16 @@ func TestHandlerMissingTenant(t *testing.T) {
 	}
 }
 
-func TestHandlerSaveGraph(t *testing.T) {
+func TestHandlerLegacyPathsNotFound(t *testing.T) {
 	svc, cleanup := testutil.SetupIntegration(t)
 	defer cleanup()
-	ctx := testutil.Ctx()
 
 	h := api.NewHandler(svc)
-	orderTable := testutil.UniqueName("order")
-	itemTable := testutil.UniqueName("order_item")
-
-	createTable := func(name string) {
-		body, _ := json.Marshal(map[string]any{"name": name})
-		req := httptest.NewRequest(http.MethodPost, "/v1/tables", bytes.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Tenant-Id", "test")
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, req)
-		if w.Code != http.StatusOK {
-			t.Fatalf("create table %s: %d %s", name, w.Code, w.Body.String())
-		}
-	}
-	createTable(orderTable)
-	createTable(itemTable)
-	defer func() {
-		_, _ = svc.DeleteTable(ctx, &apiv1.DeleteTableRequest{Id: orderTable})
-		_, _ = svc.DeleteTable(ctx, &apiv1.DeleteTableRequest{Id: itemTable})
-	}()
-
-	addCol := func(tableID, name, typeID string, position int, config map[string]any) apiv1.Column {
-		payload := map[string]any{
-			"tableId": tableID, "name": name, "typeId": typeID, "position": position,
-		}
-		if config != nil {
-			payload["config"] = config
-		}
-		body, _ := json.Marshal(payload)
-		req := httptest.NewRequest(http.MethodPost, "/v1/columns", bytes.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Tenant-Id", "test")
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, req)
-		if w.Code != http.StatusOK {
-			t.Fatalf("add column %s.%s: %d %s", tableID, name, w.Code, w.Body.String())
-		}
-		var resp apiv1.AddColumnResponse
-		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-			t.Fatal(err)
-		}
-		return *resp.Column
-	}
-
-	addCol(orderTable, "amount", "precision", 1, nil)
-	addCol(itemTable, "qty", "int8", 1, nil)
-	addCol(itemTable, "goods_id", "text", 2, nil)
-	orderLinkCol := addCol(itemTable, "order_id", "uuid", 3, nil)
-	addCol(orderTable, "items", "relationship", 2, map[string]any{
-		"target_table_id": itemTable,
-		"link_column_id":  orderLinkCol.Id,
-		"cardinality":     "many",
-	})
-
-	saveBody := []byte(`{
-		"amount": 42,
-		"items": [
-			{ "qty": 1, "goods_id": "g1" }
-		]
-	}`)
-	req := httptest.NewRequest(http.MethodPost, "/v1/tables/"+orderTable+"/rows:saveGraph", bytes.NewReader(saveBody))
-	req.Header.Set("Content-Type", "application/json")
+	req := httptest.NewRequest(http.MethodGet, "/v1/tables", nil)
 	req.Header.Set("X-Tenant-Id", "test")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("saveGraph status %d: %s", w.Code, w.Body.String())
-	}
-	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatal(err)
-	}
-	if resp["id"] == nil || resp["id"] == "" {
-		t.Fatalf("missing root row: %+v", resp)
-	}
-	items, ok := resp["items"].([]any)
-	if !ok || len(items) != 1 {
-		t.Fatalf("expected 1 item, got %+v", resp["items"])
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for legacy path, got %d", w.Code)
 	}
 }

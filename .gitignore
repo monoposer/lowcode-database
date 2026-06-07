@@ -1,5 +1,10 @@
 .env
-e2e/node_modules
-e2e/test-results
-e2e/playwright-report
-e2e/blob-report
+/server
+/bin/
+web/playground/node_modules
+web/playground/dist
+web/playground/.env
+web/playground/e2e/node_modules
+web/playground/e2e/playwright-report
+web/playground/e2e/test-results
+

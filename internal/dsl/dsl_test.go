@@ -54,3 +54,18 @@ func TestParseEmpty(t *testing.T) {
 		t.Fatalf("expected empty, got %+v", w)
 	}
 }
+
+func TestParseCached(t *testing.T) {
+	raw := map[string]any{"type": "EQ", "attr": "status", "val": "active"}
+	w1, err := ParseCached(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w2, err := ParseCached(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w1.Type != w2.Type || w1.Attr != w2.Attr {
+		t.Fatalf("%+v vs %+v", w1, w2)
+	}
+}

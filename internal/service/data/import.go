@@ -3,20 +3,27 @@ package data
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
 	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-
-	"github.com/solat/lowcode-database/internal/apiv1"
-	"github.com/solat/lowcode-database/internal/service/catalog"
-	"github.com/solat/lowcode-database/internal/service/shared"
-	"github.com/solat/lowcode-database/internal/webhook"
+	"github.com/monoposer/lowcode-database/internal/apiv1"
+	"github.com/monoposer/lowcode-database/internal/apiv1/row"
+	"github.com/monoposer/lowcode-database/internal/event"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
 // ImportRows inserts rows from JSON-like structs; keys are column display names or ids unless column_map overrides.
-func (s *Data) ImportRows(ctx context.Context, req *apiv1.ImportRowsRequest) (*apiv1.ImportRowsResponse, error) {
+func (s *Data) ImportRows(ctx context.Context, req *row.ImportRowsRequest) (*row.ImportRowsResponse, error) {
+	if err := s.checkBulkSize(len(req.Rows), "bulkImport"); err != nil {
+		return nil, err
+	}
+	if s.B.IsRLSTableMode() {
+		return nil, fmt.Errorf("rls_table mode: import not supported yet")
+	}
 	data, err := s.B.Tenants.DataPool(ctx)
 	if err != nil {
 		return nil, err
@@ -26,15 +33,15 @@ func (s *Data) ImportRows(ctx context.Context, req *apiv1.ImportRowsRequest) (*a
 		return nil, fmt.Errorf("table_id is required")
 	}
 	format := req.Format
-	if format != apiv1.ImportRowsFormatUnspecified &&
-		format != apiv1.ImportRowsFormatJSONRows {
+	if format != row.ImportRowsFormatUnspecified &&
+		format != row.ImportRowsFormatJSONRows {
 		return nil, fmt.Errorf("unsupported import format %v", format)
 	}
 	if len(req.Rows) == 0 {
-		return &apiv1.ImportRowsResponse{InsertedCount: 0}, nil
+		return &row.ImportRowsResponse{InsertedCount: 0}, nil
 	}
 
-	cols, schemaName, physTable, err := catalog.New(s.B).LoadColumns(ctx, tableID)
+	cols, schemaName, physTable, err := s.meta().LoadColumns(ctx, tableID)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +61,6 @@ func (s *Data) ImportRows(ctx context.Context, req *apiv1.ImportRowsRequest) (*a
 	}
 	defer tx.Rollback(ctx)
 
-	var out []*apiv1.Row
 	var n int32
 	for _, rowMap := range req.Rows {
 		if rowMap == nil {
@@ -72,22 +78,88 @@ func (s *Data) ImportRows(ctx context.Context, req *apiv1.ImportRowsRequest) (*a
 			continue
 		}
 		n++
-		out = append(out, &apiv1.Row{Id: id, Cells: cells})
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
-	if s.B.Hooks != nil && len(out) > 0 {
-		rows := make([]any, 0, len(out))
-		for _, r := range out {
-			rows = append(rows, shared.RowToMap(r))
-		}
-		s.B.Hooks.Emit(ctx, webhook.RecordsAfterBulkImport, tableID, map[string]any{
-			"rows":          rows,
+	if n > 0 {
+		s.B.EmitEvent(ctx, event.RecordsAfterBulkImport, tableID, map[string]any{
 			"insertedCount": int(n),
 		})
 	}
-	return &apiv1.ImportRowsResponse{Rows: out, InsertedCount: n}, nil
+	return &row.ImportRowsResponse{InsertedCount: n}, nil
+}
+
+// ImportRowsStream reads a JSON object with a "rows" array without buffering the whole array.
+func (s *Data) ImportRowsStream(ctx context.Context, tableID string, columnMap map[string]string, r io.Reader) (*row.ImportRowsResponse, error) {
+	dec := json.NewDecoder(r)
+	dec.UseNumber()
+	tok, err := dec.Token()
+	if err == io.EOF {
+		return &row.ImportRowsResponse{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	d, ok := tok.(json.Delim)
+	if !ok || d != '{' {
+		return nil, fmt.Errorf("import body must be a JSON object")
+	}
+	var rows []map[string]any
+	max := s.maxBulkItems()
+	for dec.More() {
+		keyTok, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		key, _ := keyTok.(string)
+		switch key {
+		case "columnMap", "column_map":
+			if err := dec.Decode(&columnMap); err != nil {
+				return nil, err
+			}
+		case "tableId", "table_id":
+			var id string
+			if err := dec.Decode(&id); err != nil {
+				return nil, err
+			}
+			if tableID == "" {
+				tableID = id
+			}
+		case "format":
+			var skip any
+			if err := dec.Decode(&skip); err != nil {
+				return nil, err
+			}
+		case "rows":
+			t, err := dec.Token()
+			if err != nil {
+				return nil, err
+			}
+			if delim, ok := t.(json.Delim); !ok || delim != '[' {
+				return nil, fmt.Errorf("rows must be an array")
+			}
+			for dec.More() {
+				var rowMap map[string]any
+				if err := dec.Decode(&rowMap); err != nil {
+					return nil, err
+				}
+				if len(rows) >= max {
+					return nil, fmt.Errorf("bulkImport size exceeds hard limit %d", max)
+				}
+				rows = append(rows, rowMap)
+			}
+			if _, err := dec.Token(); err != nil {
+				return nil, err
+			}
+		default:
+			var skip any
+			if err := dec.Decode(&skip); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return s.ImportRows(ctx, &row.ImportRowsRequest{TableId: tableID, ColumnMap: columnMap, Rows: rows})
 }
 
 func importRowToCells(
@@ -202,7 +274,6 @@ func importNativeToValue(raw interface{}, pgType string) (*apiv1.Value, error) {
 	case "jsonb", "json":
 		return apiv1.JsonValue(coerceMap(raw)), nil
 	default:
-		// text, uuid, and unknown: stringify primitives
 		switch t := raw.(type) {
 		case string:
 			return apiv1.StringValue(t), nil

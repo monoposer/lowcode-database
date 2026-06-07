@@ -3,7 +3,12 @@ package shared
 import (
 	"fmt"
 	"strings"
+
+	"github.com/monoposer/lowcode-database/pkg/typespec"
 )
+
+// -------- Classify --------
+// -------- Classify --------
 
 const ConfigKeyResultTypeID = "result_type_id"
 
@@ -22,14 +27,14 @@ func SetConfigResultTypeID(cfg map[string]any, resultTypeID string) {
 
 // IsArrayResultType reports whether the type id denotes a PostgreSQL array column.
 func IsArrayResultType(typeID string) bool {
-	return strings.HasSuffix(typeID, "_array")
+	return typespec.IsArrayType(typeID) || strings.HasSuffix(typeID, "_array")
 }
 
 // IsNumericResultType reports scalar numeric types used for filters and coercion.
 func IsNumericResultType(typeID string) bool {
-	switch typeID {
-	case "int8", "double", "number", "integer", "numeric", "precision":
-		return true
+	switch typespec.CanonicalID(typeID) {
+	case "number":
+		return !IsArrayResultType(typeID)
 	default:
 		return false
 	}
@@ -37,9 +42,9 @@ func IsNumericResultType(typeID string) bool {
 
 // IsDateTimeResultType reports scalar date/time types.
 func IsDateTimeResultType(typeID string) bool {
-	switch typeID {
-	case "timestamp", "timestamptz", "date":
-		return true
+	switch typespec.CanonicalID(typeID) {
+	case "datetime":
+		return !IsArrayResultType(typeID)
 	default:
 		return false
 	}
@@ -51,18 +56,14 @@ func ValidateResultTypeID(id string) error {
 	if id == "" {
 		return fmt.Errorf("result_type_id is empty")
 	}
-	if IsNumericResultType(id) || IsDateTimeResultType(id) {
-		return nil
-	}
-	switch id {
-	case "text", "bool", "json", "jsonb", "uuid", "bytea",
-		"int8_array", "double_array", "text_array", "bool_array", "jsonb_array",
-		"timestamptz_array", "uuid_array", "geometry", "geography", "point":
-		return nil
-	default:
+	t, ok := typespec.GetPgType(id)
+	if !ok || t.Kind != "" {
 		return fmt.Errorf("unknown result_type_id %q", id)
 	}
+	return nil
 }
+
+// -------- Infer --------
 
 // InferFormulaResultTypeId guesses formula return type from expression shape.
 func InferFormulaResultTypeId(expr string) string {
@@ -71,14 +72,43 @@ func InferFormulaResultTypeId(expr string) string {
 		return "number"
 	}
 	u := strings.ToUpper(e)
-	if strings.Contains(u, "CONCAT(") || strings.Contains(u, "TEXT(") ||
-		strings.Contains(u, "LOWER(") || strings.Contains(u, "UPPER(") {
+	switch {
+	case hasCall(u, "ISBLANK"):
+		return "boolean"
+	case hasCall(u, "DATEDIF"), hasCall(u, "YEAR"), hasCall(u, "MONTH"), hasCall(u, "DAY"), hasCall(u, "LEN"),
+		hasCall(u, "MIN"), hasCall(u, "MAX"), hasCall(u, "INT"), hasCall(u, "WEEKDAY"):
+		return "number"
+	case hasCall(u, "CONCAT"), hasCall(u, "TEXT"), hasCall(u, "LOWER"), hasCall(u, "UPPER"), hasCall(u, "TRIM"):
 		return "text"
-	}
-	if strings.ContainsAny(e, "\"'") {
+	case hasCall(u, "DATEVALUE"), hasCall(u, "DATE"), hasCall(u, "TODAY"), hasCall(u, "NOW"):
+		return "datetime"
+	case hasCall(u, "MID"):
 		return "text"
+	case strings.ContainsAny(e, "\"'"):
+		return "text"
+	default:
+		return "number"
 	}
-	return "number"
+}
+
+func hasCall(upperExpr, name string) bool {
+	needle := name + "("
+	from := 0
+	for {
+		i := strings.Index(upperExpr[from:], needle)
+		if i < 0 {
+			return false
+		}
+		i += from
+		if i == 0 || !isIdentChar(upperExpr[i-1]) {
+			return true
+		}
+		from = i + 1
+	}
+}
+
+func isIdentChar(b byte) bool {
+	return (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_'
 }
 
 // RollupResultTypeId derives rollup value type from aggregate and target field type.
@@ -108,19 +138,17 @@ func ScalarResultTypeToArray(scalar string) string {
 	if IsArrayResultType(scalar) {
 		return scalar
 	}
-	switch scalar {
-	case "int8", "integer", "number":
-		return "int8_array"
-	case "double", "precision", "numeric":
-		return "double_array"
-	case "bool":
-		return "bool_array"
-	case "json", "jsonb":
+	switch typespec.CanonicalID(scalar) {
+	case "number":
+		return "number_array"
+	case "boolean":
+		return "boolean_array"
+	case "jsonb":
 		return "jsonb_array"
-	case "uuid":
-		return "uuid_array"
-	case "timestamptz", "timestamp", "date":
-		return "timestamptz_array"
+	case "datetime":
+		return "datetime_array"
+	case "point":
+		return "point_array"
 	default:
 		return "text_array"
 	}

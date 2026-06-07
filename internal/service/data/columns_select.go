@@ -3,18 +3,16 @@ package data
 import (
 	"context"
 
-	formulacompile "github.com/solat/lowcode-database/internal/formula"
-	"github.com/solat/lowcode-database/internal/service/catalog"
-	"github.com/solat/lowcode-database/internal/service/schema"
-	"github.com/solat/lowcode-database/internal/service/shared"
+	"github.com/monoposer/lowcode-database/internal/service/calc"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
-// queryableColumnNames lists logical column names exposed by a data-source "view"
-// (physical + formula / lookup / rollup; excludes relationship).
+// queryableColumnNames lists logical column names exposed by a saved query
+// (physical + formula / lookup / rollup; excludes link).
 func queryableColumnNames(allCols []shared.FullColumnMeta) []string {
 	var names []string
 	for _, c := range allCols {
-		if c.Kind == "relationship" {
+		if calc.IsLinkType(c.Kind) {
 			continue
 		}
 		names = append(names, c.Name)
@@ -22,17 +20,17 @@ func queryableColumnNames(allCols []shared.FullColumnMeta) []string {
 	return names
 }
 
-// resolveDataSourceViewProjection returns the column list for SELECT … FROM view.
-//   - reqCols empty → use data source column_names; empty column_names on DS means SELECT * (all queryable table columns)
-//   - reqCols set   → intersection with the view projection above
-func (s *Data) resolveDataSourceViewProjection(ctx context.Context, tableID string, dsCols, reqCols []string) ([]string, error) {
+// resolveQueryProjection returns the column list for a saved query SELECT.
+//   - reqCols empty → use query column_names; empty column_names means SELECT * (all queryable table columns)
+//   - reqCols set   → intersection with the query projection above
+func (s *Data) resolveQueryProjection(ctx context.Context, tableID string, dsCols, reqCols []string) ([]string, error) {
 	if len(reqCols) > 0 {
 		tid, err := s.B.TenantID(ctx)
 		if err != nil {
 			return nil, err
 		}
 		var normErr error
-		reqCols, normErr = schema.New(s.B).NormalizeColumnNames(ctx, tid, tableID, reqCols)
+		reqCols, normErr = s.meta().NormalizeColumnNames(ctx, tid, tableID, reqCols)
 		if normErr != nil {
 			return nil, normErr
 		}
@@ -40,7 +38,7 @@ func (s *Data) resolveDataSourceViewProjection(ctx context.Context, tableID stri
 
 	viewCols := dsCols
 	if len(viewCols) == 0 {
-		allCols, _, _, err := catalog.New(s.B).LoadAllColumnMeta(ctx, tableID)
+		allCols, _, _, err := s.meta().LoadAllColumnMeta(ctx, tableID)
 		if err != nil {
 			return nil, err
 		}
@@ -83,16 +81,12 @@ func extendAttrMapVirtual(
 	allCols []shared.FullColumnMeta,
 	lookupSpecs []lookupJoinSpec,
 	rollupSQLByName map[string]string,
-	formulaSteps []formulacompile.Step,
 ) {
 	for _, lk := range lookupSpecs {
 		attrMap[lk.LookupColumnName] = lk.SelectExpr
 	}
 	for name, sql := range rollupSQLByName {
 		attrMap[name] = "(" + sql + ")"
-	}
-	for _, step := range formulaSteps {
-		attrMap[step.Name] = step.SelectRef()
 	}
 	for _, c := range allCols {
 		switch c.Kind {

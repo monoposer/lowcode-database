@@ -1,49 +1,48 @@
-# 本地开发（Cursor）
+# Local development (Cursor)
 
-## 环境变量
+## Environment
 
-当前代码使用 **双库模型**（非 README 里旧的 `TENANT_MODE`）：
+The code uses a **dual-DB model** (not the old `TENANT_MODE` in stale READMEs):
 
 ```bash
-# Meta：所有 lc_* 元数据 + lc_tenants
+# Meta: all lc_* metadata + tenants
 META_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/lowcode_meta
 
-# 默认租户的数据库（物理 lc_t_* 表 + PG ENUM）
+# Default tenant data DB (record / link_ref / calc_queue)
 DEFAULT_TENANT_DATA_DSN=postgresql://postgres:postgres@localhost:5432/lowcode_data
 DEFAULT_TENANT_ID=default
 
 HTTP_ADDR=:8080
 MAX_ROW=100
 
-# 可选：Redis 元数据缓存 + metrics 后端
+# Optional: Redis metadata cache
 # REDIS_URL=redis://localhost:6379/0
 # CACHE_ENABLED=true
 # CACHE_TTL_SECONDS=300
-# METRICS_BACKEND=prometheus   # noop | redis | prometheus
-# METRICS_WINDOW_SIZE=100
+# PG_STAT_STATEMENTS=true      # GET /v1/admin/pg-stat-statements
 # LOG_LEVEL=info
 # SLOW_QUERY_THRESHOLD_MS=500
 
-# 可选：API 创建租户时自动 CREATE DATABASE
+# Optional: CREATE DATABASE when Admin creates a tenant
 # DATA_ADMIN_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres
 # DATA_DSN_TEMPLATE=postgresql://postgres:postgres@localhost:5432/%s
 ```
 
-复制：`cp .env.example .env` 并按上表修改。
+Copy: `cp .env.example .env` and edit as above.
 
-## 启动与调试
+## Run and debug
 
 ```bash
-make docker-up      # postgres:16 + init migrations（首次 volume 空时自动 apply）
-make migrate        # 或手动：go run ./cmd/migrate -target meta && ... data
-make run            # HTTP 服务（不跑 migration）
+make docker-up      # postgis/postgis:16-3.5; empty DBs lowcode_meta / lowcode_data
+make migrate        # or make docker-migrate / go run ./cmd/migrate -target all
+make run            # HTTP service (does not migrate)
 make test
 make test-integration
 ```
 
-Playground UI 见独立仓库 **lowcode-database-playground**。
+Playground UI: in-repo `web/playground` (`make playground-dev`).
 
-集成测试：
+Integration tests:
 
 ```bash
 export TEST_META_DATABASE_URL='postgresql://postgres:postgres@localhost:5432/lowcode_meta'
@@ -51,100 +50,93 @@ export TEST_DATA_DATABASE_URL='postgresql://postgres:postgres@localhost:5432/low
 make test-integration
 ```
 
-HTTP 调试示例：
+HTTP examples:
 
 ```bash
-curl -H 'X-Tenant-Id: default' http://localhost:8080/v1/tables
-curl -H 'X-Tenant-Id: default' http://localhost:8080/v1/schema/er
+curl -H 'X-Tenant-Id: default' http://localhost:8080/v1/admin/tables
+curl -H 'X-Tenant-Id: default' http://localhost:8080/v1/admin/schema/er
 ```
 
-## 双库职责
+## Dual-DB roles
 
 ```
 HTTP /v1/*
-    → internal/service/LowcodeService
-    → MetaPool (META_DATABASE_URL)     — 表/列/视图/枚举注册
-    → DataPool (lc_tenants.data_dsn)   — lc_t_* 行数据、ENUM、INDEX
+    → internal/service.LowcodeService
+    → MetaPool (META_DATABASE_URL)     — table/column/query registration
+    → DataPool (tenants.data_dsn)      — record rows, indexes
 ```
 
-- 启动时 `db.NewTenantManager` **不** 执行 migration
-- Schema 来源：`docker/postgres/migrations/` + `cmd/migrate` 或 Docker init
+- Startup `db.NewTenantManager` does **not** run migrations
+- Schema source: `migrations/` + `cmd/migrate` (compose **does not** auto-apply)
 
 ## Migration
 
-SQL 文件：`docker/postgres/migrations/meta/`、`.../data/`
+SQL: `migrations/meta/`; data: [data/README.md](../migrations/data/README.md) (PostGIS `000001_postgis.up.sql`).
 
-| 命令 | 说明 |
-|------|------|
-| `make docker-up` | 首次 volume 空时 init 脚本自动 apply |
-| `make migrate` | `cmd/migrate` 对 meta + data 增量 apply |
-| `go run ./cmd/migrate -target meta -database-url '...'` | 单库迁移 |
+| Command | Notes |
+|---------|-------|
+| `make docker-up` | postgres + redis only; empty volume init only CREATE DATABASE |
+| `make migrate` | `cmd/migrate` apply meta + data (embed `migrations/`) |
+| `make docker-migrate` | compose `run --rm migrate` (not started by docker-up) |
+| `go run ./cmd/migrate -target meta -database-url '...'` | Single-DB migrate |
 
-版本记录在 `lc_schema_migrations`。新增 migration：追加 `000012_xxx.up.sql`，再 `make migrate-meta`。
+**Data DB:** business tables still use runtime DDL. UUID PKs use built-in `gen_random_uuid()`. PostGIS: Docker uses `postgis/postgis`; `make migrate` enables it on `lowcode_data`; self-hosted/cloud: [data/README.md](../migrations/data/README.md).
 
-**勿**在 `internal/service` 或 `cmd/server` 内嵌 SQL schema。
+SQL files are idempotent (`IF NOT EXISTS`). Re-run `make migrate` after adding `NNNN_xxx.up.sql`.
 
-## API 概览
+**Do not** embed SQL schema in `internal/service` or `cmd/server`.
 
-前缀 `/v1/`，JSON camelCase，租户头 **`X-Tenant-Id`** 必填。
+## API overview
 
-| 域 | 主要路由 |
-|----|----------|
-| Tenant | `POST /v1/tenants` |
-| Table | `GET/POST /v1/tables`，`GET .../schema`，`POST ...:rename`，`DELETE .../{name}` |
-| Column | `GET/POST /v1/columns?table_id=`，`PATCH/DELETE /v1/columns/{id}` |
-| Row | `GET/POST .../rows`，`POST .../rows:query`，`PATCH/DELETE .../rows/{id}`，bulk/import |
-| Index | `GET/POST /v1/indexes?table_id=`，`GET/DELETE /v1/indexes/{pgIndexName}` |
-| Choice (ENUM) | `GET/POST /v1/choices`，`GET/PATCH/DELETE /v1/choices/{id}` |
-| Relation | `GET/POST /v1/relations`，`DELETE /v1/relations/{id}` |
-| DataSource | `GET/POST /v1/data-sources`，`POST /v1/data-sources/{id}:query`（列表/视图定义 + 查询） |
-| ER | `GET /v1/schema/er` |
-| Webhook | `GET/POST /v1/webhooks`，`PATCH/DELETE /v1/webhooks/{id}` |
+Prefix `/v1/`, JSON camelCase, **`X-Tenant-Id`** required.
 
-## 领域约定
+| Domain | Main routes |
+|--------|-------------|
+| Tenant | `POST /v1/admin/tenants` (`recordStore`: shared \| dedicated; DB isolation via `dataDsn`) |
+| Table | `GET/POST /v1/admin/tables`, `GET .../schema`, `POST ...:rename`, `DELETE .../{name}` |
+| Column | `GET/POST /v1/admin/columns?table_id=`, `PATCH/DELETE /v1/admin/columns/{id}` |
+| Row | `GET/POST .../rows`, `POST .../rows:query`, `PATCH/DELETE .../rows/{id}`, bulk/import |
+| Index | `GET/POST /v1/admin/indexes?table_id=`, `GET/DELETE /v1/admin/indexes/{pgIndexName}` |
+| Relation | `GET/POST /v1/admin/relations`, `DELETE /v1/admin/relations/{id}` |
+| Query | `GET/POST /v1/admin/queries`, `POST /v1/data/queries/{name}` (define + execute) |
+| ER | `GET /v1/admin/schema/er` |
 
-### Choice（PostgreSQL ENUM）
-
-- 创建：`CREATE TYPE {schema}.{name} AS ENUM ('a','b')`（仅 data DB，无 meta 表；类型名 = logical name）
-- 列表/读取：查 `pg_type` / `pg_enum`（`public` 下合法标识符；兼容旧 `lc_e_{tenant}_*`）
-- 列类型 `enum` + `config.choice_name`（逻辑名）或 `choice_id`（同逻辑名 / 完整 pg 类型名）
-- 更新枚举：`replaceValues=true` 时全量替换（删值会重建 ENUM 类型；若行数据仍引用被删 label 会报错）；否则 `ALTER TYPE ... ADD VALUE IF NOT EXISTS` 追加
-- `Values` API 字段从 `pg_enum` 读取
+## Domain conventions
 
 ### Index
 
-- **Source of truth**：PostgreSQL catalog（`internal/service/pg_catalog.go`）
-- 创建：`CREATE [UNIQUE] INDEX IF NOT EXISTS idx_{table}_{name} ON ...`
-- 列表/Schema：`listPGIndexes` + `pgIndexesToAPI`
-- `Index.Id` = PG 索引名（如 `idx_vendor_score`）
+- **Source of truth:** PostgreSQL catalog
+- Create: `CREATE [UNIQUE] INDEX IF NOT EXISTS idx_{table}_{name} ON ...`
+- List/schema: `listPGIndexes` + `pgIndexesToAPI`
+- `Index.Id` = PG index name (e.g. `idx_vendor_score`)
 
-### 虚拟列
+### Virtual columns
 
-| kind | 说明 |
-|------|------|
-| relationship | 一对多 / 多对一；config 中 link_column_id 与 target_column_id 互斥 |
-| lookup | 基于 cardinality one 的 relationship LEFT JOIN |
-| formula | Excel 表达式（`config.expression`）；`{{column_name}}` → [pg-formula](https://github.com/SolaTyolo/pg-formula) 编译为 PostgreSQL 标量 SQL |
-| rollup | 对关联表聚合子查询 |
+| kind | Notes |
+|------|-------|
+| link | one-to-many / many-to-one; `link_column_id` and `target_column_id` are mutually exclusive in config |
+| lookup | LEFT JOIN via cardinality-one link |
+| formula | Excel expression (`config.expression`); `{{column_name}}` → [efp](https://github.com/xuri/efp) AST, evaluated in the calc worker |
+| rollup | Aggregate subquery on the related table |
 
-### 查询
+### Query
 
-- DSL：`internal/dsl`（metadata 兼容 JSON shape）
-- 合并：DataSource 的 filter + sort + columnIds；`POST .../rows:query` 或 DataSource `:query`
+- DSL: `internal/dsl` (metadata-compatible JSON shape)
+- Merge: saved Query filter + sort + columnIds; `POST .../rows:query` or `POST /v1/data/queries/{name}`
 
-## 改代码时的模式
+## When changing code
 
-1. **API 类型**：`internal/apiv1/`（必要时 `types.go` + `extended_types.go`）
-2. **业务**：`internal/service/<domain>_service.go`，共享逻辑放 `service_helpers.go`、`pg_catalog.go`
-3. **路由**：`internal/api/handler.go` 的 `dispatch` / `handleTablesSubtree`
-4. **测试**：单元测试同包；集成测试 `internal/service/integration_test.go` + `internal/testutil`
+1. **API types:** `internal/apiv1/<domain>/`
+2. **Business:** `internal/service/<module>/` (schema · catalog · data · platform) — [docs/modules/README.md](../docs/modules/README.md)
+3. **Routes:** `internal/api/routes.go` (chi); handlers in `admin/`, `data/`
+4. **Tests:** unit tests in-package; integration `internal/service/integration_test.go` + `internal/testutil`
 
-保持小 diff，与现有 `*_service.go` 拆分风格一致。
+Keep diffs small; match existing domain subpackage layout.
 
-## 常见坑
+Out of scope: [docs/roadmap.md](../docs/roadmap.md) (schema bundle import, plugins, graph query, Choice/ENUM, RBAC).
 
-- 无 `X-Tenant-Id` → 400
-- `loadColumns` 不含虚拟列；查索引用 `loadTablePhysical`
-- ENUM 列 NOT NULL 时插入行必须带值
-- 删 ENUM 类型前需先删引用该类型的列
-- README 中 proto / TENANT_MODE / GRPC 描述已过时，以本文与 `AGENTS.md` 为准
+## Pitfalls
+
+- Missing `X-Tenant-Id` → 400
+- `loadColumns` excludes virtual columns; index lookup uses `loadTablePhysical`
+- README mentions of proto / TENANT_MODE / gRPC are stale; this file and `AGENTS.md` win

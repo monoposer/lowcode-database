@@ -1,0 +1,53 @@
+{
+  "apiVersion": "typespec.lowcode/v1",
+  "kind": "TypeCatalog",
+  "columnTypes": [
+    {
+      "apiVersion": "typespec.lowcode/v1",
+      "kind": "ColumnType",
+      "metadata": {
+        "name": "positive_price",
+        "label": "Positive price"
+      },
+      "spec": {
+        "pgType": "numeric",
+        "precision": 18,
+        "scale": 2,
+        "checks": [
+          {
+            "expr": "VALUE > 0"
+          }
+        ]
+      }
+    },
+    {
+      "metadata": {
+        "name": "email_addr",
+        "label": "Email address"
+      },
+      "spec": {
+        "pgType": "text",
+        "checks": [
+          {
+            "expr": "VALUE ~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$'"
+          }
+        ]
+      }
+    },
+    {
+      "metadata": {
+        "name": "tag_list",
+        "label": "Non-empty tag list"
+      },
+      "spec": {
+        "pgType": "text[]",
+        "notNull": true,
+        "checks": [
+          {
+            "expr": "array_length(VALUE, 1) > 0 AND NOT EXISTS (SELECT 1 FROM unnest(VALUE) AS t WHERE trim(t) = '')"
+          }
+        ]
+      }
+    }
+  ]
+}

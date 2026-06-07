@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io/fs"
 	"net/http"
+
+	"github.com/monoposer/lowcode-database/internal/version"
 )
 
 //go:embed openapi/*
@@ -36,13 +38,31 @@ func RootHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{
+	resp := map[string]string{
 		"service":    "lowcode-database",
-		"api":        "/v1/",
+		"adminApi":   "/v1/admin/",
+		"dataApi":    "/v1/data/",
+		"health":     "/health",
 		"openapi":    "/openapi/openapi.yaml",
 		"swagger":    "/swagger/",
-		"playground": "https://github.com/solat/lowcode-database-playground",
-	})
+		"playground": "https://github.com/monoposer/lowcode-database-playground",
+	}
+	for k, v := range version.Map() {
+		resp[k] = v
+	}
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// HealthHandler returns liveness JSON including build version (used to align server/worker releases).
+func HealthHandler(role string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		out := map[string]any{"ok": true, "role": role}
+		for k, v := range version.Map() {
+			out[k] = v
+		}
+		_ = json.NewEncoder(w).Encode(out)
+	}
 }
 
 func serveSwaggerUI(w http.ResponseWriter, r *http.Request) {

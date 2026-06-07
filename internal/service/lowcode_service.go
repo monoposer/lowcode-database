@@ -1,20 +1,20 @@
 package service
 
 import (
-	"context"
+	"net/http"
 	"time"
 
-	"github.com/solat/lowcode-database/internal/cache"
-	"github.com/solat/lowcode-database/internal/db"
-	"github.com/solat/lowcode-database/internal/logger"
-	"github.com/solat/lowcode-database/internal/metrics"
-	"github.com/solat/lowcode-database/internal/service/catalog"
-	"github.com/solat/lowcode-database/internal/service/data"
-	"github.com/solat/lowcode-database/internal/service/graph"
-	"github.com/solat/lowcode-database/internal/service/platform"
-	"github.com/solat/lowcode-database/internal/service/schema"
-	"github.com/solat/lowcode-database/internal/service/shared"
-	"github.com/solat/lowcode-database/internal/webhook"
+	"github.com/monoposer/lowcode-database/internal/config"
+	"github.com/monoposer/lowcode-database/internal/event"
+	"github.com/monoposer/lowcode-database/internal/infra/postgres"
+	"github.com/monoposer/lowcode-database/internal/logger"
+	"github.com/monoposer/lowcode-database/internal/platform/cache"
+	"github.com/monoposer/lowcode-database/internal/service/catalog"
+	"github.com/monoposer/lowcode-database/internal/service/data"
+	"github.com/monoposer/lowcode-database/internal/service/platform"
+	"github.com/monoposer/lowcode-database/internal/service/schema"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
+	"github.com/monoposer/lowcode-database/internal/telemetry"
 )
 
 // LowcodeService is the root facade; domain logic lives in subpackages.
@@ -22,7 +22,6 @@ type LowcodeService struct {
 	*schema.Schema
 	*catalog.Catalog
 	*data.Data
-	*graph.Graph
 	*platform.Platform
 }
 
@@ -39,11 +38,9 @@ func WithCache(c cache.MetaCache, ttl time.Duration) Option {
 	}
 }
 
-func WithMetrics(m metrics.DataSourceMetrics) Option {
+func WithPGStatStatements(enabled bool) Option {
 	return func(b *shared.Base) {
-		if m != nil {
-			b.DSMetrics = m
-		}
+		b.PGStatStatements = enabled
 	}
 }
 
@@ -64,8 +61,70 @@ func WithLogSQL(enabled bool) Option {
 	}
 }
 
-func NewLowcodeService(tenants *db.TenantManager, maxRow int, hooks *webhook.Dispatcher, opts ...Option) *LowcodeService {
-	base := shared.NewBase(tenants, maxRow, hooks)
+func WithTelemetry(p telemetry.Provider) Option {
+	return func(b *shared.Base) {
+		if p != nil {
+			b.Telemetry = p
+		}
+	}
+}
+
+func WithLimits(cfg *config.Config) Option {
+	return func(b *shared.Base) {
+		if cfg == nil {
+			return
+		}
+		if cfg.MaxScanRows > 0 {
+			b.MaxScanRows = int32(cfg.MaxScanRows)
+		}
+		if cfg.MaxBulkItems > 0 {
+			b.MaxBulkItems = cfg.MaxBulkItems
+		}
+		if cfg.MaxExportRows > 0 {
+			b.MaxExportRows = cfg.MaxExportRows
+		}
+		if cfg.CalcMaxRetry > 0 {
+			b.CalcMaxRetry = cfg.CalcMaxRetry
+		}
+		if cfg.CalcTenantConcurrency > 0 {
+			b.CalcTenantConcurrency = cfg.CalcTenantConcurrency
+		}
+		if cfg.CalcAlertQueueLen > 0 {
+			b.CalcAlertQueueLen = cfg.CalcAlertQueueLen
+		}
+		if cfg.IndexBackfillTimeoutSec > 0 {
+			b.IndexBackfillTimeout = time.Duration(cfg.IndexBackfillTimeoutSec) * time.Second
+		}
+		b.DDLConfirmRequired = cfg.DDLConfirmRequired
+	}
+}
+
+func WithHTTPMiddleware(mw func(http.Handler) http.Handler) Option {
+	return func(b *shared.Base) {
+		b.HTTPMiddleware = mw
+	}
+}
+
+func WithEventBus(bus event.Bus) Option {
+	return func(b *shared.Base) {
+		b.EventBus = bus
+	}
+}
+
+// WithTenantIsolation is a no-op; storage is always virtual_records.
+func WithTenantIsolation(mode config.TenantIsolationMode, schemaPrefix string) Option {
+	return func(b *shared.Base) {
+		b.TenantIsolationMode = config.TenantIsolationRLSTable
+		b.TenantDataSchemaPrefix = schemaPrefix
+	}
+}
+
+func NewLowcodeService(tenants *postgres.TenantManager, maxRow int, opts ...Option) *LowcodeService {
+	base := shared.NewBase(tenants, maxRow)
+	if tenants != nil {
+		base.TenantIsolationMode = tenants.TenantIsolationMode()
+		base.TenantDataSchemaPrefix = tenants.TenantDataSchemaPrefix()
+	}
 	for _, opt := range opts {
 		opt(base)
 	}
@@ -73,16 +132,6 @@ func NewLowcodeService(tenants *db.TenantManager, maxRow int, hooks *webhook.Dis
 		schema.New(base),
 		catalog.New(base),
 		data.New(base),
-		graph.New(base),
 		platform.New(base),
 	}
-}
-
-// DataSourceQueryStats returns rolling average latency for a data source.
-func (s *LowcodeService) DataSourceQueryStats(ctx context.Context, dataSourceID string) (metrics.QueryStats, error) {
-	tid, err := s.Schema.B.TenantID(ctx)
-	if err != nil {
-		return metrics.QueryStats{}, err
-	}
-	return s.Schema.B.DSMetrics.Stats(ctx, tid, dataSourceID)
 }

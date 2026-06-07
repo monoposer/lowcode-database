@@ -1,69 +1,70 @@
-# lowcode-database — Cursor / Agent 开发说明
+# lowcode-database — Cursor / Agent notes
 
-基于 Postgres 的低代码表服务：HTTP JSON API（`/v1/*`），动态表/列/行/视图/枚举，双库架构（meta + data）。
+Postgres-backed low-code table service: HTTP JSON API (`/v1/*`), dynamic tables/columns/rows/views, dual-DB architecture (meta + data).
 
-## 关联仓库
-
-| 仓库 | 关系 |
-|------|------|
-| treelab-metadata | Entity/View/Choice 元数据模式参考 |
-| treelab-scm-service | 行级查询、View 数据源、DSL 过滤参考 |
-| [lowcode-database-playground](https://github.com/solat/lowcode-database-playground) | Vite + AG Grid 调试 UI（独立仓库） |
-
-## 本地启动
+## Local startup
 
 1. `cp .env.example .env`
-2. **Docker（推荐）**：`make docker-up` — 首次启动自动建库 + apply SQL
-3. 或自备 Postgres：`make migrate`（`cmd/migrate`）
-4. `make run` → http://localhost:8080
-5. API 请求带 `X-Tenant-Id: default`
+2. **Docker (recommended)**: `make docker-up` — Postgres + Redis (empty DBs; **does not** apply SQL)
+3. `make migrate` (`cmd/migrate`) or `make docker-migrate` — apply schema
+4. `make run` → http://localhost:8080 (`/v1/admin/*`, `/v1/data/*`, calc)
+5. `make playground-dev` → http://localhost:5173
+6. APIs require `X-Tenant-Id`
 
-## 目录
+## Layout
 
-| 路径 | 说明 |
-|------|------|
-| `cmd/server/` | HTTP 入口 |
-| `cmd/migrate/` | Schema 迁移 CLI |
-| `internal/api/` | 路由与 handler |
-| `internal/apiv1/` | JSON 请求/响应类型（手写，无 proto） |
-| `internal/service/` | 业务逻辑（按域拆分 `*_service.go`） |
-| `internal/dsl/`、`internal/query/` | 过滤 DSL → SQL |
-| `internal/cache/` | Redis 元数据缓存（data source / view / column spec） |
-| `internal/metrics/` | DataSource 查询 metrics（最近 N 次平均耗时） |
-| `internal/logger/` | JSON 结构化日志 |
-| `docker/postgres/migrations/` | Meta/Data SQL 迁移文件 |
-| `internal/db/` | 双库 TenantManager |
+| Path | Notes |
+|------|-------|
+| `cmd/server/` | Runtime: `/v1/admin/*` + `/v1/data/*` + in-process calc worker; mounts `/playground/` when `web/playground/dist` exists |
+| `cmd/migrate/` | Schema migration CLI |
+| `web/playground/` | Vite + AG Grid debug UI (hash pages `#/editor`, etc.) |
+| `internal/api/` | Routes and handlers (`/v1/admin/*`, `/v1/data/*`) |
+| `internal/apiv1/` | JSON request/response types (hand-written, no proto) |
+| `internal/service/` | Domain modules: `schema`, `catalog`, `data`, `platform`, `calc` (see [docs/modules/](docs/modules/README.md)) |
+| `pkg/typespec/` | Column types (pgType / DOMAIN) |
+| `internal/service/shared/` | Cross-domain helpers (result type, cells, config) |
+| `internal/dsl/`, `internal/query/` | Filter DSL → SQL |
+| `internal/event/` | Event types + EventBus (memory / Redis Stream) + webhooks |
+| `internal/infra/postgres/` | Dual-DB TenantManager, pools |
+| `internal/infra/redis/` | Redis client (optional) |
+| `internal/platform/cache/` | Redis metadata cache (query / column spec) |
+| `internal/platform/metrics/` | `pg_stat_statements` list (`PG_STAT_STATEMENTS`) |
+| `internal/platform/authn/` | API Key validation (authentication) |
+| `internal/logger/` | JSON structured logs |
+| `migrations/` | Meta/Data SQL (embedded by `cmd/migrate`) |
+| `docs/` | Architecture docs ([docs/README.md](docs/README.md)) |
 
-调试 UI 见独立仓库 **lowcode-database-playground**。
+Debug UI: in-repo **`web/playground`** (`make playground-dev`).
 
-## 架构要点
+## Architecture
 
-- **Meta DB**：`lc_tables`、`lc_columns`、`lc_choices`（ENUM 注册）、`lc_relations`、`lc_data_sources`、`lc_tenants` 等
-- **Data DB**：物理表 `lc_t_*`、PG ENUM 类型、索引（以 PG catalog 为准）
-- **Choice**：data DB 的 PG ENUM（类型名与 logical name 相同），catalog 为唯一来源
-- **Index**：读写直接对接 PostgreSQL（`pg_index` / `pg_class`），不依赖 `lc_indexes` 镜像
+- **Meta DB**: `tenants` (`data_dsn`), `lc_bases`, `lc_tables`, `lc_columns`, `lc_queries`, `lc_indexes`
+- **Data DB**: `record` (LIST partition by `vt_id`) or `{tenant_id}_record` when `tenants.record_store=dedicated`; also `link_ref`, `calc_queue`
+- **Virtual columns** (`formula` / `link` / `lookup` / `rollup`) have no physical column; results cache in `record.data`; relations in `link_ref`
+- **Index**: meta `lc_indexes` + PG catalog DDL; `POST /indexes:backfill` backfills
 
-## 性能与可观测性
+## Performance and observability
 
-- **Redis 缓存**（`REDIS_URL` + `CACHE_ENABLED`）：缓存 data source / view / column 元数据，写操作自动失效
-- **Metrics**（`METRICS_BACKEND=redis|prometheus`）：记录每个 data source 最近 100 次（可配）查询平均耗时
-  - Prometheus：`GET /metrics` 暴露 `lowcode_datasource_query_avg_seconds` 等
-  - Redis：List 存储 rolling window
-- **日志**：JSON stdout；`SLOW_QUERY_THRESHOLD_MS` 触发 datasource / SQL 慢查询 warn
+- **Redis cache** (`REDIS_URL` + `CACHE_ENABLED`): caches query / column metadata; writes invalidate
+- **SQL stats**: `PG_STAT_STATEMENTS=true` enables `GET /v1/admin/pg-stat-statements` (Postgres records automatically)
+- **Logs**: JSON stdout; `SLOW_QUERY_THRESHOLD_MS` warns on slow query / SQL
 
 ```bash
-make docker-up   # postgres + redis
+make docker-up      # postgres + redis (empty DBs)
+make migrate        # apply migrations/
 export REDIS_URL=redis://localhost:6379/0
-export METRICS_BACKEND=prometheus
+export PG_STAT_STATEMENTS=true
 make run
 ```
 
-## 勿混淆
+## Do not confuse
 
-- 无 gRPC / protobuf；勿添加 `make proto`
-- `Table.Id` 对外为逻辑 **name**，不是 UUID
-- 虚拟列（`formula` / `relationship` / `lookup` / `rollup`）无 PG 物理列
-- 改 schema：**编辑 `docker/postgres/migrations/`**，执行 `make migrate` 或 `docker compose up` 首次初始化
-- 业务服务 **不** 自动跑 migration
+- No gRPC / protobuf; do not add `make proto`
+- Access layer is pgx only (no Ent); static SQL includes `tenant_id`/`base_id`
+- `Table.Id` is the logical **name**, not a UUID
+- Virtual columns (`formula` / `link` / `lookup` / `rollup`) have no physical column; cache in `record.data`
+- Schema changes: **edit `migrations/`**, run `make migrate` (or `make docker-migrate`)
+- Business services **do not** auto-migrate
+- Out of scope this version: [docs/roadmap.md](docs/roadmap.md) (schema bundle import, plugins, graph query, Choice/ENUM, RBAC)
 
-详见 [.cursor/DEVELOPMENT.md](.cursor/DEVELOPMENT.md)
+See [.cursor/DEVELOPMENT.md](.cursor/DEVELOPMENT.md) · architecture [docs/README.md](docs/README.md) ([system](docs/architecture/system.md), [analysis](docs/architecture/analysis.md), [record calc](docs/architecture/record-calc.md), [Virtual-Records RFC](docs/architecture/virtual-records.md))

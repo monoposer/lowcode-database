@@ -3,11 +3,11 @@ package columntype_test
 import (
 	"testing"
 
-	"github.com/solat/lowcode-database/internal/columntype"
+	"github.com/monoposer/lowcode-database/internal/columntype"
 )
 
 func TestResolveBuiltInTypes(t *testing.T) {
-	for _, id := range []string{"text", "int8", "formula", "relation_fk"} {
+	for _, id := range []string{"text", "int8", "formula", "link"} {
 		if _, err := columntype.Resolve(id); err != nil {
 			t.Fatalf("Resolve(%q): %v", id, err)
 		}
@@ -24,13 +24,19 @@ func TestIsVirtual(t *testing.T) {
 }
 
 func TestVirtualTypesHaveNoPgType(t *testing.T) {
-	for _, id := range []string{"formula", "relationship", "lookup", "rollup", "relation_fk"} {
+	for _, id := range []string{"formula", "link", "lookup", "rollup"} {
 		if got := columntype.PgType(id); got != "" {
 			t.Fatalf("PgType(%q) = %q, want empty", id, got)
 		}
 	}
 	if got := columntype.PgType("text"); got != "text" {
 		t.Fatalf("PgType(text) = %q", got)
+	}
+	if got := columntype.PgType("number"); got != "numeric" {
+		t.Fatalf("PgType(number) = %q", got)
+	}
+	if got := columntype.PgType("datetime"); got != "timestamptz" {
+		t.Fatalf("PgType(datetime) = %q", got)
 	}
 }
 
@@ -44,7 +50,7 @@ func TestNoEnumBuiltInType(t *testing.T) {
 }
 
 func TestListNonEmpty(t *testing.T) {
-	if len(columntype.List()) < 10 {
-		t.Fatalf("expected many built-in types, got %d", len(columntype.List()))
+	if len(columntype.List()) != 10 {
+		t.Fatalf("expected 10 built-in types, got %d", len(columntype.List()))
 	}
 }

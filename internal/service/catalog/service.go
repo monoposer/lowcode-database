@@ -1,6 +1,6 @@
 package catalog
 
-import "github.com/solat/lowcode-database/internal/service/shared"
+import "github.com/monoposer/lowcode-database/internal/service/shared"
 
 type Catalog struct {
 	B *shared.Base

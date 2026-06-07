@@ -4,24 +4,24 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/solat/lowcode-database/internal/formula"
-	"github.com/solat/lowcode-database/internal/service/shared"
+	"github.com/monoposer/lowcode-database/internal/formula"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
-func TestValidationFormulaRefsIncludesFormulaStub(t *testing.T) {
+func TestKnownFormulaColumnsOmitsEditing(t *testing.T) {
 	cols := []shared.FullColumnMeta{
 		{Name: "score", Kind: "int8", TypeId: "int8"},
 		{Name: "base", Kind: "formula", TypeId: "formula", Config: map[string]any{"expression": "{{score}} * 2"}},
 	}
-	refs := validationFormulaRefs(cols, "total")
-	if refs["score"] != "score" {
-		t.Fatalf("score ref: %q", refs["score"])
+	known := knownFormulaColumns(cols, "total")
+	if _, ok := known["score"]; !ok {
+		t.Fatal("score should be known")
 	}
-	if refs["base"] != formula.StubRef("base") {
-		t.Fatalf("base stub: %q", refs["base"])
+	if _, ok := known["base"]; !ok {
+		t.Fatal("base formula should be known")
 	}
-	if _, ok := refs["total"]; ok {
-		t.Fatal("editing column should not be in refs")
+	if _, ok := known["total"]; ok {
+		t.Fatal("editing column should not be in known")
 	}
 }
 

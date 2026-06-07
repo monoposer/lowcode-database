@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -10,24 +11,27 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-
-	"github.com/solat/lowcode-database/internal/api"
-	"github.com/solat/lowcode-database/internal/cache"
-	"github.com/solat/lowcode-database/internal/config"
-	"github.com/solat/lowcode-database/internal/db"
-	"github.com/solat/lowcode-database/internal/logger"
-	"github.com/solat/lowcode-database/internal/metrics"
-	"github.com/solat/lowcode-database/internal/redisclient"
-	"github.com/solat/lowcode-database/internal/service"
-	"github.com/solat/lowcode-database/internal/webhook"
+	"github.com/monoposer/lowcode-database/internal/api"
+	"github.com/monoposer/lowcode-database/internal/config"
+	"github.com/monoposer/lowcode-database/internal/event"
+	"github.com/monoposer/lowcode-database/internal/infra/postgres"
+	infraredis "github.com/monoposer/lowcode-database/internal/infra/redis"
+	"github.com/monoposer/lowcode-database/internal/logger"
+	"github.com/monoposer/lowcode-database/internal/platform/authn"
+	"github.com/monoposer/lowcode-database/internal/platform/cache"
+	"github.com/monoposer/lowcode-database/internal/platform/ratelimit"
+	"github.com/monoposer/lowcode-database/internal/service"
+	"github.com/monoposer/lowcode-database/internal/service/calc"
+	"github.com/monoposer/lowcode-database/internal/telemetry"
+	"github.com/monoposer/lowcode-database/internal/version"
+	"github.com/monoposer/lowcode-database/internal/worker"
 )
 
 func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Tenant-Id, X-Tenant-ID, X-Requested-With")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Tenant-Id, X-Tenant-ID, X-Api-Key, Authorization, X-User-Sub, X-User-Roles, X-User-Role, X-Requested-With, X-Read-Consistency, X-Base-Id, X-Confirm-Dangerous")
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -59,16 +63,21 @@ func main() {
 	}
 
 	var (
-		httpAddr = flag.String("http-addr", cfg.HTTPAddr, "HTTP JSON API listen address")
+		httpAddr    = flag.String("http-addr", cfg.HTTPAddr, "HTTP JSON API listen address")
+		showVersion = flag.Bool("version", false, "print version and exit")
 	)
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(version.String())
+		return
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	appLog := logger.New(cfg.LogLevel)
 
-	rdb, err := redisclient.Open(ctx, cfg)
+	rdb, err := infraredis.Open(ctx, cfg)
 	if err != nil {
 		log.Fatalf("redis: %v", err)
 	}
@@ -79,34 +88,57 @@ func main() {
 		}
 	}
 
-	tenantMgr, err := db.NewTenantManager(ctx, cfg)
+	tenantMgr, err := postgres.NewTenantManager(ctx, cfg)
 	if err != nil {
 		log.Fatalf("init tenant manager: %v", err)
 	}
 
-	hooks := webhook.NewDispatcher(tenantMgr)
 	metaCache := cache.New(cfg, rdb)
-	dsMetrics := metrics.New(cfg, rdb)
-	if cfg.MetricsBackend != "" && cfg.MetricsBackend != "noop" {
-		appLog.Info("metrics enabled", "backend", cfg.MetricsBackend, "window", cfg.MetricsWindowSize)
-	}
-
-	lcSvc := service.NewLowcodeService(tenantMgr, cfg.MaxRow, hooks,
+	tel := telemetry.NewMemory()
+	bus := event.Open(cfg, rdb)
+	defer bus.Close()
+	lcSvc := service.NewLowcodeService(tenantMgr, cfg.MaxRow,
 		service.WithCache(metaCache, time.Duration(cfg.CacheTTLSeconds)*time.Second),
-		service.WithMetrics(dsMetrics),
+		service.WithPGStatStatements(cfg.PGStatStatements),
 		service.WithLogger(appLog, time.Duration(cfg.SlowQueryThresholdMS)*time.Millisecond),
 		service.WithLogSQL(cfg.LogSQL),
+		service.WithTelemetry(tel),
+		service.WithLimits(cfg),
+		service.WithHTTPMiddleware(ratelimit.New(cfg.RateLimitGlobalRPS, cfg.RateLimitTenantRPS).Middleware),
+		service.WithEventBus(bus),
 	)
+	event.StartWebhookDispatcher(ctx, bus, tenantMgr)
+	if cfg.PGStatStatements {
+		appLog.Info("pg_stat_statements list API enabled", "path", "/v1/admin/pg-stat-statements")
+	}
 	if cfg.LogSQL {
 		appLog.Info("sql logging enabled", "env", "LOG_SQL")
 	}
 
+	go (&worker.IndexMigrate{
+		Tenants:  tenantMgr,
+		Interval: 10 * time.Second,
+		Timeout:  time.Duration(cfg.IndexBackfillTimeoutSec) * time.Second,
+	}).Run(ctx)
+	go calc.NewWorker(calc.WorkerConfig{
+		Tenants:       tenantMgr,
+		Batch:         cfg.CalcWorkerBatch,
+		Poll:          time.Duration(cfg.CalcWorkerPollMS) * time.Millisecond,
+		Log:           appLog,
+		PerTenant:     cfg.CalcTenantConcurrency,
+		AlertQueueLen: cfg.CalcAlertQueueLen,
+		Telemetry:     tel,
+	}).Run(ctx)
+	appLog.Info("background workers started", "index_migrate", true, "calc", true, "batch", cfg.CalcWorkerBatch, "poll_ms", cfg.CalcWorkerPollMS)
+
 	mux := http.NewServeMux()
-	mux.Handle("/v1/", api.NewHandler(lcSvc))
-	if cfg.MetricsBackend == "prometheus" {
-		mux.Handle("/metrics", promhttp.Handler())
-	}
+	authnValidator := authn.NewValidator(tenantMgr.MetaPool(), cfg)
+	mux.Handle("/v1/", authnValidator.Middleware(api.NewHandler(lcSvc)))
 	api.RegisterOpenAPI(mux)
+	if st, err := os.Stat("web/playground/dist"); err == nil && st.IsDir() {
+		mux.Handle("/playground/", http.StripPrefix("/playground/", http.FileServer(http.Dir("web/playground/dist"))))
+	}
+	mux.HandleFunc("/health", api.HealthHandler("server"))
 	mux.HandleFunc("/", api.RootHandler)
 
 	handler := withCORS(withRequestLog(appLog, mux))
@@ -118,7 +150,11 @@ func main() {
 	}
 
 	go func() {
-		appLog.Info("server starting", "addr", *httpAddr)
+		appLog.Info("server starting",
+			"addr", *httpAddr,
+			"version", version.Version,
+			"commit", version.Commit,
+		)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("HTTP server error: %v", err)
 		}

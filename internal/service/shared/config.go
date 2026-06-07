@@ -3,6 +3,7 @@ package shared
 import (
 	"fmt"
 	"maps"
+	"regexp"
 	"strings"
 )
 
@@ -48,12 +49,19 @@ func NullJSON(b []byte) any {
 }
 
 func ValidateRollupConfig(cfg map[string]any) error {
-	if CfgString(cfg, "relation_column_id") == "" {
-		return fmt.Errorf("rollup config requires relation_column_id")
+	rel := CfgString(cfg, "relation_column_id")
+	if rel == "" {
+		rel = CfgString(cfg, "link_field_id")
+	}
+	if rel == "" {
+		return fmt.Errorf("rollup config requires link_field_id (or relation_column_id)")
 	}
 	agg := CfgString(cfg, "aggregate")
 	if agg == "" {
-		return fmt.Errorf("rollup config requires aggregate (sum|count|min|max|avg)")
+		agg = CfgString(cfg, "aggregation")
+	}
+	if agg == "" {
+		return fmt.Errorf("rollup config requires aggregation (sum|count|min|max|avg)")
 	}
 	switch agg {
 	case "sum", "count", "min", "max", "avg", "SUM", "COUNT", "MIN", "MAX", "AVG":
@@ -66,7 +74,7 @@ func ValidateRollupConfig(cfg map[string]any) error {
 	}
 }
 
-// ValidateLinkedFilter checks optional filter on lookup/rollup config (same DSL as datasource filter).
+// ValidateLinkedFilter checks optional filter on lookup/rollup config (same DSL as saved query filter).
 func ValidateLinkedFilter(cfg map[string]any) error {
 	raw, ok := cfg["filter"]
 	if !ok || raw == nil {
@@ -84,19 +92,33 @@ func NormalizeRelationshipConfig(cfg map[string]any) (map[string]any, error) {
 		cfg = map[string]any{}
 	}
 	out := maps.Clone(cfg)
+	if CfgString(out, "target_table_id") == "" {
+		if t := CfgString(out, "to_table_id"); t != "" {
+			out["target_table_id"] = t
+		}
+	}
+	if CfgString(out, "to_table_id") == "" && CfgString(out, "target_table_id") != "" {
+		out["to_table_id"] = CfgString(out, "target_table_id")
+	}
 	targetTable := CfgString(out, "target_table_id")
 	if targetTable == "" {
-		return nil, fmt.Errorf("relationship config requires target_table_id")
+		return nil, fmt.Errorf("link/relationship config requires to_table_id (or target_table_id)")
 	}
 	linkID := CfgString(out, "link_column_id")
 	targetColID := CfgString(out, "target_column_id")
 	card := strings.ToLower(CfgString(out, "cardinality"))
 
+	// link_ref model: only target table is required; cardinality defaults to many.
+	if linkID == "" && targetColID == "" {
+		if card == "one" {
+			out["cardinality"] = "one"
+		} else {
+			out["cardinality"] = "many"
+		}
+		return out, nil
+	}
 	if linkID != "" && targetColID != "" {
 		return nil, fmt.Errorf("relationship config: set only one of link_column_id (many) or target_column_id (one), not both")
-	}
-	if linkID == "" && targetColID == "" {
-		return nil, fmt.Errorf("relationship config requires link_column_id (many) or target_column_id (one)")
 	}
 	if linkID != "" {
 		if card == "one" {
@@ -125,4 +147,26 @@ func EffectiveRelationshipCardinality(cfg map[string]any, linkID, targetColID st
 		return "many"
 	}
 	return "one"
+}
+
+var pgObjectNameRe = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]{0,62}$`)
+
+func ValidateTableName(name string) error {
+	if name == "" {
+		return fmt.Errorf("name is required")
+	}
+	if !pgObjectNameRe.MatchString(name) {
+		return fmt.Errorf("name must match %s (English identifier, PG-compatible)", pgObjectNameRe.String())
+	}
+	return nil
+}
+
+func ValidateColumnName(name string) error {
+	if err := ValidateTableName(name); err != nil {
+		return err
+	}
+	if strings.EqualFold(name, "id") {
+		return fmt.Errorf("column name %q is reserved (row primary key)", name)
+	}
+	return nil
 }

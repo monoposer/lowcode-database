@@ -1,0 +1,102 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+:root {
+  --studio-bg: #171717;
+  --studio-bg-elevated: #1f1f1f;
+  --studio-sidebar: #1c1c1c;
+  --studio-panel: #232323;
+  --studio-border: #2e2e2e;
+  --studio-border-light: #3a3a3a;
+  --studio-text: #ededed;
+  --studio-text-muted: #8b8b8b;
+  --studio-text-dim: #6b6b6b;
+  --studio-accent: #3ecf8e;
+  --studio-accent-dim: rgba(62, 207, 142, 0.12);
+  --studio-accent-hover: #38bb7f;
+  --studio-danger: #f04438;
+  --studio-danger-dim: rgba(240, 68, 56, 0.12);
+  --studio-warning: #f5a623;
+  --studio-input-bg: #2a2a2a;
+  --studio-hover: rgba(255, 255, 255, 0.04);
+  --studio-active: rgba(255, 255, 255, 0.08);
+  --studio-nav-width: 48px;
+  --studio-sidebar-width: 240px;
+  --studio-header-height: 48px;
+  --studio-radius: 6px;
+  --studio-font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --studio-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--studio-font);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--studio-text);
+  background: var(--studio-bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  width: 100%;
+  max-width: none;
+  text-align: left;
+  border: none;
+  min-height: 100vh;
+}
+
+code {
+  font-family: var(--studio-mono);
+  font-size: 12px;
+  padding: 1px 5px;
+  background: var(--studio-input-bg);
+  border-radius: 4px;
+  color: var(--studio-accent);
+}
+
+button {
+  font-family: inherit;
+  font-size: 13px;
+}
+
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--studio-text);
+  background: var(--studio-input-bg);
+  border: 1px solid var(--studio-border-light);
+  border-radius: var(--studio-radius);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--studio-accent);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--studio-text-dim);
+}
+
+select {
+  cursor: pointer;
+}
+
+a {
+  color: var(--studio-accent);
+}

@@ -3,9 +3,9 @@ package schema
 import (
 	"context"
 
-	"github.com/solat/lowcode-database/internal/formula"
-	"github.com/solat/lowcode-database/internal/service/catalog"
-	"github.com/solat/lowcode-database/internal/service/shared"
+	"github.com/monoposer/lowcode-database/internal/formula"
+	"github.com/monoposer/lowcode-database/internal/service/catalog"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
 func (s *Schema) ValidateFormulaExpression(ctx context.Context, tableKey, columnName, expr string) error {
@@ -19,9 +19,7 @@ func (s *Schema) ValidateFormulaExpression(ctx context.Context, tableKey, column
 			return err
 		}
 	}
-	refs := validationFormulaRefs(allCols, columnName)
-	_, err = shared.CompileFormulaExpression(expr, "_b", refs)
-	return err
+	return formula.Validate(expr, knownFormulaColumns(allCols, columnName))
 }
 
 func (s *Schema) CompileFormulaForTable(ctx context.Context, tableKey, expr string) (string, error) {
@@ -29,8 +27,10 @@ func (s *Schema) CompileFormulaForTable(ctx context.Context, tableKey, expr stri
 	if err != nil {
 		return "", err
 	}
-	refs := validationFormulaRefs(allCols, "")
-	return shared.CompileFormulaExpression(expr, "_b", refs)
+	if err := formula.Validate(expr, knownFormulaColumns(allCols, "")); err != nil {
+		return "", err
+	}
+	return expr, nil
 }
 
 func formulaExprsByName(cols []shared.FullColumnMeta) map[string]string {
@@ -46,17 +46,15 @@ func formulaExprsByName(cols []shared.FullColumnMeta) map[string]string {
 	return out
 }
 
-// validationFormulaRefs builds a ref map for syntax-checking one expression.
-// Other formula columns use a numeric stub; the column being edited is omitted.
-func validationFormulaRefs(cols []shared.FullColumnMeta, editingName string) map[string]string {
-	refs := map[string]string{}
+func knownFormulaColumns(cols []shared.FullColumnMeta, editingName string) map[string]struct{} {
+	known := map[string]struct{}{}
 	for _, c := range cols {
-		switch {
-		case shared.FormulaRefAllowed(c.Kind) && c.Kind != "formula":
-			refs[c.Name] = c.Name
-		case c.Kind == "formula" && c.Name != editingName:
-			refs[c.Name] = formula.StubRef(c.Name)
+		if c.Name == editingName {
+			continue
+		}
+		if shared.FormulaRefAllowed(c.Kind) {
+			known[c.Name] = struct{}{}
 		}
 	}
-	return refs
+	return known
 }

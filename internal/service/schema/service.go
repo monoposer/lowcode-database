@@ -1,6 +1,6 @@
 package schema
 
-import "github.com/solat/lowcode-database/internal/service/shared"
+import "github.com/monoposer/lowcode-database/internal/service/shared"
 
 type Schema struct {
 	B *shared.Base

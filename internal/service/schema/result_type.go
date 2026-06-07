@@ -3,16 +3,15 @@ package schema
 import (
 	"context"
 	"fmt"
-
 	"github.com/jackc/pgx/v5"
-
-	"github.com/solat/lowcode-database/internal/apiv1"
-	"github.com/solat/lowcode-database/internal/columntype"
-	"github.com/solat/lowcode-database/internal/service/shared"
+	apiv1schema "github.com/monoposer/lowcode-database/internal/apiv1/schema"
+	"github.com/monoposer/lowcode-database/internal/columntype"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
+	"github.com/monoposer/lowcode-database/pkg/typespec"
 )
 
 // EnsureColumnResultType fills config.result_type_id and Column.ResultTypeId for API responses.
-func (s *Schema) EnsureColumnResultType(ctx context.Context, tenantID, tableKey string, c *apiv1.Column) error {
+func (s *Schema) EnsureColumnResultType(ctx context.Context, tenantID, tableKey string, c *apiv1schema.Column) error {
 	if c == nil {
 		return nil
 	}
@@ -54,7 +53,7 @@ func (s *Schema) ApplyColumnResultType(ctx context.Context, tenantID, tableKey, 
 func (s *Schema) ResolveColumnResultTypeID(ctx context.Context, tenantID, tableKey, colName, typeID string, cfg map[string]any) (string, error) {
 	kind := columntype.Kind(typeID)
 	if kind == "" && columntype.IsBuiltIn(typeID) {
-		return typeID, nil
+		return typespec.CanonicalID(typeID), nil
 	}
 	if override := shared.ConfigResultTypeID(cfg); override != "" && kind != "lookup" {
 		return override, nil
@@ -90,15 +89,31 @@ func (s *Schema) resolveColumnResultTypeID(
 			return override, nil
 		}
 		return s.rollupResultTypeID(ctx, tenantID, tableKey, cfg, visiting)
-	case "relationship":
-		return "json", nil
+	case "link":
+		return "jsonb", nil
 	default:
+		if t, ok := typespec.GetPgType(typeID); ok && t.Kind == "" {
+			return typespec.CanonicalID(typeID), nil
+		}
 		if columntype.IsBuiltIn(typeID) {
-			return typeID, nil
+			return typespec.CanonicalID(typeID), nil
 		}
 		// PG ENUM / choice columns use type_id = choice name; treat as text for filters.
 		return "text", nil
 	}
+}
+
+func (s *Schema) loadColumnMeta(ctx context.Context, tenantID, tableKey, colName string) (typeID string, cfg map[string]any, err error) {
+	baseID, err := s.B.BaseID(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	err = s.B.Tenants.MetaPool().QueryRow(ctx, `
+		SELECT type_id, config FROM lc_columns
+		WHERE tenant_id = $1 AND base_id = $2 AND table_id = $3 AND name = $4`,
+		tenantID, baseID, tableKey, colName,
+	).Scan(&typeID, &cfg)
+	return typeID, cfg, err
 }
 
 func (s *Schema) lookupResultTypeID(ctx context.Context, tenantID, hostTable string, cfg map[string]any, visiting map[string]bool) (string, error) {
@@ -107,12 +122,16 @@ func (s *Schema) lookupResultTypeID(ctx context.Context, tenantID, hostTable str
 	if relName == "" || fieldName == "" {
 		return "text", nil
 	}
+	baseID, err := s.B.BaseID(ctx)
+	if err != nil {
+		return "", err
+	}
 	meta := s.B.Tenants.MetaPool()
 	var relCfg map[string]any
-	err := meta.QueryRow(ctx, `
+	err = meta.QueryRow(ctx, `
 		SELECT config FROM lc_columns
-		WHERE tenant_id = $1 AND table_id = $2 AND name = $3 AND type_id = 'relationship'`,
-		tenantID, hostTable, relName,
+		WHERE tenant_id = $1 AND base_id = $2 AND table_id = $3 AND name = $4 AND type_id IN ('link','relationship','relation_fk')`,
+		tenantID, baseID, hostTable, relName,
 	).Scan(&relCfg)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -143,15 +162,6 @@ func (s *Schema) lookupResultTypeID(ctx context.Context, tenantID, hostTable str
 	return targetRT, nil
 }
 
-func (s *Schema) loadColumnMeta(ctx context.Context, tenantID, tableKey, colName string) (typeID string, cfg map[string]any, err error) {
-	err = s.B.Tenants.MetaPool().QueryRow(ctx, `
-		SELECT type_id, config FROM lc_columns
-		WHERE tenant_id = $1 AND table_id = $2 AND name = $3`,
-		tenantID, tableKey, colName,
-	).Scan(&typeID, &cfg)
-	return typeID, cfg, err
-}
-
 func (s *Schema) rollupResultTypeID(ctx context.Context, tenantID, hostTable string, cfg map[string]any, visiting map[string]bool) (string, error) {
 	agg := shared.CfgString(cfg, "aggregate")
 	if agg == "" {
@@ -162,12 +172,16 @@ func (s *Schema) rollupResultTypeID(ctx context.Context, tenantID, hostTable str
 		return shared.RollupResultTypeId(agg, "number"), nil
 	}
 	relName := shared.CfgString(cfg, "relation_column_id")
+	baseID, err := s.B.BaseID(ctx)
+	if err != nil {
+		return "", err
+	}
 	meta := s.B.Tenants.MetaPool()
 	var relCfg map[string]any
 	if err := meta.QueryRow(ctx, `
 		SELECT config FROM lc_columns
-		WHERE tenant_id = $1 AND table_id = $2 AND name = $3 AND type_id = 'relationship'`,
-		tenantID, hostTable, relName,
+		WHERE tenant_id = $1 AND base_id = $2 AND table_id = $3 AND name = $4 AND type_id IN ('link','relationship','relation_fk')`,
+		tenantID, baseID, hostTable, relName,
 	).Scan(&relCfg); err != nil {
 		return shared.RollupResultTypeId(agg, "number"), nil
 	}

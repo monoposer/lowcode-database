@@ -4,57 +4,57 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+
+	"github.com/monoposer/lowcode-database/pkg/typespec"
 )
 
-// Type is a built-in column type (not stored in DB).
+// Type is a column type (built-in pgType or legacy alias). Tenant columnTypes live in lc_column_types.
 type Type struct {
 	ID     string
 	Name   string
 	PgType string
-	Kind   string // formula, relationship, lookup, rollup, relation_fk; empty for scalars
+	Kind   string // formula, link, lookup, rollup; empty for scalars
 	Config map[string]any
 }
 
 var registry = map[string]Type{}
 
 func init() {
-	for _, t := range []Type{
-		// scalars
-		{ID: "text", Name: "text", PgType: "text"},
-		{ID: "number", Name: "number", PgType: "numeric"},
-		{ID: "bool", Name: "bool", PgType: "boolean"},
-		{ID: "timestamp", Name: "timestamp", PgType: "timestamptz"},
-		{ID: "json", Name: "json", PgType: "jsonb"},
-		{ID: "uuid", Name: "uuid", PgType: "uuid"},
-		{ID: "integer", Name: "integer", PgType: "bigint"},
-		{ID: "date", Name: "date", PgType: "date"},
-		{ID: "bytea", Name: "bytea", PgType: "bytea"},
-		{ID: "int8", Name: "int8", PgType: "bigint"},
-		{ID: "double", Name: "double", PgType: "double precision"},
-		{ID: "precision", Name: "precision", PgType: "numeric", Config: map[string]any{"precision": 20, "scale": 6}},
-		{ID: "timestamptz", Name: "timestamptz", PgType: "timestamptz"},
-		{ID: "jsonb", Name: "jsonb", PgType: "jsonb"},
-		// arrays
-		{ID: "int8_array", Name: "int8_array", PgType: "bigint[]", Config: map[string]any{"array": true}},
-		{ID: "double_array", Name: "double_array", PgType: "double precision[]", Config: map[string]any{"array": true}},
-		{ID: "text_array", Name: "text_array", PgType: "text[]", Config: map[string]any{"array": true}},
-		{ID: "bool_array", Name: "bool_array", PgType: "boolean[]", Config: map[string]any{"array": true}},
-		{ID: "jsonb_array", Name: "jsonb_array", PgType: "jsonb[]", Config: map[string]any{"array": true}},
-		{ID: "timestamptz_array", Name: "timestamptz_array", PgType: "timestamptz[]", Config: map[string]any{"array": true}},
-		{ID: "uuid_array", Name: "uuid_array", PgType: "uuid[]", Config: map[string]any{"array": true}},
-		// postgis
-		{ID: "geometry", Name: "geometry", PgType: "geometry", Config: map[string]any{"postgis": true}},
-		{ID: "geography", Name: "geography", PgType: "geography", Config: map[string]any{"postgis": true}},
-		{ID: "point", Name: "point", PgType: "geometry(Point,4326)", Config: map[string]any{"postgis": true}},
-		// virtual — no physical PG column; PgType empty
-		{ID: "formula", Name: "formula", Kind: "formula"},
-		{ID: "relationship", Name: "relationship", Kind: "relationship"},
-		{ID: "lookup", Name: "lookup", Kind: "lookup"},
-		{ID: "rollup", Name: "rollup", Kind: "rollup"},
-		{ID: "relation_fk", Name: "relation_fk", Kind: "relation_fk"},
-	} {
-		register(t)
+	for _, pt := range typespec.ListPgTypes() {
+		register(fromPgTypeEntry(pt))
 	}
+	// Legacy aliases resolve via typespec.GetPgType but are not listed in List().
+}
+
+func fromPgTypeEntry(pt typespec.PgTypeEntry) Type {
+	t := Type{
+		ID:     pt.ID,
+		Name:   pt.Name,
+		PgType: pt.PgType,
+		Kind:   pt.Kind,
+		Config: map[string]any{},
+	}
+	if pt.Kind != "" {
+		t.Config["kind"] = pt.Kind
+	}
+	for _, m := range pt.Modifiers {
+		if m.Name == "array" {
+			t.Config["allowsArray"] = true
+		}
+		if m.Name == "precision" && m.Default != nil {
+			t.Config["precision"] = m.Default
+		}
+		if m.Name == "scale" && m.Default != nil {
+			t.Config["scale"] = m.Default
+		}
+	}
+	if pt.Category == typespec.CategoryArray {
+		t.Config["array"] = true
+	}
+	if pt.ID == "point" || pt.AliasOf == "point" {
+		t.Config["postgis"] = true
+	}
+	return t
 }
 
 func register(t Type) {
@@ -70,13 +70,18 @@ func register(t Type) {
 	registry[t.ID] = t
 }
 
-// Get returns a built-in type by id (same as name).
+// Get returns a built-in pgType by id (includes legacy aliases).
 func Get(id string) (Type, bool) {
-	t, ok := registry[id]
-	return t, ok
+	if t, ok := registry[id]; ok {
+		return t, true
+	}
+	if pt, ok := typespec.GetPgType(id); ok && pt.Deprecated {
+		return fromPgTypeEntry(pt), true
+	}
+	return Type{}, false
 }
 
-// Resolve validates type id and returns type metadata.
+// Resolve validates type id and returns type metadata for built-in/legacy types only.
 func Resolve(id string) (Type, error) {
 	t, ok := Get(id)
 	if !ok {
@@ -85,7 +90,7 @@ func Resolve(id string) (Type, error) {
 	return t, nil
 }
 
-// List returns all built-in types sorted by name.
+// List returns canonical built-in pgTypes (no tenant columnTypes).
 func List() []Type {
 	out := make([]Type, 0, len(registry))
 	for _, t := range registry {
@@ -105,12 +110,11 @@ func Kind(id string) string {
 
 // IsBuiltIn reports whether id is a registered built-in column type.
 func IsBuiltIn(id string) bool {
-	_, ok := Get(id)
+	_, ok := registry[id]
 	return ok
 }
 
-// PgType returns the default PostgreSQL type name for a type id.
-// Virtual columns return "" (no fixed PG type). Choice columns use type_id = choice name — resolve via service.
+// PgType returns the default PostgreSQL type name for a built-in type id.
 func PgType(id string) string {
 	if IsVirtual(id) {
 		return ""
@@ -130,17 +134,12 @@ func Config(id string) map[string]any {
 	return maps.Clone(t.Config)
 }
 
-// IsVirtual reports whether the type id is a virtual column (no physical PG column semantics).
+// IsVirtual reports whether the type id is a virtual column.
 func IsVirtual(id string) bool {
 	return IsVirtualKind(Kind(id))
 }
 
 // IsVirtualKind reports whether a column kind string denotes a virtual column.
 func IsVirtualKind(kind string) bool {
-	switch kind {
-	case "formula", "relationship", "lookup", "rollup":
-		return true
-	default:
-		return false
-	}
+	return typespec.IsVirtualKind(kind)
 }

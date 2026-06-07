@@ -11,7 +11,7 @@ type ColumnMeta struct {
 	Position   int32
 }
 
-// RelationshipColumn describes a relationship column for expand queries.
+// RelationshipColumn describes a link column used by lookup/rollup joins.
 type RelationshipColumn struct {
 	Id             string
 	TargetTableId  string

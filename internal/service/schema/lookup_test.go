@@ -3,7 +3,7 @@ package schema
 import (
 	"testing"
 
-	"github.com/solat/lowcode-database/internal/service/shared"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
 func TestLookupTargetAllowed(t *testing.T) {
@@ -12,7 +12,7 @@ func TestLookupTargetAllowed(t *testing.T) {
 			t.Fatalf("%s should be allowed", kind)
 		}
 	}
-	if shared.LookupTargetAllowed("relationship") {
-		t.Fatal("relationship should not be a lookup target")
+	if shared.LookupTargetAllowed("link") || shared.LookupTargetAllowed("relationship") {
+		t.Fatal("link should not be a lookup target")
 	}
 }

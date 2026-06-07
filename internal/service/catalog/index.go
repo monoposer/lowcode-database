@@ -5,18 +5,71 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
-
-	"github.com/solat/lowcode-database/internal/apiv1"
+	apiv1schema "github.com/monoposer/lowcode-database/internal/apiv1/schema"
 )
 
-// -------- Index (PostgreSQL catalog as source of truth) --------
-
-func (s *Catalog) CreateIndex(ctx context.Context, req *apiv1.CreateIndexRequest) (*apiv1.CreateIndexResponse, error) {
+func (s *Catalog) ListIndexes(ctx context.Context, req *apiv1schema.ListIndexesRequest) (*apiv1schema.ListIndexesResponse, error) {
 	if req.TableId == "" {
 		return nil, fmt.Errorf("table_id is required")
 	}
-	cols, schemaName, tableName, err := s.LoadColumns(ctx, req.TableId)
+	tableID, err := s.B.ResolveTableName(ctx, req.TableId)
+	if err != nil {
+		return nil, err
+	}
+	tid, err := s.B.TenantID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	baseID, err := s.B.BaseID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	metaRows, err := s.listIndexMeta(ctx, tid, baseID, tableID)
+	if err != nil {
+		return nil, err
+	}
+	var indexes []*apiv1schema.Index
+	for _, r := range metaRows {
+		indexes = append(indexes, s.indexMetaToAPI(r))
+	}
+	return &apiv1schema.ListIndexesResponse{Indexes: indexes}, nil
+}
+
+func (s *Catalog) GetIndex(ctx context.Context, req *apiv1schema.GetIndexRequest) (*apiv1schema.GetIndexResponse, error) {
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	tid, err := s.B.TenantID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	baseID, err := s.B.BaseID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	meta, err := s.findIndexMeta(ctx, tid, baseID, req.TableId, req.Id)
+	if err != nil {
+		return nil, fmt.Errorf("index not found")
+	}
+	return &apiv1schema.GetIndexResponse{Index: s.indexMetaToAPI(*meta)}, nil
+}
+
+func (s *Catalog) CreateIndex(ctx context.Context, req *apiv1schema.CreateIndexRequest) (*apiv1schema.CreateIndexResponse, error) {
+	if req.TableId == "" {
+		return nil, fmt.Errorf("table_id is required")
+	}
+	if req.Name == "" {
+		return nil, fmt.Errorf("name is required")
+	}
+	tid, err := s.B.TenantID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	baseID, err := s.B.BaseID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cols, _, tableName, err := s.LoadColumns(ctx, req.TableId)
 	if err != nil {
 		return nil, err
 	}
@@ -29,161 +82,80 @@ func (s *Catalog) CreateIndex(ctx context.Context, req *apiv1.CreateIndexRequest
 	for _, id := range req.ColumnIds {
 		colIDSet[id] = struct{}{}
 	}
-	var pgColumns []string
+	var columnIDs []string
+	var colNames []string
 	for _, c := range cols {
 		if _, ok := colIDSet[c.Id]; ok {
-			pgColumns = append(pgColumns, pgx.Identifier{c.Name}.Sanitize())
+			columnIDs = append(columnIDs, c.Id)
+			colNames = append(colNames, c.Name)
 		}
 	}
-	if len(pgColumns) == 0 {
+	if len(columnIDs) == 0 {
 		return nil, fmt.Errorf("no valid columns for index")
 	}
 
-	pgIndex, err := indexSQLName(tableName, req.Name)
+	logicalName, err := sanitizePgIdent(req.Name)
+	if err != nil {
+		return nil, err
+	}
+	pgIndex, err := indexSQLName(tableName, logicalName)
 	if err != nil {
 		return nil, err
 	}
 
-	data, err := s.B.Tenants.DataPool(ctx)
+	tenantID, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	uniqueSQL := ""
-	if req.IsUnique {
-		uniqueSQL = "UNIQUE "
-	}
-	indexSQL := fmt.Sprintf(`CREATE %sINDEX IF NOT EXISTS %s ON %s.%s (%s)`,
-		uniqueSQL,
-		pgx.Identifier{pgIndex}.Sanitize(),
-		pgx.Identifier{schemaName}.Sanitize(),
-		pgx.Identifier{tableName}.Sanitize(),
-		strings.Join(pgColumns, ", "),
-	)
-	if _, err := data.Exec(ctx, indexSQL); err != nil {
-		return nil, err
-	}
-
-	pgRows, err := s.ListPGIndexes(ctx, schemaName, tableName)
+	vtID, err := s.B.Tenants.TableVTID(ctx, tenantID, baseID, resolvedTable)
 	if err != nil {
 		return nil, err
 	}
-	var target *apiv1.Index
-	apiIndexes, err := s.PGIndexesToAPI(ctx, resolvedTable, schemaName, tableName, pgRows)
-	if err != nil {
-		return nil, err
-	}
-	for _, idx := range apiIndexes {
-		if idx.PgIndex == pgIndex {
-			target = idx
-			break
+	expr := fmt.Sprintf(`(data->>'%s')`, strings.ReplaceAll(colNames[0], "'", "''"))
+	if len(colNames) > 1 {
+		parts := make([]string, len(colNames))
+		for i, n := range colNames {
+			parts[i] = fmt.Sprintf(`(data->>'%s')`, strings.ReplaceAll(n, "'", "''"))
 		}
+		expr = "(" + strings.Join(parts, ", ") + ")"
 	}
-	if target == nil {
-		target = &apiv1.Index{
-			Id:        pgIndex,
-			TableId:   resolvedTable,
-			Name:      req.Name,
-			PgIndex:   pgIndex,
-			ColumnIds: req.ColumnIds,
-			IsUnique:  req.IsUnique,
-		}
-	} else {
-		target.Name = req.Name
+	if err := s.insertVRIndexMeta(ctx, tid, baseID, resolvedTable, logicalName, pgIndex, vtID, expr, "btree", columnIDs, req.IsUnique); err != nil {
+		return nil, fmt.Errorf("insert lc_indexes: %w", err)
 	}
-	return &apiv1.CreateIndexResponse{Index: target}, nil
+	for _, n := range colNames {
+		_, _ = s.B.Tenants.MetaPool().Exec(ctx, `
+			UPDATE lc_columns SET config = COALESCE(config,'{}'::jsonb) || '{"need_index":true}'::jsonb
+			WHERE tenant_id = $1 AND base_id = $2 AND table_id = $3 AND name = $4`, tid, baseID, resolvedTable, n)
+	}
+	meta, err := s.getIndexMeta(ctx, tid, baseID, resolvedTable, logicalName)
+	if err != nil {
+		return &apiv1schema.CreateIndexResponse{Index: &apiv1schema.Index{
+			Id: logicalName, TableId: resolvedTable, Name: logicalName, PgIndex: pgIndex,
+			ColumnIds: columnIDs, IsUnique: req.IsUnique,
+		}}, nil
+	}
+	return &apiv1schema.CreateIndexResponse{Index: s.indexMetaToAPI(*meta)}, nil
 }
 
-func (s *Catalog) DeleteIndex(ctx context.Context, req *apiv1.DeleteIndexRequest) (*apiv1.DeleteIndexResponse, error) {
+func (s *Catalog) DeleteIndex(ctx context.Context, req *apiv1schema.DeleteIndexRequest) (*apiv1schema.DeleteIndexResponse, error) {
 	if req.Id == "" {
 		return nil, fmt.Errorf("id is required")
-	}
-	schemaName, err := s.resolveIndexSchema(ctx, req.Id)
-	if err != nil {
-		return &apiv1.DeleteIndexResponse{}, nil
-	}
-	data, err := s.B.Tenants.DataPool(ctx)
-	if err != nil {
-		return nil, err
-	}
-	drop := fmt.Sprintf(`DROP INDEX IF EXISTS %s.%s`,
-		pgx.Identifier{schemaName}.Sanitize(),
-		pgx.Identifier{req.Id}.Sanitize(),
-	)
-	if _, err := data.Exec(ctx, drop); err != nil {
-		return nil, err
-	}
-	return &apiv1.DeleteIndexResponse{}, nil
-}
-
-func (s *Catalog) ListIndexes(ctx context.Context, req *apiv1.ListIndexesRequest) (*apiv1.ListIndexesResponse, error) {
-	tableID, schemaName, tableName, err := s.B.LoadTablePhysical(ctx, req.TableId)
-	if err != nil {
-		return nil, err
-	}
-	pgRows, err := s.ListPGIndexes(ctx, schemaName, tableName)
-	if err != nil {
-		return nil, err
-	}
-	indexes, err := s.PGIndexesToAPI(ctx, tableID, schemaName, tableName, pgRows)
-	if err != nil {
-		return nil, err
-	}
-	return &apiv1.ListIndexesResponse{Indexes: indexes}, nil
-}
-
-func (s *Catalog) GetIndex(ctx context.Context, req *apiv1.GetIndexRequest) (*apiv1.GetIndexResponse, error) {
-	if req.Id == "" {
-		return nil, fmt.Errorf("id is required")
-	}
-	data, err := s.B.Tenants.DataPool(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var schemaName, tableName string
-	if err := data.QueryRow(ctx, `
-		SELECT schemaname, tablename FROM pg_indexes WHERE indexname = $1 LIMIT 1`,
-		req.Id,
-	).Scan(&schemaName, &tableName); err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("index not found")
-		}
-		return nil, err
 	}
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var tableID string
-	if err := s.B.Tenants.MetaPool().QueryRow(ctx, `
-		SELECT name FROM lc_tables WHERE tenant_id = $1 AND schema_name = $2 AND name = $3`,
-		tid, schemaName, tableName,
-	).Scan(&tableID); err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("index table not found in metadata")
-		}
-		return nil, err
-	}
-	pgRows, err := s.ListPGIndexes(ctx, schemaName, tableName)
+	baseID, err := s.B.BaseID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var match *pgIndexRow
-	for i := range pgRows {
-		if pgRows[i].Name == req.Id {
-			match = &pgRows[i]
-			break
-		}
-	}
-	if match == nil {
-		return nil, fmt.Errorf("index not found")
-	}
-	apiIndexes, err := s.PGIndexesToAPI(ctx, tableID, schemaName, tableName, []pgIndexRow{*match})
+	meta, err := s.findIndexMeta(ctx, tid, baseID, req.TableId, req.Id)
 	if err != nil {
-		return nil, err
-	}
-	if len(apiIndexes) == 0 {
 		return nil, fmt.Errorf("index not found")
 	}
-	return &apiv1.GetIndexResponse{Index: apiIndexes[0]}, nil
+	_, _ = s.B.Tenants.MetaPool().Exec(ctx, `
+		UPDATE lc_indexes SET migrate_status = 'drop_pending', updated_at = now()
+		WHERE tenant_id = $1 AND base_id = $2 AND table_id = $3 AND name = $4`,
+		tid, baseID, meta.TableID, meta.Name)
+	return &apiv1schema.DeleteIndexResponse{}, nil
 }

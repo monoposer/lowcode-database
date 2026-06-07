@@ -3,15 +3,15 @@ package platform
 import (
 	"context"
 	"fmt"
+	"github.com/monoposer/lowcode-database/internal/apiv1/platform"
+
 	"net/url"
 	"strconv"
 	"strings"
-
-	"github.com/solat/lowcode-database/internal/apiv1"
 )
 
 // GetDatabaseConnection returns host/user/db and a passwordless URL plus psql hints for the active tenant database.
-func (s *Platform) GetDatabaseConnection(ctx context.Context, _ *apiv1.GetDatabaseConnectionRequest) (*apiv1.GetDatabaseConnectionResponse, error) {
+func (s *Platform) GetDatabaseConnection(ctx context.Context, _ *platform.GetDatabaseConnectionRequest) (*platform.GetDatabaseConnectionResponse, error) {
 	dsn, err := s.B.Tenants.EffectiveDataDSN(ctx)
 	if err != nil {
 		return nil, err
@@ -21,7 +21,7 @@ func (s *Platform) GetDatabaseConnection(ctx context.Context, _ *apiv1.GetDataba
 		return nil, fmt.Errorf("parse database url: %w", err)
 	}
 	hint := passwordHint()
-	return &apiv1.GetDatabaseConnectionResponse{
+	return &platform.GetDatabaseConnectionResponse{
 		Host:               host,
 		Port:               int32(port),
 		Database:           database,
@@ -33,7 +33,7 @@ func (s *Platform) GetDatabaseConnection(ctx context.Context, _ *apiv1.GetDataba
 }
 
 func passwordHint() string {
-	return "This API never returns a password. Use the password embedded in this tenant's data_dsn (lc_tenants / DEFAULT_TENANT_DATA_DSN), or set PGPASSWORD / ~/.pgpass when running psql locally."
+	return "This API never returns a password. Use the password in the tenant data DSN (tenants.data_dsn / DEFAULT_TENANT_DATA_DSN), or set PGPASSWORD / ~/.pgpass when running psql locally."
 }
 
 func parsePostgresDSNForDisplay(dsn string) (host string, port int, database, user, urlWithoutPassword, psqlCommand string, err error) {

@@ -3,8 +3,8 @@ package migrator
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
+	"io/fs"
+	"path"
 	"regexp"
 	"sort"
 	"strconv"
@@ -14,69 +14,137 @@ import (
 )
 
 var fileRe = regexp.MustCompile(`^(\d+)_(.+)\.up\.sql$`)
+var extRe = regexp.MustCompile(`(?i)CREATE\s+EXTENSION\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"([^"]+)"|'([^']+)'|([a-zA-Z0-9_]+))`)
 
-// Apply runs pending *.up.sql migrations from dir against databaseURL.
-func Apply(ctx context.Context, databaseURL, dir string) error {
+type Result struct {
+	Applied    []string `json:"applied,omitempty"`
+	MissingExt []string `json:"missingExtensions,omitempty"`
+}
+
+// Apply runs *.up.sql files from fsys against databaseURL in filename order.
+// SQL is expected to be idempotent (IF NOT EXISTS). No version table is written.
+func Apply(ctx context.Context, databaseURL string, fsys fs.FS) error {
+	_, err := ApplyResult(ctx, databaseURL, fsys)
+	return err
+}
+
+// ApplyResult is Apply plus the list of files executed. Fails before DDL if
+// required extensions are not available on the server (e.g. PostGIS missing).
+func ApplyResult(ctx context.Context, databaseURL string, fsys fs.FS) (Result, error) {
+	var out Result
 	if databaseURL == "" {
-		return fmt.Errorf("database URL is required")
+		return out, fmt.Errorf("database URL is required")
 	}
-	if dir == "" {
-		return fmt.Errorf("migrations directory is required")
+	if fsys == nil {
+		return out, fmt.Errorf("migrations filesystem is required")
 	}
 
 	pool, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
-		return fmt.Errorf("connect: %w", err)
+		return out, fmt.Errorf("connect: %w", err)
 	}
 	defer pool.Close()
 
-	if err := ensureMigrationsTable(ctx, pool); err != nil {
-		return err
-	}
-
-	current, err := currentVersion(ctx, pool)
+	files, err := listMigrationFiles(fsys)
 	if err != nil {
-		return err
+		return out, err
 	}
 
-	files, err := listMigrationFiles(dir)
+	bodies := make([][]byte, len(files))
+	var allSQL strings.Builder
+	for i, f := range files {
+		body, err := fs.ReadFile(fsys, f.name)
+		if err != nil {
+			return out, fmt.Errorf("read %s: %w", f.name, err)
+		}
+		bodies[i] = body
+		allSQL.Write(body)
+		allSQL.WriteByte('\n')
+	}
+	missing, err := missingExtensions(ctx, pool, RequiredExtensions(allSQL.String()))
 	if err != nil {
-		return err
+		return out, err
+	}
+	if len(missing) > 0 {
+		out.MissingExt = missing
+		return out, fmt.Errorf("postgres extensions not available: %s", strings.Join(missing, ", "))
 	}
 
-	for _, f := range files {
-		if f.version <= current {
+	for i, f := range files {
+		fmt.Printf("applying %s\n", path.Base(f.name))
+		if _, err := pool.Exec(ctx, string(bodies[i])); err != nil {
+			return out, fmt.Errorf("apply %s: %w", f.name, err)
+		}
+		out.Applied = append(out.Applied, f.name)
+	}
+	return out, nil
+}
+
+// RequiredExtensions extracts CREATE EXTENSION names from SQL.
+func RequiredExtensions(sql string) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	for _, m := range extRe.FindAllStringSubmatch(sql, -1) {
+		name := m[1]
+		if name == "" {
+			name = m[2]
+		}
+		if name == "" {
+			name = m[3]
+		}
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name == "" {
 			continue
 		}
-		body, err := os.ReadFile(f.path)
-		if err != nil {
-			return fmt.Errorf("read %s: %w", f.path, err)
+		if _, ok := seen[name]; ok {
+			continue
 		}
-		fmt.Printf("applying %s\n", filepath.Base(f.path))
-		if _, err := pool.Exec(ctx, string(body)); err != nil {
-			return fmt.Errorf("apply %s: %w", f.path, err)
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	return out
+}
+
+func missingExtensions(ctx context.Context, pool *pgxpool.Pool, names []string) ([]string, error) {
+	if len(names) == 0 {
+		return nil, nil
+	}
+	rows, err := pool.Query(ctx, `
+		SELECT name FROM pg_available_extensions WHERE name = ANY($1)
+	`, names)
+	if err != nil {
+		return nil, fmt.Errorf("check extensions: %w", err)
+	}
+	defer rows.Close()
+	avail := map[string]struct{}{}
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
 		}
-		if _, err := pool.Exec(ctx,
-			`INSERT INTO lc_schema_migrations (version, name) VALUES ($1, $2)`,
-			f.version, f.name,
-		); err != nil {
-			return fmt.Errorf("record migration %d: %w", f.version, err)
+		avail[n] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	var missing []string
+	for _, n := range names {
+		if _, ok := avail[n]; !ok {
+			missing = append(missing, n)
 		}
 	}
-
-	return nil
+	return missing, nil
 }
 
 type migFile struct {
 	version int
 	name    string
-	path    string
 }
 
-func listMigrationFiles(dir string) ([]migFile, error) {
-	entries, err := os.ReadDir(dir)
+func listMigrationFiles(fsys fs.FS) ([]migFile, error) {
+	entries, err := fs.ReadDir(fsys, ".")
 	if err != nil {
-		return nil, fmt.Errorf("read dir %s: %w", dir, err)
+		return nil, fmt.Errorf("read migrations: %w", err)
 	}
 	var files []migFile
 	for _, e := range entries {
@@ -88,57 +156,8 @@ func listMigrationFiles(dir string) ([]migFile, error) {
 			continue
 		}
 		v, _ := strconv.Atoi(m[1])
-		files = append(files, migFile{
-			version: v,
-			name:    m[2],
-			path:    filepath.Join(dir, e.Name()),
-		})
+		files = append(files, migFile{version: v, name: e.Name()})
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].version < files[j].version })
 	return files, nil
-}
-
-func ensureMigrationsTable(ctx context.Context, pool *pgxpool.Pool) error {
-	_, err := pool.Exec(ctx, `
-		CREATE TABLE IF NOT EXISTS lc_schema_migrations (
-			version    INT PRIMARY KEY,
-			name       TEXT NOT NULL,
-			applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
-		)
-	`)
-	return err
-}
-
-func currentVersion(ctx context.Context, pool *pgxpool.Pool) (int, error) {
-	var v int
-	err := pool.QueryRow(ctx, `SELECT COALESCE(MAX(version), 0) FROM lc_schema_migrations`).Scan(&v)
-	return v, err
-}
-
-// DefaultDir returns docker/postgres/migrations/{target} relative to project root.
-func DefaultDir(target string) (string, error) {
-	root, err := findProjectRoot()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(root, "docker", "postgres", "migrations", target), nil
-}
-
-func findProjectRoot() (string, error) {
-	dir, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			if _, err := os.Stat(filepath.Join(dir, "docker", "postgres", "migrations")); err == nil {
-				return dir, nil
-			}
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", fmt.Errorf("project root not found (go.mod + docker/postgres/migrations)")
-		}
-		dir = parent
-	}
 }

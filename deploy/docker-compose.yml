@@ -1,0 +1,78 @@
+# Local/dev dependencies: Postgres + Redis.
+# Run from repo root: make docker-up
+# Schema is NOT auto-applied. After postgres is up: make migrate
+#   or: docker compose -f deploy/docker-compose.yml run --rm migrate
+# Full stack (app + deps): make docker-up-stack
+
+services:
+  postgres:
+    # PostGIS bundled (geometry/geography/point column types). Plain postgres:16-alpine has no PostGIS.
+    image: postgis/postgis:16-3.5
+    container_name: lowcode-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      # Creates empty lowcode_meta / lowcode_data only. Schema: make migrate.
+      - ../docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: lowcode-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  migrate:
+    profiles: [migrate]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: lowcode-database:latest
+    entrypoint: ["./migrate"]
+    command: ["-target", "all"]
+    environment:
+      META_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/lowcode_meta
+      DEFAULT_TENANT_DATA_DSN: postgresql://postgres:postgres@postgres:5432/lowcode_data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  server:
+    profiles: [stack]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: lowcode-database:latest
+    container_name: lowcode-server
+    ports:
+      - "8080:8080"
+    environment:
+      META_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/lowcode_meta
+      DEFAULT_TENANT_DATA_DSN: postgresql://postgres:postgres@postgres:5432/lowcode_data
+      DEFAULT_TENANT_ID: default
+      REDIS_URL: redis://redis:6379/0
+      CACHE_ENABLED: "true"
+      HTTP_ADDR: :8080
+      EVENT_BUS: redis
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pg-data:

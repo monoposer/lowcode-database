@@ -3,7 +3,7 @@ package data
 import (
 	"testing"
 
-	"github.com/solat/lowcode-database/internal/service/shared"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
 func TestCollectFormulaNeededRefs(t *testing.T) {
