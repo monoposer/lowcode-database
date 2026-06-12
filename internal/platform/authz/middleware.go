@@ -2,6 +2,7 @@ package authz
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 )
 
@@ -11,10 +12,14 @@ type ctxKey struct{}
 type Middleware struct {
 	auth     Authorizer
 	required bool
+	headers  SubjectHeaders
 }
 
-func NewMiddleware(auth Authorizer, required bool) *Middleware {
-	return &Middleware{auth: auth, required: required}
+func NewMiddleware(auth Authorizer, required bool, headers SubjectHeaders) *Middleware {
+	if headers.SubHeader == "" && len(headers.RolesHeaders) == 0 {
+		headers = DefaultSubjectHeaders()
+	}
+	return &Middleware{auth: auth, required: required, headers: headers}
 }
 
 func (m *Middleware) Handler(next http.Handler) http.Handler {
@@ -28,7 +33,7 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 			return
 		}
 
-		authReq, ok := RequestFromHTTP(r)
+		authReq, ok := RequestFromHTTP(r, m.headers)
 		if !ok {
 			next.ServeHTTP(w, r)
 			return
@@ -36,7 +41,7 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 
 		if authReq.User.Sub == "" && len(authReq.User.Roles) == 0 {
 			if m.required {
-				http.Error(w, "user identity required (X-User-Sub / X-User-Roles)", http.StatusUnauthorized)
+				http.Error(w, fmt.Sprintf("user identity required (%s)", m.headers.IdentityHint()), http.StatusUnauthorized)
 				return
 			}
 			next.ServeHTTP(w, r)

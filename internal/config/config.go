@@ -51,8 +51,12 @@ type Config struct {
 	AuthzFile string
 	// AuthzHTTPURL external authorize endpoint when AuthzDriver=http.
 	AuthzHTTPURL string
-	// AuthzRequired rejects /v1/* without X-User-Sub or X-User-Roles when true.
+	// AuthzRequired rejects /v1/* without user identity headers when true.
 	AuthzRequired bool
+	// AuthzUserSubHeader HTTP header for subject id (default X-User-Sub).
+	AuthzUserSubHeader string
+	// AuthzUserRolesHeaders ordered list; first non-empty value wins (default X-User-Roles, X-User-Role).
+	AuthzUserRolesHeaders []string
 
 	// Postgres pool defaults (meta + tenant data pools).
 	PGMaxConns           int
@@ -93,7 +97,9 @@ func Load() (*Config, error) {
 		AuthzDriver:          os.Getenv("AUTHZ_DRIVER"),
 		AuthzFile:            os.Getenv("AUTHZ_FILE"),
 		AuthzHTTPURL:         os.Getenv("AUTHZ_HTTP_URL"),
-		AuthzRequired:        getenvBool("AUTHZ_REQUIRED", false),
+		AuthzRequired:         getenvBool("AUTHZ_REQUIRED", false),
+		AuthzUserSubHeader:    getenvDefault("AUTHZ_USER_SUB_HEADER", "X-User-Sub"),
+		AuthzUserRolesHeaders: splitCommaList(getenvDefault("AUTHZ_USER_ROLES_HEADERS", "X-User-Roles,X-User-Role")),
 		PGMaxConns:           getenvInt("PG_MAX_CONNS", 10),
 		PGMinConns:           getenvInt("PG_MIN_CONNS", 1),
 		PGMaxConnLifetimeMin: getenvInt("PG_MAX_CONN_LIFETIME_MIN", 60),
@@ -172,4 +178,14 @@ func getenvBool(key string, def bool) bool {
 		}
 	}
 	return def
+}
+
+func splitCommaList(raw string) []string {
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		if s := strings.TrimSpace(part); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }

@@ -6,7 +6,7 @@ Package index for `lowcode-database`. See [技术架构.md](技术架构.md) for
 
 | Entry | Description |
 |-------|-------------|
-| `cmd/server` | Load config → TenantManager → event Bus → LowcodeService → auth/authz middleware → HTTP |
+| `cmd/server` | Load config → TenantManager → event Bus → LowcodeService → authn/authz middleware → HTTP |
 | `cmd/migrate` | Apply `docker/postgres/migrations/` to meta and/or data targets |
 
 ## `internal/api`
@@ -22,7 +22,7 @@ HTTP routing and JSON handlers for `/v1/admin/*` and `/v1/data/*` ([chi](https:/
 | `data/row.go` | Row CRUD, query, saveGraph, bulk, import/export |
 | `openapi/` | Static OpenAPI 3 spec + Swagger UI |
 
-Middleware chain (in `cmd/server`): CORS → request log → `auth.Validator` → `authz.Middleware` → api handler.
+Middleware chain (in `cmd/server`): CORS → request log → `authn.Validator` → `authz.Middleware` → api handler.
 
 ## `internal/apiv1`
 
@@ -87,9 +87,9 @@ Redis-backed metadata cache for data sources, views, column specs; invalidated o
 
 Rolling average query latency per data source — `metrics.go` + `backends.go` (noop / redis / prometheus).
 
-## `internal/platform/auth`
+## `internal/platform/authn`
 
-API key validation against `lc_api_keys` when `API_KEY_REQUIRED=true`.
+API key authentication against `lc_api_keys` when `API_KEY_REQUIRED=true`.
 
 ## `internal/platform/authz`
 

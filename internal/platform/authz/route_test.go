@@ -10,7 +10,7 @@ func TestRequestFromHTTPDataQuery(t *testing.T) {
 	req.Header.Set("X-User-Sub", "u1")
 	req.Header.Set("X-User-Roles", "viewer, editor")
 
-	authReq, ok := RequestFromHTTP(req)
+	authReq, ok := RequestFromHTTP(req, DefaultSubjectHeaders())
 	if !ok {
 		t.Fatal("expected ok")
 	}
@@ -30,7 +30,7 @@ func TestRequestFromHTTPDataQuery(t *testing.T) {
 
 func TestRequestFromHTTPAdmin(t *testing.T) {
 	req := httptest.NewRequest("POST", "/v1/admin/tables", nil)
-	authReq, ok := RequestFromHTTP(req)
+	authReq, ok := RequestFromHTTP(req, DefaultSubjectHeaders())
 	if !ok {
 		t.Fatal("expected ok")
 	}

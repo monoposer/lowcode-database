@@ -6,30 +6,21 @@ import (
 )
 
 // -------- HTTP entry --------
-// -------- HTTP entry --------
 
 const (
 	adminPrefix = "/v1/admin"
 	dataPrefix  = "/v1/data"
 )
 
-const (
-	userSubHeader   = "X-User-Sub"
-	userRolesHeader = "X-User-Roles"
-)
-
 // RequestFromHTTP maps an incoming API request to an authorization Request.
 // Returns ok=false for paths that skip authorization (public / unknown).
-func RequestFromHTTP(r *http.Request) (Request, bool) {
+func RequestFromHTTP(r *http.Request, headers SubjectHeaders) (Request, bool) {
 	path := r.URL.Path
 	if !strings.HasPrefix(path, adminPrefix) && !strings.HasPrefix(path, dataPrefix) {
 		return Request{}, false
 	}
 
-	subject := Subject{
-		Sub:   strings.TrimSpace(r.Header.Get(userSubHeader)),
-		Roles: ParseRoles(r.Header.Get(userRolesHeader)),
-	}
+	subject := subjectFromHTTP(r, headers)
 
 	method := r.Method
 	switch {

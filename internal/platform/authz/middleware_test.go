@@ -19,7 +19,7 @@ func (s *stubAuthorizer) Allow(_ context.Context, _ Request) (bool, error) {
 
 func TestMiddlewareAllow(t *testing.T) {
 	stub := &stubAuthorizer{allow: true}
-	mw := NewMiddleware(stub, true)
+	mw := NewMiddleware(stub, true, DefaultSubjectHeaders())
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := SubjectFromContext(r.Context()); !ok {
 			t.Fatal("subject missing from context")
@@ -43,7 +43,7 @@ func TestMiddlewareAllow(t *testing.T) {
 
 func TestMiddlewareForbidden(t *testing.T) {
 	stub := &stubAuthorizer{allow: false}
-	mw := NewMiddleware(stub, true)
+	mw := NewMiddleware(stub, true, DefaultSubjectHeaders())
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -61,7 +61,7 @@ func TestMiddlewareForbidden(t *testing.T) {
 
 func TestMiddlewareOptionalIdentity(t *testing.T) {
 	stub := &stubAuthorizer{allow: true}
-	mw := NewMiddleware(stub, false)
+	mw := NewMiddleware(stub, false, DefaultSubjectHeaders())
 	called := false
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called = true

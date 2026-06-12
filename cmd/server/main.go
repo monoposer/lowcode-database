@@ -19,7 +19,7 @@ import (
 	"github.com/solat/lowcode-database/internal/infra/postgres"
 	infraredis "github.com/solat/lowcode-database/internal/infra/redis"
 	"github.com/solat/lowcode-database/internal/logger"
-	"github.com/solat/lowcode-database/internal/platform/auth"
+	"github.com/solat/lowcode-database/internal/platform/authn"
 	"github.com/solat/lowcode-database/internal/platform/authz"
 	"github.com/solat/lowcode-database/internal/platform/cache"
 	"github.com/solat/lowcode-database/internal/platform/metrics"
@@ -32,7 +32,7 @@ func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Tenant-Id, X-Tenant-ID, X-Api-Key, Authorization, X-User-Sub, X-User-Roles, X-Requested-With")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Tenant-Id, X-Tenant-ID, X-Api-Key, Authorization, X-User-Sub, X-User-Roles, X-User-Role, X-Requested-With")
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -125,9 +125,9 @@ func main() {
 
 	mux := http.NewServeMux()
 	apiHandler := api.NewHandler(lcSvc)
-	authValidator := auth.NewValidator(tenantMgr.MetaPool(), cfg)
-	authzMiddleware := authz.NewMiddleware(authorizer, cfg.AuthzRequired)
-	mux.Handle("/v1/", authValidator.Middleware(authzMiddleware.Handler(apiHandler)))
+	authnValidator := authn.NewValidator(tenantMgr.MetaPool(), cfg)
+	authzMiddleware := authz.NewMiddleware(authorizer, cfg.AuthzRequired, authz.SubjectHeadersFromConfig(cfg))
+	mux.Handle("/v1/", authnValidator.Middleware(authzMiddleware.Handler(apiHandler)))
 	if cfg.MetricsBackend == "prometheus" {
 		mux.Handle("/metrics", promhttp.Handler())
 	}

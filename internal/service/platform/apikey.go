@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"github.com/solat/lowcode-database/internal/apiv1/platform"
 
-	"github.com/solat/lowcode-database/internal/platform/auth"
+	"github.com/solat/lowcode-database/internal/platform/authn"
 	"time"
 )
 
@@ -17,7 +17,7 @@ func (s *Platform) CreateAPIKey(ctx context.Context, req *platform.CreateAPIKeyR
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
-	plain, hash, prefix, err := auth.GenerateKey()
+	plain, hash, prefix, err := authn.GenerateKey()
 	if err != nil {
 		return nil, err
 	}

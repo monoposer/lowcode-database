@@ -34,7 +34,7 @@
 | `internal/infra/redis/` | Redis 客户端（可选） |
 | `internal/platform/cache/` | Redis 元数据缓存（data source / view / column spec） |
 | `internal/platform/metrics/` | DataSource 查询 metrics（最近 N 次平均耗时） |
-| `internal/platform/auth/` | API Key 校验 |
+| `internal/platform/authn/` | API Key 校验（authentication） |
 | `internal/platform/authz/` | RBAC 中间件（file / http driver） |
 | `internal/logger/` | JSON 结构化日志 |
 | `docker/postgres/migrations/` | Meta/Data SQL 迁移文件 |
