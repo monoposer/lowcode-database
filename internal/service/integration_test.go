@@ -3,19 +3,19 @@ package service_test
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/solat/lowcode-database/internal/apiv1"
+	"github.com/monoposer/lowcode-database/internal/apiv1"
 
-	"github.com/solat/lowcode-database/internal/apiv1/datasource"
+	"github.com/monoposer/lowcode-database/internal/apiv1/datasource"
 
-	"github.com/solat/lowcode-database/internal/apiv1/graph"
+	"github.com/monoposer/lowcode-database/internal/apiv1/graph"
 
-	"github.com/solat/lowcode-database/internal/apiv1/platform"
+	"github.com/monoposer/lowcode-database/internal/apiv1/platform"
 
-	"github.com/solat/lowcode-database/internal/apiv1/row"
+	"github.com/monoposer/lowcode-database/internal/apiv1/row"
 
-	apiv1schema "github.com/solat/lowcode-database/internal/apiv1/schema"
+	apiv1schema "github.com/monoposer/lowcode-database/internal/apiv1/schema"
 
-	"github.com/solat/lowcode-database/internal/testutil"
+	"github.com/monoposer/lowcode-database/internal/testutil"
 	"testing"
 )
 

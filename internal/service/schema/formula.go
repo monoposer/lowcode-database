@@ -3,9 +3,9 @@ package schema
 import (
 	"context"
 
-	"github.com/solat/lowcode-database/internal/formula"
-	"github.com/solat/lowcode-database/internal/service/catalog"
-	"github.com/solat/lowcode-database/internal/service/shared"
+	"github.com/monoposer/lowcode-database/internal/formula"
+	"github.com/monoposer/lowcode-database/internal/service/catalog"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
 func (s *Schema) ValidateFormulaExpression(ctx context.Context, tableKey, columnName, expr string) error {

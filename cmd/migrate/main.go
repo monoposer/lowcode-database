@@ -8,8 +8,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/solat/lowcode-database/internal/config"
-	"github.com/solat/lowcode-database/internal/migrator"
+	"github.com/monoposer/lowcode-database/internal/config"
+	"github.com/monoposer/lowcode-database/internal/migrator"
 )
 
 func main() {

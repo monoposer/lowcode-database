@@ -4,7 +4,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/solat/lowcode-database/internal/config"
+	"github.com/monoposer/lowcode-database/internal/config"
 )
 
 func TestSubjectFromHTTPLegacyRoleHeader(t *testing.T) {

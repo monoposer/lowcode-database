@@ -3,7 +3,7 @@ package columntype_test
 import (
 	"testing"
 
-	"github.com/solat/lowcode-database/internal/columntype"
+	"github.com/monoposer/lowcode-database/internal/columntype"
 )
 
 func TestResolveBuiltInTypes(t *testing.T) {

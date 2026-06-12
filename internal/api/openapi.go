@@ -6,7 +6,7 @@ import (
 	"io/fs"
 	"net/http"
 
-	"github.com/solat/lowcode-database/internal/version"
+	"github.com/monoposer/lowcode-database/internal/version"
 )
 
 //go:embed openapi/*
@@ -44,7 +44,7 @@ func RootHandler(w http.ResponseWriter, r *http.Request) {
 		"dataApi":    "/v1/data/",
 		"openapi":    "/openapi/openapi.yaml",
 		"swagger":    "/swagger/",
-		"playground": "https://github.com/solat/lowcode-database-playground",
+		"playground": "https://github.com/monoposer/lowcode-database-playground",
 	}
 	for k, v := range version.Map() {
 		resp[k] = v

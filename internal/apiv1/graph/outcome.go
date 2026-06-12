@@ -1,7 +1,7 @@
 package graph
 
 import (
-	"github.com/solat/lowcode-database/internal/apiv1/row"
+	"github.com/monoposer/lowcode-database/internal/apiv1/row"
 )
 
 func (o *SaveGraphSaveOutcome) RootRow() *row.Row {

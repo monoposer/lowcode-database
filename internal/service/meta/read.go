@@ -1,6 +1,6 @@
 package meta
 
-import "github.com/solat/lowcode-database/internal/service/shared"
+import "github.com/monoposer/lowcode-database/internal/service/shared"
 
 // Read is the cross-domain metadata read facade. Domain services use it instead of
 // constructing catalog.Schema/platform siblings directly (avoids scattered coupling).

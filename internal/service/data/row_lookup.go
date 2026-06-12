@@ -3,7 +3,7 @@ package data
 import (
 	"context"
 	"fmt"
-	"github.com/solat/lowcode-database/internal/service/shared"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
 func (s *Data) buildLookupJoinSpecs(ctx context.Context, tableID string, argAcc *argAccumulator) ([]lookupJoinSpec, error) {

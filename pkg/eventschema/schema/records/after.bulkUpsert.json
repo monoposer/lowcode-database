@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/solat/lowcode-database/pkg/eventschema/records.after.bulkUpsert",
+  "$id": "https://github.com/monoposer/lowcode-database/pkg/eventschema/records.after.bulkUpsert",
   "title": "records.after.bulkUpsert",
   "description": "Emitted after bulk upsert completes. Each item in `rows` is a row snapshot.",
   "type": "object",

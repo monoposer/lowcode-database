@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/solat/lowcode-database/pkg/eventschema/records.after.insert",
+  "$id": "https://github.com/monoposer/lowcode-database/pkg/eventschema/records.after.insert",
   "title": "records.after.insert",
   "description": "Emitted after a single row is created. `row` uses logical column names as keys; cell values follow the API Value union (stringValue, numberValue, …).",
   "type": "object",

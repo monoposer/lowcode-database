@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/solat/lowcode-database/internal/api/httputil"
-	"github.com/solat/lowcode-database/internal/apiv1/datasource"
-	apiv1schema "github.com/solat/lowcode-database/internal/apiv1/schema"
+	"github.com/monoposer/lowcode-database/internal/api/httputil"
+	"github.com/monoposer/lowcode-database/internal/apiv1/datasource"
+	apiv1schema "github.com/monoposer/lowcode-database/internal/apiv1/schema"
 )
 
 type Tables struct {

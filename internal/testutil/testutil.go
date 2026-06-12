@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/solat/lowcode-database/internal/config"
-	"github.com/solat/lowcode-database/internal/infra/postgres"
-	"github.com/solat/lowcode-database/internal/migrator"
-	"github.com/solat/lowcode-database/internal/service"
-	"github.com/solat/lowcode-database/internal/tenant"
+	"github.com/monoposer/lowcode-database/internal/config"
+	"github.com/monoposer/lowcode-database/internal/infra/postgres"
+	"github.com/monoposer/lowcode-database/internal/migrator"
+	"github.com/monoposer/lowcode-database/internal/service"
+	"github.com/monoposer/lowcode-database/internal/tenant"
 )
 
 const testTenant = "test"

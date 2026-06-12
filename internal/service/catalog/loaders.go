@@ -3,8 +3,8 @@ package catalog
 import (
 	"context"
 
-	"github.com/solat/lowcode-database/internal/columntype"
-	"github.com/solat/lowcode-database/internal/service/shared"
+	"github.com/monoposer/lowcode-database/internal/columntype"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
 func (s *Catalog) LoadColumns(ctx context.Context, tableID string) ([]shared.ColumnMeta, string, string, error) {

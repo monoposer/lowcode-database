@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/solat/lowcode-database/internal/apiv1"
-	"github.com/solat/lowcode-database/internal/apiv1/row"
+	"github.com/monoposer/lowcode-database/internal/apiv1"
+	"github.com/monoposer/lowcode-database/internal/apiv1/row"
 )
 
 const (

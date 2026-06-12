@@ -3,7 +3,7 @@ package schema
 import (
 	"testing"
 
-	"github.com/solat/lowcode-database/internal/service/shared"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
 func TestLookupTargetAllowed(t *testing.T) {

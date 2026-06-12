@@ -1,10 +1,10 @@
-module github.com/solat/lowcode-database
+module github.com/monoposer/lowcode-database
 
 go 1.24
 
 require (
-	github.com/go-chi/chi/v5 v5.2.1
 	github.com/SolaTyolo/pg-formula v0.0.0-20260420154639-195b8cda3264
+	github.com/go-chi/chi/v5 v5.2.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.4
 	github.com/prometheus/client_golang v1.23.2

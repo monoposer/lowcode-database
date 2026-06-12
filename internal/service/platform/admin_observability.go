@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/solat/lowcode-database/internal/apiv1/platform"
-	"github.com/solat/lowcode-database/internal/event"
+	"github.com/monoposer/lowcode-database/internal/apiv1/platform"
+	"github.com/monoposer/lowcode-database/internal/event"
 )
 
 func (s *Platform) ListEventSchemas(_ context.Context, _ *platform.ListEventSchemasRequest) (*platform.ListEventSchemasResponse, error) {

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/solat/lowcode-database/internal/platform/metrics"
+	"github.com/monoposer/lowcode-database/internal/platform/metrics"
 )
 
 func TestRingBufferRollingAverage(t *testing.T) {

@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/solat/lowcode-database/internal/apiv1"
-	"github.com/solat/lowcode-database/internal/apiv1/row"
+	"github.com/monoposer/lowcode-database/internal/apiv1"
+	"github.com/monoposer/lowcode-database/internal/apiv1/row"
 )
 
 func TestRow_MarshalJSON_flat(t *testing.T) {

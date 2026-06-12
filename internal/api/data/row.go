@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/solat/lowcode-database/internal/api/httputil"
-	"github.com/solat/lowcode-database/internal/apiv1/datasource"
-	"github.com/solat/lowcode-database/internal/apiv1/graph"
-	"github.com/solat/lowcode-database/internal/apiv1/row"
+	"github.com/monoposer/lowcode-database/internal/api/httputil"
+	"github.com/monoposer/lowcode-database/internal/apiv1/datasource"
+	"github.com/monoposer/lowcode-database/internal/apiv1/graph"
+	"github.com/monoposer/lowcode-database/internal/apiv1/row"
 )
 
 type Rows struct {

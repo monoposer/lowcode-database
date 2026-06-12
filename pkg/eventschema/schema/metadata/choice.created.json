@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/solat/lowcode-database/pkg/eventschema/metadata.choice.created",
+  "$id": "https://github.com/monoposer/lowcode-database/pkg/eventschema/metadata.choice.created",
   "title": "metadata.choice.created",
   "description": "Emitted when a PG ENUM (choice) is registered.",
   "type": "object",

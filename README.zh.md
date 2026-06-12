@@ -101,12 +101,12 @@ Envelope 结构（详见 [pkg/eventschema](pkg/eventschema/README.zh.md)）：
 
 ## Playground（调试 UI）
 
-独立仓库：[lowcode-database-playground](https://github.com/solat/lowcode-database-playground)
+独立仓库：[lowcode-database-playground](https://github.com/monoposer/lowcode-database-playground)
 
 ```bash
 make run   # API :8080
 
-git clone https://github.com/solat/lowcode-database-playground.git
+git clone https://github.com/monoposer/lowcode-database-playground.git
 cd lowcode-database-playground
 cp .env.example .env && npm install && npm run dev   # :5173
 ```

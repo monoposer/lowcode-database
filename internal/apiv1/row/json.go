@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/solat/lowcode-database/internal/apiv1"
+	"github.com/monoposer/lowcode-database/internal/apiv1"
 )
 
 // MarshalJSON emits a flat SQL-like row: { "id": "...", "col": value, ... }.

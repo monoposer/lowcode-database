@@ -3,9 +3,9 @@ package platform
 import (
 	"context"
 	"fmt"
-	"github.com/solat/lowcode-database/internal/apiv1/platform"
+	"github.com/monoposer/lowcode-database/internal/apiv1/platform"
 
-	"github.com/solat/lowcode-database/internal/platform/authn"
+	"github.com/monoposer/lowcode-database/internal/platform/authn"
 	"time"
 )
 

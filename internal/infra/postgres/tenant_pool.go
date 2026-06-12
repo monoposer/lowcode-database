@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/solat/lowcode-database/internal/tenant"
+	"github.com/monoposer/lowcode-database/internal/tenant"
 	"net/http"
 	"strings"
 )

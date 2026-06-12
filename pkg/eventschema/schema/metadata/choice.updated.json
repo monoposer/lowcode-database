@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/solat/lowcode-database/pkg/eventschema/metadata.choice.updated",
+  "$id": "https://github.com/monoposer/lowcode-database/pkg/eventschema/metadata.choice.updated",
   "title": "metadata.choice.updated",
   "description": "Emitted when choice enum values or metadata change.",
   "type": "object",

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/solat/lowcode-database/internal/event"
+	"github.com/monoposer/lowcode-database/internal/event"
 )
 
 // EmitEvent delivers a domain event to subscribed sinks when configured.

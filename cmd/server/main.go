@@ -13,19 +13,19 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/solat/lowcode-database/internal/api"
-	"github.com/solat/lowcode-database/internal/config"
-	"github.com/solat/lowcode-database/internal/event"
-	"github.com/solat/lowcode-database/internal/infra/postgres"
-	infraredis "github.com/solat/lowcode-database/internal/infra/redis"
-	"github.com/solat/lowcode-database/internal/logger"
-	"github.com/solat/lowcode-database/internal/platform/authn"
-	"github.com/solat/lowcode-database/internal/platform/authz"
-	"github.com/solat/lowcode-database/internal/platform/cache"
-	"github.com/solat/lowcode-database/internal/platform/metrics"
-	"github.com/solat/lowcode-database/internal/service"
-	"github.com/solat/lowcode-database/internal/telemetry"
-	"github.com/solat/lowcode-database/internal/version"
+	"github.com/monoposer/lowcode-database/internal/api"
+	"github.com/monoposer/lowcode-database/internal/config"
+	"github.com/monoposer/lowcode-database/internal/event"
+	"github.com/monoposer/lowcode-database/internal/infra/postgres"
+	infraredis "github.com/monoposer/lowcode-database/internal/infra/redis"
+	"github.com/monoposer/lowcode-database/internal/logger"
+	"github.com/monoposer/lowcode-database/internal/platform/authn"
+	"github.com/monoposer/lowcode-database/internal/platform/authz"
+	"github.com/monoposer/lowcode-database/internal/platform/cache"
+	"github.com/monoposer/lowcode-database/internal/platform/metrics"
+	"github.com/monoposer/lowcode-database/internal/service"
+	"github.com/monoposer/lowcode-database/internal/telemetry"
+	"github.com/monoposer/lowcode-database/internal/version"
 )
 
 func withCORS(next http.Handler) http.Handler {

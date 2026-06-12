@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	apiv1schema "github.com/solat/lowcode-database/internal/apiv1/schema"
-	"github.com/solat/lowcode-database/internal/event"
-	"github.com/solat/lowcode-database/internal/service/shared"
+	apiv1schema "github.com/monoposer/lowcode-database/internal/apiv1/schema"
+	"github.com/monoposer/lowcode-database/internal/event"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
 	"time"
 )
 

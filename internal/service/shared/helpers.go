@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/solat/lowcode-database/internal/apiv1"
-	"github.com/solat/lowcode-database/internal/apiv1/row"
-	"github.com/solat/lowcode-database/internal/tenant"
+	"github.com/monoposer/lowcode-database/internal/apiv1"
+	"github.com/monoposer/lowcode-database/internal/apiv1/row"
+	"github.com/monoposer/lowcode-database/internal/tenant"
 	"strings"
 )
 

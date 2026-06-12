@@ -1,8 +1,8 @@
 package platform
 
 import (
-	"github.com/solat/lowcode-database/internal/service/meta"
-	"github.com/solat/lowcode-database/internal/service/shared"
+	"github.com/monoposer/lowcode-database/internal/service/meta"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
 type Platform struct {

@@ -1,6 +1,6 @@
 package platform
 
-import "github.com/solat/lowcode-database/internal/apiv1/schema"
+import "github.com/monoposer/lowcode-database/internal/apiv1/schema"
 
 type ListTypesRequest struct{}
 

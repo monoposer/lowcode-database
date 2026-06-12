@@ -3,7 +3,7 @@ package event_test
 import (
 	"testing"
 
-	"github.com/solat/lowcode-database/internal/event"
+	"github.com/monoposer/lowcode-database/internal/event"
 )
 
 func TestResolveDeliveryURL(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/solat/lowcode-database/internal/config"
+	"github.com/monoposer/lowcode-database/internal/config"
 	"io"
 	"net/http"
 	"strings"

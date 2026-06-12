@@ -4,10 +4,10 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/solat/lowcode-database/internal/api/admin"
-	"github.com/solat/lowcode-database/internal/api/data"
-	"github.com/solat/lowcode-database/internal/api/httputil"
-	"github.com/solat/lowcode-database/internal/service"
+	"github.com/monoposer/lowcode-database/internal/api/admin"
+	"github.com/monoposer/lowcode-database/internal/api/data"
+	"github.com/monoposer/lowcode-database/internal/api/httputil"
+	"github.com/monoposer/lowcode-database/internal/service"
 )
 
 const (

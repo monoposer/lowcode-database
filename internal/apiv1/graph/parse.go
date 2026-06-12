@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/solat/lowcode-database/internal/apiv1"
+	"github.com/monoposer/lowcode-database/internal/apiv1"
 )
 
 func (r *SaveGraphRequest) UnmarshalJSON(data []byte) error {

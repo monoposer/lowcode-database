@@ -3,8 +3,8 @@ package shared
 import (
 	"fmt"
 	"github.com/jackc/pgx/v5"
-	"github.com/solat/lowcode-database/internal/columntype"
-	formulacompile "github.com/solat/lowcode-database/internal/formula"
+	"github.com/monoposer/lowcode-database/internal/columntype"
+	formulacompile "github.com/monoposer/lowcode-database/internal/formula"
 	"strings"
 )
 

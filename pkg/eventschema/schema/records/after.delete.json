@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/solat/lowcode-database/pkg/eventschema/records.after.delete",
+  "$id": "https://github.com/monoposer/lowcode-database/pkg/eventschema/records.after.delete",
   "title": "records.after.delete",
   "description": "Emitted after a single row is deleted.",
   "type": "object",

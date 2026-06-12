@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/solat/lowcode-database/pkg/eventschema/metadata.datasource.deleted",
+  "$id": "https://github.com/monoposer/lowcode-database/pkg/eventschema/metadata.datasource.deleted",
   "title": "metadata.datasource.deleted",
   "description": "Emitted when a data source is removed.",
   "type": "object",

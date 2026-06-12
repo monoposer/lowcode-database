@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	apiv1schema "github.com/solat/lowcode-database/internal/apiv1/schema"
+	apiv1schema "github.com/monoposer/lowcode-database/internal/apiv1/schema"
 	"strings"
 )
 

@@ -3,12 +3,12 @@ package shared
 import (
 	"time"
 
-	"github.com/solat/lowcode-database/internal/event"
-	"github.com/solat/lowcode-database/internal/infra/postgres"
-	"github.com/solat/lowcode-database/internal/logger"
-	"github.com/solat/lowcode-database/internal/platform/cache"
-	"github.com/solat/lowcode-database/internal/platform/metrics"
-	"github.com/solat/lowcode-database/internal/telemetry"
+	"github.com/monoposer/lowcode-database/internal/event"
+	"github.com/monoposer/lowcode-database/internal/infra/postgres"
+	"github.com/monoposer/lowcode-database/internal/logger"
+	"github.com/monoposer/lowcode-database/internal/platform/cache"
+	"github.com/monoposer/lowcode-database/internal/platform/metrics"
+	"github.com/monoposer/lowcode-database/internal/telemetry"
 )
 
 // Base holds shared dependencies for all domain services.

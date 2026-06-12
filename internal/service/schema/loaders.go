@@ -3,8 +3,8 @@ package schema
 import (
 	"context"
 	"fmt"
-	apiv1schema "github.com/solat/lowcode-database/internal/apiv1/schema"
-	"github.com/solat/lowcode-database/internal/service/shared"
+	apiv1schema "github.com/monoposer/lowcode-database/internal/apiv1/schema"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
 func (s *Schema) LoadRelationshipColumns(ctx context.Context, tableID string, columnIDs []string) ([]shared.RelationshipColumn, error) {

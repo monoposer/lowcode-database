@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/solat/lowcode-database/internal/dsl"
+	"github.com/monoposer/lowcode-database/internal/dsl"
 )
 
 // BuildWhere renders a WHERE clause (without the WHERE keyword) and args starting at argStart.

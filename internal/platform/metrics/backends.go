@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/redis/go-redis/v9"
-	"github.com/solat/lowcode-database/internal/config"
+	"github.com/monoposer/lowcode-database/internal/config"
 	"strconv"
 	"strings"
 	"sync"

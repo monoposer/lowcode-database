@@ -7,7 +7,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/solat/lowcode-database/internal/config"
+	"github.com/monoposer/lowcode-database/internal/config"
 )
 
 // Open connects to Redis when REDIS_URL is set; otherwise returns (nil, nil).

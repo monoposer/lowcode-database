@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/solat/lowcode-database/internal/apiv1/platform"
-	"github.com/solat/lowcode-database/internal/service"
-	"github.com/solat/lowcode-database/internal/tenant"
+	"github.com/monoposer/lowcode-database/internal/apiv1/platform"
+	"github.com/monoposer/lowcode-database/internal/service"
+	"github.com/monoposer/lowcode-database/internal/tenant"
 )
 
 // Base holds shared HTTP helpers for JSON API handlers.

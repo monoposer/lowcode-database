@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/solat/lowcode-database/internal/columntype"
-	"github.com/solat/lowcode-database/internal/service/catalog"
-	"github.com/solat/lowcode-database/internal/service/shared"
+	"github.com/monoposer/lowcode-database/internal/columntype"
+	"github.com/monoposer/lowcode-database/internal/service/catalog"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
 // LoadLookupWriteSpecs returns lookup columns that can be resolved to a local FK on write (cardinality-one only).

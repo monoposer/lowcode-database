@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/solat/lowcode-database/internal/config"
+	"github.com/monoposer/lowcode-database/internal/config"
 )
 
 const (

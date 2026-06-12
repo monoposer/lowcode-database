@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/solat/lowcode-database/pkg/eventschema/metadata.datasource.created",
+  "$id": "https://github.com/monoposer/lowcode-database/pkg/eventschema/metadata.datasource.created",
   "title": "metadata.datasource.created",
   "description": "Emitted when a data source (view/query definition) is created.",
   "type": "object",

@@ -3,12 +3,12 @@ package api_test
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/solat/lowcode-database/internal/api"
-	"github.com/solat/lowcode-database/internal/apiv1/platform"
+	"github.com/monoposer/lowcode-database/internal/api"
+	"github.com/monoposer/lowcode-database/internal/apiv1/platform"
 
-	apiv1schema "github.com/solat/lowcode-database/internal/apiv1/schema"
+	apiv1schema "github.com/monoposer/lowcode-database/internal/apiv1/schema"
 
-	"github.com/solat/lowcode-database/internal/testutil"
+	"github.com/monoposer/lowcode-database/internal/testutil"
 	"net/http"
 	"net/http/httptest"
 	"strings"

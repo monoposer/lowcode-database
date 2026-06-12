@@ -5,7 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/solat/lowcode-database/internal/config"
+	"github.com/monoposer/lowcode-database/internal/config"
 	"net/http"
 	"strings"
 	"sync"

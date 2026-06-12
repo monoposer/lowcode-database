@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/solat/lowcode-database/internal/service/shared"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
 func (s *Schema) NormalizeRelationshipConfig(ctx context.Context, tenantID, sourceTableKey string, cfg map[string]any) (map[string]any, error) {

@@ -3,10 +3,10 @@ package meta
 import (
 	"context"
 	"fmt"
-	apiv1schema "github.com/solat/lowcode-database/internal/apiv1/schema"
-	"github.com/solat/lowcode-database/internal/service/catalog"
-	"github.com/solat/lowcode-database/internal/service/schema"
-	"github.com/solat/lowcode-database/internal/service/shared"
+	apiv1schema "github.com/monoposer/lowcode-database/internal/apiv1/schema"
+	"github.com/monoposer/lowcode-database/internal/service/catalog"
+	"github.com/monoposer/lowcode-database/internal/service/schema"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
 func (r *Read) LoadColumns(ctx context.Context, tableID string) ([]shared.ColumnMeta, string, string, error) {

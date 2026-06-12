@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/solat/lowcode-database/pkg/eventschema/metadata.column.updated",
+  "$id": "https://github.com/monoposer/lowcode-database/pkg/eventschema/metadata.column.updated",
   "title": "metadata.column.updated",
   "description": "Emitted when column metadata or physical type is updated.",
   "type": "object",

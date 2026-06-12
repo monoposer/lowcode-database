@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/solat/lowcode-database/internal/dsl"
+	"github.com/monoposer/lowcode-database/internal/dsl"
 )
 
 func TestBuildWhereEQ(t *testing.T) {

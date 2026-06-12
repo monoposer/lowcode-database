@@ -8,7 +8,7 @@
 |------|------|
 | treelab-metadata | Entity/View/Choice 元数据模式参考 |
 | treelab-scm-service | 行级查询、View 数据源、DSL 过滤参考 |
-| [lowcode-database-playground](https://github.com/solat/lowcode-database-playground) | Vite + AG Grid 调试 UI（独立仓库） |
+| [lowcode-database-playground](https://github.com/monoposer/lowcode-database-playground) | Vite + AG Grid 调试 UI（独立仓库） |
 
 ## 本地启动
 

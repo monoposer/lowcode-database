@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/solat/lowcode-database/internal/apiv1"
+	"github.com/monoposer/lowcode-database/internal/apiv1"
 	"strings"
 	"time"
 )

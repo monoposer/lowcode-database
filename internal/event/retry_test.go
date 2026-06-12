@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/solat/lowcode-database/internal/event/delivery"
+	"github.com/monoposer/lowcode-database/internal/event/delivery"
 )
 
 type stubPublisher struct {

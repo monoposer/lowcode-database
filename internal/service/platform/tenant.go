@@ -3,9 +3,9 @@ package platform
 import (
 	"context"
 	"fmt"
-	"github.com/solat/lowcode-database/internal/apiv1/platform"
-	apiv1schema "github.com/solat/lowcode-database/internal/apiv1/schema"
-	"github.com/solat/lowcode-database/internal/columntype"
+	"github.com/monoposer/lowcode-database/internal/apiv1/platform"
+	apiv1schema "github.com/monoposer/lowcode-database/internal/apiv1/schema"
+	"github.com/monoposer/lowcode-database/internal/columntype"
 	"strings"
 )
 

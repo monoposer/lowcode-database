@@ -7,9 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/jackc/pgx/v5"
-	"github.com/solat/lowcode-database/internal/apiv1/row"
-	"github.com/solat/lowcode-database/internal/event"
-	"github.com/solat/lowcode-database/internal/service/shared"
+	"github.com/monoposer/lowcode-database/internal/apiv1/row"
+	"github.com/monoposer/lowcode-database/internal/event"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
 	"strings"
 )
 

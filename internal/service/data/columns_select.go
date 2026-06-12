@@ -3,8 +3,8 @@ package data
 import (
 	"context"
 
-	formulacompile "github.com/solat/lowcode-database/internal/formula"
-	"github.com/solat/lowcode-database/internal/service/shared"
+	formulacompile "github.com/monoposer/lowcode-database/internal/formula"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
 // queryableColumnNames lists logical column names exposed by a data-source "view"

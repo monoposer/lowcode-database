@@ -17,16 +17,16 @@ COPY . .
 
 RUN go build -trimpath \
     -ldflags="-s -w \
-    -X github.com/solat/lowcode-database/internal/version.Version=${VERSION} \
-    -X github.com/solat/lowcode-database/internal/version.Commit=${COMMIT} \
-    -X github.com/solat/lowcode-database/internal/version.BuildTime=${BUILD_TIME}" \
+    -X github.com/monoposer/lowcode-database/internal/version.Version=${VERSION} \
+    -X github.com/monoposer/lowcode-database/internal/version.Commit=${COMMIT} \
+    -X github.com/monoposer/lowcode-database/internal/version.BuildTime=${BUILD_TIME}" \
     -o /out/server ./cmd/server
 
 RUN go build -trimpath \
     -ldflags="-s -w \
-    -X github.com/solat/lowcode-database/internal/version.Version=${VERSION} \
-    -X github.com/solat/lowcode-database/internal/version.Commit=${COMMIT} \
-    -X github.com/solat/lowcode-database/internal/version.BuildTime=${BUILD_TIME}" \
+    -X github.com/monoposer/lowcode-database/internal/version.Version=${VERSION} \
+    -X github.com/monoposer/lowcode-database/internal/version.Commit=${COMMIT} \
+    -X github.com/monoposer/lowcode-database/internal/version.BuildTime=${BUILD_TIME}" \
     -o /out/migrate ./cmd/migrate
 
 FROM alpine:3.21

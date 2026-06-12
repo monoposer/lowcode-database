@@ -7,7 +7,7 @@
 Go 引用：
 
 ```go
-import "github.com/solat/lowcode-database/pkg/eventschema"
+import "github.com/monoposer/lowcode-database/pkg/eventschema"
 
 raw := eventschema.EnvelopeSchema()
 payload, ok := eventschema.PayloadSchema(eventschema.RecordsAfterInsert)

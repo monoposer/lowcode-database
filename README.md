@@ -101,12 +101,12 @@ Envelope shape (see [pkg/eventschema](pkg/eventschema/README.md)):
 
 ## Playground (debug UI)
 
-Separate repo: [lowcode-database-playground](https://github.com/solat/lowcode-database-playground)
+Separate repo: [lowcode-database-playground](https://github.com/monoposer/lowcode-database-playground)
 
 ```bash
 make run   # API on :8080
 
-git clone https://github.com/solat/lowcode-database-playground.git
+git clone https://github.com/monoposer/lowcode-database-playground.git
 cd lowcode-database-playground
 cp .env.example .env && npm install && npm run dev   # :5173
 ```

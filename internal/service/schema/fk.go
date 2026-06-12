@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/solat/lowcode-database/internal/columntype"
-	"github.com/solat/lowcode-database/internal/service/shared"
+	"github.com/monoposer/lowcode-database/internal/columntype"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
 func (s *Schema) ValidateRelationFKConfig(ctx context.Context, tenantID string, cfg map[string]any) error {

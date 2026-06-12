@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/solat/lowcode-database/pkg/eventschema/records.after.bulkImport",
+  "$id": "https://github.com/monoposer/lowcode-database/pkg/eventschema/records.after.bulkImport",
   "title": "records.after.bulkImport",
   "description": "Emitted after CSV/JSON import inserts rows.",
   "type": "object",

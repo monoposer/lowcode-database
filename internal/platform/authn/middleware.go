@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/solat/lowcode-database/internal/tenant"
+	"github.com/monoposer/lowcode-database/internal/tenant"
 )
 
 func (v *Validator) Middleware(next http.Handler) http.Handler {

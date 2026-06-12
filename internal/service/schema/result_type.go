@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"github.com/jackc/pgx/v5"
-	apiv1schema "github.com/solat/lowcode-database/internal/apiv1/schema"
-	"github.com/solat/lowcode-database/internal/columntype"
-	"github.com/solat/lowcode-database/internal/service/shared"
+	apiv1schema "github.com/monoposer/lowcode-database/internal/apiv1/schema"
+	"github.com/monoposer/lowcode-database/internal/columntype"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
 // EnsureColumnResultType fills config.result_type_id and Column.ResultTypeId for API responses.

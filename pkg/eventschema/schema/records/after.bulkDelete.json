@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/solat/lowcode-database/pkg/eventschema/records.after.bulkDelete",
+  "$id": "https://github.com/monoposer/lowcode-database/pkg/eventschema/records.after.bulkDelete",
   "title": "records.after.bulkDelete",
   "description": "Emitted after bulk delete by row ids.",
   "type": "object",

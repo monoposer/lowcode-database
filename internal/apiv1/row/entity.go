@@ -1,6 +1,6 @@
 package row
 
-import "github.com/solat/lowcode-database/internal/apiv1"
+import "github.com/monoposer/lowcode-database/internal/apiv1"
 
 type Row struct {
 	Id    string                  `json:"id,omitempty"`

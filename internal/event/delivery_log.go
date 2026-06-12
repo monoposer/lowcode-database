@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/solat/lowcode-database/internal/event/delivery"
+	"github.com/monoposer/lowcode-database/internal/event/delivery"
 	"time"
 )
 

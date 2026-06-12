@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/solat/lowcode-database/pkg/eventschema/metadata.table.deleted",
+  "$id": "https://github.com/monoposer/lowcode-database/pkg/eventschema/metadata.table.deleted",
   "title": "metadata.table.deleted",
   "description": "Emitted when a table is dropped from meta and data DB.",
   "type": "object",

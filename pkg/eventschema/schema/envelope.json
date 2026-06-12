@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/solat/lowcode-database/pkg/eventschema/envelope",
+  "$id": "https://github.com/monoposer/lowcode-database/pkg/eventschema/envelope",
   "title": "Lowcode Event Envelope",
   "description": "Top-level wrapper delivered to every event sink (webhook, kafka, redis, …). The `data` field shape depends on `type`; see per-type payload schemas under records.* and metadata.*.",
   "type": "object",

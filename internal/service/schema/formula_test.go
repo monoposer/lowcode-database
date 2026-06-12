@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/solat/lowcode-database/internal/formula"
-	"github.com/solat/lowcode-database/internal/service/shared"
+	"github.com/monoposer/lowcode-database/internal/formula"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
 func TestValidationFormulaRefsIncludesFormulaStub(t *testing.T) {

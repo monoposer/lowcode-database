@@ -3,7 +3,7 @@ package event
 import (
 	"encoding/json"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/solat/lowcode-database/pkg/eventschema"
+	"github.com/monoposer/lowcode-database/pkg/eventschema"
 	"sync"
 )
 

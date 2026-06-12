@@ -2,9 +2,9 @@ package schema
 
 import (
 	"context"
-	apiv1schema "github.com/solat/lowcode-database/internal/apiv1/schema"
-	"github.com/solat/lowcode-database/internal/service/catalog"
-	"github.com/solat/lowcode-database/internal/service/shared"
+	apiv1schema "github.com/monoposer/lowcode-database/internal/apiv1/schema"
+	"github.com/monoposer/lowcode-database/internal/service/catalog"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
 // PublicColumn sets Column.Id to the logical name and exposes resultTypeId from config.
