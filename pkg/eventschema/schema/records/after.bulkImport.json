@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/solat/lowcode-database/pkg/eventschema/records.after.bulkImport",
+  "title": "records.after.bulkImport",
+  "description": "Emitted after CSV/JSON import inserts rows.",
+  "type": "object",
+  "required": ["rows", "insertedCount"],
+  "properties": {
+    "rows": {
+      "type": "array",
+      "items": { "type": "object", "additionalProperties": true }
+    },
+    "insertedCount": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of rows inserted"
+    }
+  },
+  "additionalProperties": false
+}

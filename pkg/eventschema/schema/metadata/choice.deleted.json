@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/solat/lowcode-database/pkg/eventschema/metadata.choice.deleted",
+  "title": "metadata.choice.deleted",
+  "description": "Emitted when a choice type is removed.",
+  "type": "object",
+  "required": ["choiceId"],
+  "properties": {
+    "choiceId": { "type": "string" }
+  },
+  "additionalProperties": false
+}

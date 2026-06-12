@@ -3,7 +3,10 @@ info:
   title: lowcode-database API
   description: |
     Postgres-backed low-code table service: dynamic tables, columns, rows, indexes,
-    choices (PG ENUM), relations, data sources, and webhooks.
+    choices (PG ENUM), relations, data sources, and event sinks (HTTP webhooks).
+
+    Event sinks use table `lc_event_sinks` (formerly `lc_webhooks`). Delivery is HTTP POST only;
+    for Kafka/RabbitMQ/Redis/SQS/SNS see docs/event-delivery.md.
 
     **Multi-tenant:** send `X-Tenant-Id` on every request when `TENANT_MODE=multi`.
     In single-tenant mode the header is optional (default tenant from env).
@@ -23,7 +26,7 @@ servers:
 tags:
   - name: Platform
   - name: Types
-  - name: Webhooks
+  - name: Event Sinks
   - name: Tables
   - name: Columns
   - name: Indexes
@@ -33,7 +36,7 @@ tags:
   - name: Data sources
 
 paths:
-  /v1/database/connection:
+  /v1/admin/database/connection:
     get:
       tags: [Platform]
       summary: Get tenant database connection info (no password)
@@ -52,7 +55,7 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
-  /v1/tenants:
+  /v1/admin/tenants:
     post:
       tags: [Platform]
       summary: Provision a tenant (multi-tenant mode)
@@ -75,7 +78,7 @@ paths:
         "400":
           $ref: "#/components/responses/Error"
 
-  /v1/types:
+  /v1/admin/types:
     get:
       tags: [Types]
       summary: List built-in column types
@@ -92,11 +95,11 @@ paths:
         "400":
           $ref: "#/components/responses/Error"
 
-  /v1/webhooks:
+  /v1/admin/event-sinks:
     get:
-      tags: [Webhooks]
-      summary: List webhooks
-      operationId: listWebhooks
+      tags: [Event Sinks]
+      summary: List event sinks
+      operationId: listEventSinks
       parameters:
         - $ref: "#/components/parameters/TenantIdHeader"
       responses:
@@ -105,13 +108,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ListWebhooksResponse"
+                $ref: "#/components/schemas/ListEventSinksResponse"
         "400":
           $ref: "#/components/responses/Error"
     post:
-      tags: [Webhooks]
-      summary: Create webhook
-      operationId: createWebhook
+      tags: [Event Sinks]
+      summary: Create event sink
+      operationId: createEventSink
       parameters:
         - $ref: "#/components/parameters/TenantIdHeader"
       requestBody:
@@ -119,22 +122,22 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateWebhookRequest"
+              $ref: "#/components/schemas/CreateEventSinkRequest"
       responses:
         "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CreateWebhookResponse"
+                $ref: "#/components/schemas/CreateEventSinkResponse"
         "400":
           $ref: "#/components/responses/Error"
 
-  /v1/webhooks/{id}:
+  /v1/admin/event-sinks/{id}:
     patch:
-      tags: [Webhooks]
-      summary: Update webhook
-      operationId: updateWebhook
+      tags: [Event Sinks]
+      summary: Update event sink
+      operationId: updateEventSink
       parameters:
         - $ref: "#/components/parameters/TenantIdHeader"
         - $ref: "#/components/parameters/IdPath"
@@ -143,22 +146,22 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/UpdateWebhookRequest"
+              $ref: "#/components/schemas/UpdateEventSinkRequest"
       responses:
         "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UpdateWebhookResponse"
+                $ref: "#/components/schemas/UpdateEventSinkResponse"
         "400":
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
     delete:
-      tags: [Webhooks]
-      summary: Delete webhook
-      operationId: deleteWebhook
+      tags: [Event Sinks]
+      summary: Delete event sink
+      operationId: deleteEventSink
       parameters:
         - $ref: "#/components/parameters/TenantIdHeader"
         - $ref: "#/components/parameters/IdPath"
@@ -168,13 +171,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DeleteWebhookResponse"
+                $ref: "#/components/schemas/DeleteEventSinkResponse"
         "400":
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
 
-  /v1/tables:
+  /v1/admin/tables:
     get:
       tags: [Tables]
       summary: List tables
@@ -212,7 +215,7 @@ paths:
         "400":
           $ref: "#/components/responses/Error"
 
-  /v1/tables/{id}:
+  /v1/admin/tables/{id}:
     delete:
       tags: [Tables]
       summary: Delete table
@@ -232,7 +235,7 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
-  /v1/tables/{id}:rename:
+  /v1/admin/tables/{id}:rename:
     post:
       tags: [Tables]
       summary: Rename table
@@ -258,7 +261,7 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
-  /v1/tables/{tableId}/schema:
+  /v1/admin/tables/{tableId}/schema:
     get:
       tags: [Tables]
       summary: Get table schema (columns + indexes)
@@ -278,7 +281,7 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
-  /v1/tables/{tableId}/rows:
+  /v1/data/tables/{tableId}/rows:
     get:
       tags: [Tables]
       summary: List rows (paginated)
@@ -347,7 +350,7 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
-  /v1/tables/{tableId}/rows/{rowId}:
+  /v1/data/tables/{tableId}/rows/{rowId}:
     patch:
       tags: [Tables]
       summary: Update row
@@ -393,7 +396,7 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
-  /v1/tables/{tableId}/rows:query:
+  /v1/data/tables/{tableId}/rows:query:
     post:
       tags: [Tables]
       summary: Query rows with filter, sort, and projection
@@ -419,7 +422,7 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
-  /v1/tables/{tableId}/rows:bulkUpsert:
+  /v1/data/tables/{tableId}/rows:bulkUpsert:
     post:
       tags: [Tables]
       summary: Bulk upsert rows
@@ -445,7 +448,7 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
-  /v1/tables/{tableId}/rows:saveGraph:
+  /v1/data/tables/{tableId}/rows:saveGraph:
     post:
       tags: [Tables]
       summary: Save root row and nested many-relationship children in one transaction
@@ -471,7 +474,7 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
-  /v1/tables/{tableId}/rows:bulkDelete:
+  /v1/data/tables/{tableId}/rows:bulkDelete:
     post:
       tags: [Tables]
       summary: Bulk delete rows
@@ -497,7 +500,7 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
-  /v1/tables/{tableId}/rows:import:
+  /v1/data/tables/{tableId}/rows:import:
     post:
       tags: [Tables]
       summary: Import rows (bulk insert)
@@ -523,7 +526,7 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
-  /v1/columns:
+  /v1/admin/columns:
     get:
       tags: [Columns]
       summary: List columns for a table
@@ -567,7 +570,7 @@ paths:
         "400":
           $ref: "#/components/responses/Error"
 
-  /v1/columns/{id}:
+  /v1/admin/columns/{id}:
     patch:
       tags: [Columns]
       summary: Update column
@@ -611,7 +614,7 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
-  /v1/indexes:
+  /v1/admin/indexes:
     get:
       tags: [Indexes]
       summary: List indexes for a table
@@ -654,7 +657,7 @@ paths:
         "400":
           $ref: "#/components/responses/Error"
 
-  /v1/indexes/{id}:
+  /v1/admin/indexes/{id}:
     get:
       tags: [Indexes]
       summary: Get index by id
@@ -692,7 +695,7 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
-  /v1/schema/er:
+  /v1/admin/schema/er:
     get:
       tags: [Schema]
       summary: Get ER diagram (tables, columns, relations)
@@ -709,7 +712,7 @@ paths:
         "400":
           $ref: "#/components/responses/Error"
 
-  /v1/choices:
+  /v1/admin/choices:
     get:
       tags: [Choices]
       summary: List choices (PG ENUM types)
@@ -747,7 +750,7 @@ paths:
         "400":
           $ref: "#/components/responses/Error"
 
-  /v1/choices/{id}:
+  /v1/admin/choices/{id}:
     get:
       tags: [Choices]
       summary: Get choice
@@ -809,7 +812,7 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
-  /v1/relations:
+  /v1/admin/relations:
     get:
       tags: [Relations]
       summary: List relations
@@ -852,7 +855,7 @@ paths:
         "400":
           $ref: "#/components/responses/Error"
 
-  /v1/relations/{id}:
+  /v1/admin/relations/{id}:
     delete:
       tags: [Relations]
       summary: Delete relation
@@ -872,7 +875,7 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
-  /v1/data-sources:
+  /v1/admin/data-sources:
     get:
       tags: [Data sources]
       summary: List data sources
@@ -915,7 +918,7 @@ paths:
         "400":
           $ref: "#/components/responses/Error"
 
-  /v1/data-sources/{id}:
+  /v1/admin/data-sources/{id}:
     get:
       tags: [Data sources]
       summary: Get data source
@@ -977,7 +980,7 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
-  /v1/data-sources/{id}:query:
+  /v1/data/data-sources/{id}:query:
     post:
       tags: [Data sources]
       summary: Query rows through a data source
@@ -1165,29 +1168,33 @@ components:
           type: string
           format: date-time
 
-    Webhook:
+    EventSink:
       type: object
+      description: |
+        Event subscription row in `lc_event_sinks` (formerly `lc_webhooks`).
+        Delivery is HTTP POST to `targetUrl` only. For Kafka/RabbitMQ/Redis/SQS/SNS,
+        point `targetUrl` at an HTTP adapter — see docs/event-delivery.md.
       properties:
         id:
           type: string
         name:
           type: string
-        sinkType:
+        sink:
           type: string
-          enum: [webhook, redis, rabbitmq, kafka]
-          description: Delivery sink (Sequin-style). Defaults to webhook.
+          enum: [webhook]
+          readOnly: true
+          description: Always `webhook`; native broker drivers are not built in.
         sinkConfig:
           type: object
           additionalProperties: true
-          description: |
-            Sink-specific settings. Redis: url, mode (stream|pubsub), stream/channel.
-            RabbitMQ: url, exchange, routingKey. Kafka: brokers[], topic.
+          deprecated: true
+          description: Legacy; only `sinkConfig.url` used as http(s) fallback when targetUrl is empty.
         targetUrl:
           type: string
-          description: HTTP POST URL (webhook sink; legacy field)
+          description: Required http(s) delivery URL (direct webhook or HTTP bridge to a broker).
         tableFilter:
           type: string
-        events:
+        eventTypes:
           type: array
           items:
             type: string
@@ -1205,22 +1212,16 @@ components:
           type: string
           format: date-time
 
-    CreateWebhookRequest:
+    CreateEventSinkRequest:
       type: object
       properties:
         name:
           type: string
-        sinkType:
-          type: string
-          enum: [webhook, redis, rabbitmq, kafka]
-        sinkConfig:
-          type: object
-          additionalProperties: true
         targetUrl:
           type: string
         tableFilter:
           type: string
-        events:
+        eventTypes:
           type: array
           items:
             type: string
@@ -1232,39 +1233,33 @@ components:
         secret:
           type: string
 
-    CreateWebhookResponse:
+    CreateEventSinkResponse:
       type: object
       properties:
-        webhook:
-          $ref: "#/components/schemas/Webhook"
+        eventSink:
+          $ref: "#/components/schemas/EventSink"
 
-    ListWebhooksResponse:
+    ListEventSinksResponse:
       type: object
       properties:
-        webhooks:
+        eventSinks:
           type: array
           items:
-            $ref: "#/components/schemas/Webhook"
+            $ref: "#/components/schemas/EventSink"
 
-    DeleteWebhookResponse:
+    DeleteEventSinkResponse:
       type: object
 
-    UpdateWebhookRequest:
+    UpdateEventSinkRequest:
       type: object
       properties:
         name:
           type: string
-        sinkType:
-          type: string
-          enum: [webhook, redis, rabbitmq, kafka]
-        sinkConfig:
-          type: object
-          additionalProperties: true
         targetUrl:
           type: string
         tableFilter:
           type: string
-        events:
+        eventTypes:
           type: array
           items:
             type: string
@@ -1276,11 +1271,11 @@ components:
         secret:
           type: string
 
-    UpdateWebhookResponse:
+    UpdateEventSinkResponse:
       type: object
       properties:
-        webhook:
-          $ref: "#/components/schemas/Webhook"
+        eventSink:
+          $ref: "#/components/schemas/EventSink"
 
     CreateTenantRequest:
       type: object
@@ -1360,7 +1355,7 @@ components:
       properties:
         newName:
           type: string
-      description: Table id is taken from the path (`/v1/tables/{id}:rename`).
+      description: Table id is taken from the path (`/v1/admin/tables/{id}:rename`).
 
     RenameTableResponse:
       type: object

@@ -4,17 +4,18 @@ import (
 	"context"
 	"time"
 
-	"github.com/solat/lowcode-database/internal/cache"
-	"github.com/solat/lowcode-database/internal/db"
+	"github.com/solat/lowcode-database/internal/event"
+	"github.com/solat/lowcode-database/internal/infra/postgres"
 	"github.com/solat/lowcode-database/internal/logger"
-	"github.com/solat/lowcode-database/internal/metrics"
+	"github.com/solat/lowcode-database/internal/platform/cache"
+	"github.com/solat/lowcode-database/internal/platform/metrics"
 	"github.com/solat/lowcode-database/internal/service/catalog"
 	"github.com/solat/lowcode-database/internal/service/data"
 	"github.com/solat/lowcode-database/internal/service/graph"
 	"github.com/solat/lowcode-database/internal/service/platform"
 	"github.com/solat/lowcode-database/internal/service/schema"
 	"github.com/solat/lowcode-database/internal/service/shared"
-	"github.com/solat/lowcode-database/internal/sink"
+	"github.com/solat/lowcode-database/internal/telemetry"
 )
 
 // LowcodeService is the root facade; domain logic lives in subpackages.
@@ -64,8 +65,16 @@ func WithLogSQL(enabled bool) Option {
 	}
 }
 
-func NewLowcodeService(tenants *db.TenantManager, maxRow int, hooks *sink.Dispatcher, opts ...Option) *LowcodeService {
-	base := shared.NewBase(tenants, maxRow, hooks)
+func WithTelemetry(p telemetry.Provider) Option {
+	return func(b *shared.Base) {
+		if p != nil {
+			b.Telemetry = p
+		}
+	}
+}
+
+func NewLowcodeService(tenants *postgres.TenantManager, maxRow int, bus *event.Bus, opts ...Option) *LowcodeService {
+	base := shared.NewBase(tenants, maxRow, bus)
 	for _, opt := range opts {
 		opt(base)
 	}

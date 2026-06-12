@@ -3,16 +3,84 @@ package catalog
 import (
 	"context"
 	"fmt"
-	"strings"
-
 	"github.com/jackc/pgx/v5"
-
-	"github.com/solat/lowcode-database/internal/apiv1"
+	apiv1schema "github.com/solat/lowcode-database/internal/apiv1/schema"
+	"strings"
 )
 
-// -------- Index (PostgreSQL catalog as source of truth) --------
+func (s *Catalog) ListIndexes(ctx context.Context, req *apiv1schema.ListIndexesRequest) (*apiv1schema.ListIndexesResponse, error) {
+	tableID, schemaName, tableName, err := s.B.LoadTablePhysical(ctx, req.TableId)
+	if err != nil {
+		return nil, err
+	}
+	pgRows, err := s.ListPGIndexes(ctx, schemaName, tableName)
+	if err != nil {
+		return nil, err
+	}
+	indexes, err := s.PGIndexesToAPI(ctx, tableID, schemaName, tableName, pgRows)
+	if err != nil {
+		return nil, err
+	}
+	return &apiv1schema.ListIndexesResponse{Indexes: indexes}, nil
+}
 
-func (s *Catalog) CreateIndex(ctx context.Context, req *apiv1.CreateIndexRequest) (*apiv1.CreateIndexResponse, error) {
+func (s *Catalog) GetIndex(ctx context.Context, req *apiv1schema.GetIndexRequest) (*apiv1schema.GetIndexResponse, error) {
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	data, err := s.B.Tenants.DataPool(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var schemaName, tableName string
+	if err := data.QueryRow(ctx, `
+		SELECT schemaname, tablename FROM pg_indexes WHERE indexname = $1 LIMIT 1`,
+		req.Id,
+	).Scan(&schemaName, &tableName); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("index not found")
+		}
+		return nil, err
+	}
+	tid, err := s.B.TenantID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var tableID string
+	if err := s.B.Tenants.MetaPool().QueryRow(ctx, `
+		SELECT name FROM lc_tables WHERE tenant_id = $1 AND schema_name = $2 AND name = $3`,
+		tid, schemaName, tableName,
+	).Scan(&tableID); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("index table not found in metadata")
+		}
+		return nil, err
+	}
+	pgRows, err := s.ListPGIndexes(ctx, schemaName, tableName)
+	if err != nil {
+		return nil, err
+	}
+	var match *pgIndexRow
+	for i := range pgRows {
+		if pgRows[i].Name == req.Id {
+			match = &pgRows[i]
+			break
+		}
+	}
+	if match == nil {
+		return nil, fmt.Errorf("index not found")
+	}
+	apiIndexes, err := s.PGIndexesToAPI(ctx, tableID, schemaName, tableName, []pgIndexRow{*match})
+	if err != nil {
+		return nil, err
+	}
+	if len(apiIndexes) == 0 {
+		return nil, fmt.Errorf("index not found")
+	}
+	return &apiv1schema.GetIndexResponse{Index: apiIndexes[0]}, nil
+}
+
+func (s *Catalog) CreateIndex(ctx context.Context, req *apiv1schema.CreateIndexRequest) (*apiv1schema.CreateIndexResponse, error) {
 	if req.TableId == "" {
 		return nil, fmt.Errorf("table_id is required")
 	}
@@ -68,7 +136,7 @@ func (s *Catalog) CreateIndex(ctx context.Context, req *apiv1.CreateIndexRequest
 	if err != nil {
 		return nil, err
 	}
-	var target *apiv1.Index
+	var target *apiv1schema.Index
 	apiIndexes, err := s.PGIndexesToAPI(ctx, resolvedTable, schemaName, tableName, pgRows)
 	if err != nil {
 		return nil, err
@@ -80,7 +148,7 @@ func (s *Catalog) CreateIndex(ctx context.Context, req *apiv1.CreateIndexRequest
 		}
 	}
 	if target == nil {
-		target = &apiv1.Index{
+		target = &apiv1schema.Index{
 			Id:        pgIndex,
 			TableId:   resolvedTable,
 			Name:      req.Name,
@@ -91,16 +159,16 @@ func (s *Catalog) CreateIndex(ctx context.Context, req *apiv1.CreateIndexRequest
 	} else {
 		target.Name = req.Name
 	}
-	return &apiv1.CreateIndexResponse{Index: target}, nil
+	return &apiv1schema.CreateIndexResponse{Index: target}, nil
 }
 
-func (s *Catalog) DeleteIndex(ctx context.Context, req *apiv1.DeleteIndexRequest) (*apiv1.DeleteIndexResponse, error) {
+func (s *Catalog) DeleteIndex(ctx context.Context, req *apiv1schema.DeleteIndexRequest) (*apiv1schema.DeleteIndexResponse, error) {
 	if req.Id == "" {
 		return nil, fmt.Errorf("id is required")
 	}
 	schemaName, err := s.resolveIndexSchema(ctx, req.Id)
 	if err != nil {
-		return &apiv1.DeleteIndexResponse{}, nil
+		return &apiv1schema.DeleteIndexResponse{}, nil
 	}
 	data, err := s.B.Tenants.DataPool(ctx)
 	if err != nil {
@@ -113,77 +181,5 @@ func (s *Catalog) DeleteIndex(ctx context.Context, req *apiv1.DeleteIndexRequest
 	if _, err := data.Exec(ctx, drop); err != nil {
 		return nil, err
 	}
-	return &apiv1.DeleteIndexResponse{}, nil
-}
-
-func (s *Catalog) ListIndexes(ctx context.Context, req *apiv1.ListIndexesRequest) (*apiv1.ListIndexesResponse, error) {
-	tableID, schemaName, tableName, err := s.B.LoadTablePhysical(ctx, req.TableId)
-	if err != nil {
-		return nil, err
-	}
-	pgRows, err := s.ListPGIndexes(ctx, schemaName, tableName)
-	if err != nil {
-		return nil, err
-	}
-	indexes, err := s.PGIndexesToAPI(ctx, tableID, schemaName, tableName, pgRows)
-	if err != nil {
-		return nil, err
-	}
-	return &apiv1.ListIndexesResponse{Indexes: indexes}, nil
-}
-
-func (s *Catalog) GetIndex(ctx context.Context, req *apiv1.GetIndexRequest) (*apiv1.GetIndexResponse, error) {
-	if req.Id == "" {
-		return nil, fmt.Errorf("id is required")
-	}
-	data, err := s.B.Tenants.DataPool(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var schemaName, tableName string
-	if err := data.QueryRow(ctx, `
-		SELECT schemaname, tablename FROM pg_indexes WHERE indexname = $1 LIMIT 1`,
-		req.Id,
-	).Scan(&schemaName, &tableName); err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("index not found")
-		}
-		return nil, err
-	}
-	tid, err := s.B.TenantID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var tableID string
-	if err := s.B.Tenants.MetaPool().QueryRow(ctx, `
-		SELECT name FROM lc_tables WHERE tenant_id = $1 AND schema_name = $2 AND name = $3`,
-		tid, schemaName, tableName,
-	).Scan(&tableID); err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("index table not found in metadata")
-		}
-		return nil, err
-	}
-	pgRows, err := s.ListPGIndexes(ctx, schemaName, tableName)
-	if err != nil {
-		return nil, err
-	}
-	var match *pgIndexRow
-	for i := range pgRows {
-		if pgRows[i].Name == req.Id {
-			match = &pgRows[i]
-			break
-		}
-	}
-	if match == nil {
-		return nil, fmt.Errorf("index not found")
-	}
-	apiIndexes, err := s.PGIndexesToAPI(ctx, tableID, schemaName, tableName, []pgIndexRow{*match})
-	if err != nil {
-		return nil, err
-	}
-	if len(apiIndexes) == 0 {
-		return nil, fmt.Errorf("index not found")
-	}
-	return &apiv1.GetIndexResponse{Index: apiIndexes[0]}, nil
+	return &apiv1schema.DeleteIndexResponse{}, nil
 }

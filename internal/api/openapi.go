@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io/fs"
 	"net/http"
+
+	"github.com/solat/lowcode-database/internal/version"
 )
 
 //go:embed openapi/*
@@ -36,13 +38,18 @@ func RootHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{
+	resp := map[string]string{
 		"service":    "lowcode-database",
-		"api":        "/v1/",
+		"adminApi":   "/v1/admin/",
+		"dataApi":    "/v1/data/",
 		"openapi":    "/openapi/openapi.yaml",
 		"swagger":    "/swagger/",
 		"playground": "https://github.com/solat/lowcode-database-playground",
-	})
+	}
+	for k, v := range version.Map() {
+		resp[k] = v
+	}
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func serveSwaggerUI(w http.ResponseWriter, r *http.Request) {

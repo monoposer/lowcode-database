@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/solat/lowcode-database/internal/config"
-	"github.com/solat/lowcode-database/internal/db"
+	"github.com/solat/lowcode-database/internal/infra/postgres"
 	"github.com/solat/lowcode-database/internal/migrator"
 	"github.com/solat/lowcode-database/internal/service"
 	"github.com/solat/lowcode-database/internal/tenant"
@@ -49,11 +49,11 @@ func SetupIntegration(t *testing.T) (*service.LowcodeService, func()) {
 	}
 
 	cfg := &config.Config{
-		MetaDatabaseURL:    metaURL,
+		MetaDatabaseURL:      metaURL,
 		DefaultTenantDataDSN: dataURL,
 		DefaultTenantID:      testTenant,
 	}
-	tm, err := db.NewTenantManager(ctx, cfg)
+	tm, err := postgres.NewTenantManager(ctx, cfg)
 	if err != nil {
 		t.Fatalf("tenant manager: %v", err)
 	}

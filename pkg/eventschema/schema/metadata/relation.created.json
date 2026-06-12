@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/solat/lowcode-database/pkg/eventschema/metadata.relation.created",
+  "title": "metadata.relation.created",
+  "description": "Emitted when a table relation definition is created.",
+  "type": "object",
+  "required": ["relation"],
+  "properties": {
+    "relation": { "type": "object", "additionalProperties": true }
+  },
+  "additionalProperties": false
+}

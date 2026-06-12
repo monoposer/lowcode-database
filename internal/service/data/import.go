@@ -4,19 +4,17 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"github.com/jackc/pgx/v5"
+	"github.com/solat/lowcode-database/internal/apiv1"
+	"github.com/solat/lowcode-database/internal/apiv1/row"
+	"github.com/solat/lowcode-database/internal/event"
+	"github.com/solat/lowcode-database/internal/service/shared"
 	"strconv"
 	"time"
-
-	"github.com/jackc/pgx/v5"
-
-	"github.com/solat/lowcode-database/internal/apiv1"
-	"github.com/solat/lowcode-database/internal/service/catalog"
-	"github.com/solat/lowcode-database/internal/service/shared"
-	"github.com/solat/lowcode-database/internal/sink"
 )
 
 // ImportRows inserts rows from JSON-like structs; keys are column display names or ids unless column_map overrides.
-func (s *Data) ImportRows(ctx context.Context, req *apiv1.ImportRowsRequest) (*apiv1.ImportRowsResponse, error) {
+func (s *Data) ImportRows(ctx context.Context, req *row.ImportRowsRequest) (*row.ImportRowsResponse, error) {
 	data, err := s.B.Tenants.DataPool(ctx)
 	if err != nil {
 		return nil, err
@@ -26,15 +24,15 @@ func (s *Data) ImportRows(ctx context.Context, req *apiv1.ImportRowsRequest) (*a
 		return nil, fmt.Errorf("table_id is required")
 	}
 	format := req.Format
-	if format != apiv1.ImportRowsFormatUnspecified &&
-		format != apiv1.ImportRowsFormatJSONRows {
+	if format != row.ImportRowsFormatUnspecified &&
+		format != row.ImportRowsFormatJSONRows {
 		return nil, fmt.Errorf("unsupported import format %v", format)
 	}
 	if len(req.Rows) == 0 {
-		return &apiv1.ImportRowsResponse{InsertedCount: 0}, nil
+		return &row.ImportRowsResponse{InsertedCount: 0}, nil
 	}
 
-	cols, schemaName, physTable, err := catalog.New(s.B).LoadColumns(ctx, tableID)
+	cols, schemaName, physTable, err := s.meta().LoadColumns(ctx, tableID)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +52,7 @@ func (s *Data) ImportRows(ctx context.Context, req *apiv1.ImportRowsRequest) (*a
 	}
 	defer tx.Rollback(ctx)
 
-	var out []*apiv1.Row
+	var out []*row.Row
 	var n int32
 	for _, rowMap := range req.Rows {
 		if rowMap == nil {
@@ -72,22 +70,22 @@ func (s *Data) ImportRows(ctx context.Context, req *apiv1.ImportRowsRequest) (*a
 			continue
 		}
 		n++
-		out = append(out, &apiv1.Row{Id: id, Cells: cells})
+		out = append(out, &row.Row{Id: id, Cells: cells})
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
-	if s.B.Hooks != nil && len(out) > 0 {
+	if s.B.Events != nil && len(out) > 0 {
 		rows := make([]any, 0, len(out))
 		for _, r := range out {
 			rows = append(rows, shared.RowToMap(r))
 		}
-		s.B.Hooks.Emit(ctx, sink.RecordsAfterBulkImport, tableID, map[string]any{
+		s.B.EmitEvent(ctx, event.RecordsAfterBulkImport, tableID, map[string]any{
 			"rows":          rows,
 			"insertedCount": int(n),
 		})
 	}
-	return &apiv1.ImportRowsResponse{Rows: out, InsertedCount: n}, nil
+	return &row.ImportRowsResponse{Rows: out, InsertedCount: n}, nil
 }
 
 func importRowToCells(
@@ -202,7 +200,6 @@ func importNativeToValue(raw interface{}, pgType string) (*apiv1.Value, error) {
 	case "jsonb", "json":
 		return apiv1.JsonValue(coerceMap(raw)), nil
 	default:
-		// text, uuid, and unknown: stringify primitives
 		switch t := raw.(type) {
 		case string:
 			return apiv1.StringValue(t), nil

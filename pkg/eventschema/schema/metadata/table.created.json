@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/solat/lowcode-database/pkg/eventschema/metadata.table.created",
+  "title": "metadata.table.created",
+  "description": "Emitted when a logical table is registered in meta and physical table is created in the tenant data DB.",
+  "type": "object",
+  "required": ["table"],
+  "properties": {
+    "table": {
+      "type": "object",
+      "description": "Table resource as returned by the admin API",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

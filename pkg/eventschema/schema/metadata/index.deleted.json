@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/solat/lowcode-database/pkg/eventschema/metadata.index.deleted",
+  "title": "metadata.index.deleted",
+  "description": "Emitted when an index is dropped.",
+  "type": "object",
+  "required": ["tableId", "pgIndexName"],
+  "properties": {
+    "tableId": { "type": "string" },
+    "pgIndexName": { "type": "string", "description": "Physical PostgreSQL index name" }
+  },
+  "additionalProperties": false
+}

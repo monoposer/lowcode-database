@@ -1,0 +1,7 @@
+{
+  "roles": {
+    "admin": ["*:*", "schema:*", "platform:*"],
+    "viewer": ["*:select", "schema:read"],
+    "editor": ["*:select", "*:insert", "*:update", "*:delete", "schema:read"]
+  }
+}

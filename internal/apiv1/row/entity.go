@@ -1,0 +1,8 @@
+package row
+
+import "github.com/solat/lowcode-database/internal/apiv1"
+
+type Row struct {
+	Id    string                  `json:"id,omitempty"`
+	Cells map[string]*apiv1.Value `json:"cells,omitempty"`
+}

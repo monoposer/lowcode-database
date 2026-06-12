@@ -34,7 +34,7 @@ MAX_ROW=100
 ## 启动与调试
 
 ```bash
-make docker-up      # postgres:16 + init migrations（首次 volume 空时自动 apply）
+make docker-up      # postgis/postgis:16-3.5 + init（含 lowcode_data 上 CREATE EXTENSION postgis）
 make migrate        # 或手动：go run ./cmd/migrate -target meta && ... data
 make run            # HTTP 服务（不跑 migration）
 make test
@@ -72,13 +72,15 @@ HTTP /v1/*
 
 ## Migration
 
-SQL 文件：`docker/postgres/migrations/meta/`、`.../data/`
+SQL 文件：`docker/postgres/migrations/meta/`（data 目录无 `.up.sql`，见 [data/README.md](../docker/postgres/migrations/data/README.md)）
 
 | 命令 | 说明 |
 |------|------|
-| `make docker-up` | 首次 volume 空时 init 脚本自动 apply |
-| `make migrate` | `cmd/migrate` 对 meta + data 增量 apply |
+| `make docker-up` | 首次 volume 空时 init 脚本自动 apply meta migrations |
+| `make migrate` | `cmd/migrate` 对 meta apply；data 无 pending migration |
 | `go run ./cmd/migrate -target meta -database-url '...'` | 单库迁移 |
+
+**Data 库**：无 `.up.sql` migration。UUID 主键用 PG 内置 `gen_random_uuid()`。PostGIS：Docker 用 `postgis/postgis` 镜像，init 在 `lowcode_data` 启用；自建/云库见 [data/README.md](../docker/postgres/migrations/data/README.md)。
 
 版本记录在 `lc_schema_migrations`。新增 migration：追加 `000012_xxx.up.sql`，再 `make migrate-meta`。
 
@@ -99,7 +101,7 @@ SQL 文件：`docker/postgres/migrations/meta/`、`.../data/`
 | Relation | `GET/POST /v1/relations`，`DELETE /v1/relations/{id}` |
 | DataSource | `GET/POST /v1/data-sources`，`POST /v1/data-sources/{id}:query`（列表/视图定义 + 查询） |
 | ER | `GET /v1/schema/er` |
-| Webhook | `GET/POST /v1/webhooks`，`PATCH/DELETE /v1/webhooks/{id}` |
+| Event sink | `GET/POST /v1/admin/event-sinks`，`PATCH/DELETE /v1/admin/event-sinks/{id}`（原 `/v1/webhooks` 已 404） |
 
 ## 领域约定
 

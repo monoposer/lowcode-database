@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/solat/lowcode-database/pkg/eventschema/records.after.update",
+  "title": "records.after.update",
+  "description": "Emitted after a single row is patched. `row` contains the post-update snapshot.",
+  "type": "object",
+  "required": ["row"],
+  "properties": {
+    "row": {
+      "type": "object",
+      "description": "Updated row snapshot",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

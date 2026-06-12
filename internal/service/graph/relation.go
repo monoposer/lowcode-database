@@ -3,16 +3,53 @@ package graph
 import (
 	"context"
 	"fmt"
-	"time"
-
 	"github.com/jackc/pgx/v5"
-
-	"github.com/solat/lowcode-database/internal/apiv1"
-	"github.com/solat/lowcode-database/internal/service/schema"
+	apiv1schema "github.com/solat/lowcode-database/internal/apiv1/schema"
 	"github.com/solat/lowcode-database/internal/service/shared"
+	"time"
 )
 
-// -------- Relation --------
+func scanRelation(rows pgx.Rows) (*apiv1schema.Relation, error) {
+	var rel apiv1schema.Relation
+	var srcCol, tgtCol *string
+	var cfg map[string]any
+	var createdAt, updatedAt time.Time
+	if err := rows.Scan(&rel.SourceTableId, &rel.Name, &rel.Kind, &srcCol, &rel.TargetTableId, &tgtCol, &cfg, &createdAt, &updatedAt); err != nil {
+		return nil, err
+	}
+	rel.Id = rel.Name
+	if srcCol != nil {
+		rel.SourceColumnId = *srcCol
+	}
+	if tgtCol != nil {
+		rel.TargetColumnId = *tgtCol
+	}
+	rel.Config = cfg
+	rel.CreatedAt = createdAt
+	rel.UpdatedAt = updatedAt
+	return &rel, nil
+}
+
+func scanRelationRow(row pgx.Row) (*apiv1schema.Relation, error) {
+	var rel apiv1schema.Relation
+	var srcCol, tgtCol *string
+	var cfg map[string]any
+	var createdAt, updatedAt time.Time
+	if err := row.Scan(&rel.SourceTableId, &rel.Name, &rel.Kind, &srcCol, &rel.TargetTableId, &tgtCol, &cfg, &createdAt, &updatedAt); err != nil {
+		return nil, err
+	}
+	rel.Id = rel.Name
+	if srcCol != nil {
+		rel.SourceColumnId = *srcCol
+	}
+	if tgtCol != nil {
+		rel.TargetColumnId = *tgtCol
+	}
+	rel.Config = cfg
+	rel.CreatedAt = createdAt
+	rel.UpdatedAt = updatedAt
+	return &rel, nil
+}
 
 func (s *Graph) resolveRelationRef(ctx context.Context, sourceTableRef, nameRef string) (sourceTableID, relName string, err error) {
 	if nameRef == "" {
@@ -31,7 +68,7 @@ func (s *Graph) resolveRelationRef(ctx context.Context, sourceTableRef, nameRef 
 	return sourceTableID, nameRef, nil
 }
 
-func (s *Graph) CreateRelation(ctx context.Context, req *apiv1.CreateRelationRequest) (*apiv1.CreateRelationResponse, error) {
+func (s *Graph) CreateRelation(ctx context.Context, req *apiv1schema.CreateRelationRequest) (*apiv1schema.CreateRelationResponse, error) {
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
@@ -61,14 +98,14 @@ func (s *Graph) CreateRelation(ctx context.Context, req *apiv1.CreateRelationReq
 
 	var srcCol, tgtCol *string
 	if req.SourceColumnId != "" {
-		name, err := schema.New(s.B).ResolveColumnName(ctx, tid, sourceTable, req.SourceColumnId)
+		name, err := s.meta().ResolveColumnName(ctx, tid, sourceTable, req.SourceColumnId)
 		if err != nil {
 			return nil, fmt.Errorf("source_column_id: %w", err)
 		}
 		srcCol = &name
 	}
 	if req.TargetColumnId != "" {
-		name, err := schema.New(s.B).ResolveColumnName(ctx, tid, targetTable, req.TargetColumnId)
+		name, err := s.meta().ResolveColumnName(ctx, tid, targetTable, req.TargetColumnId)
 		if err != nil {
 			return nil, fmt.Errorf("target_column_id: %w", err)
 		}
@@ -86,10 +123,10 @@ func (s *Graph) CreateRelation(ctx context.Context, req *apiv1.CreateRelationReq
 	if err != nil {
 		return nil, err
 	}
-	return &apiv1.CreateRelationResponse{Relation: rel}, nil
+	return &apiv1schema.CreateRelationResponse{Relation: rel}, nil
 }
 
-func (s *Graph) ListRelations(ctx context.Context, req *apiv1.ListRelationsRequest) (*apiv1.ListRelationsResponse, error) {
+func (s *Graph) ListRelations(ctx context.Context, req *apiv1schema.ListRelationsRequest) (*apiv1schema.ListRelationsResponse, error) {
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
@@ -119,7 +156,7 @@ func (s *Graph) ListRelations(ctx context.Context, req *apiv1.ListRelationsReque
 		}
 	}
 	defer rows.Close()
-	var resp apiv1.ListRelationsResponse
+	var resp apiv1schema.ListRelationsResponse
 	for rows.Next() {
 		rel, err := scanRelation(rows)
 		if err != nil {
@@ -130,7 +167,7 @@ func (s *Graph) ListRelations(ctx context.Context, req *apiv1.ListRelationsReque
 	return &resp, rows.Err()
 }
 
-func (s *Graph) DeleteRelation(ctx context.Context, req *apiv1.DeleteRelationRequest) (*apiv1.DeleteRelationResponse, error) {
+func (s *Graph) DeleteRelation(ctx context.Context, req *apiv1schema.DeleteRelationRequest) (*apiv1schema.DeleteRelationResponse, error) {
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
@@ -142,47 +179,5 @@ func (s *Graph) DeleteRelation(ctx context.Context, req *apiv1.DeleteRelationReq
 	_, err = s.B.Tenants.MetaPool().Exec(ctx, `
 		DELETE FROM lc_relations WHERE tenant_id = $1 AND source_table_id = $2 AND name = $3`,
 		tid, sourceTable, relName)
-	return &apiv1.DeleteRelationResponse{}, err
-}
-
-func scanRelation(rows pgx.Rows) (*apiv1.Relation, error) {
-	var rel apiv1.Relation
-	var srcCol, tgtCol *string
-	var cfg map[string]any
-	var createdAt, updatedAt time.Time
-	if err := rows.Scan(&rel.SourceTableId, &rel.Name, &rel.Kind, &srcCol, &rel.TargetTableId, &tgtCol, &cfg, &createdAt, &updatedAt); err != nil {
-		return nil, err
-	}
-	rel.Id = rel.Name
-	if srcCol != nil {
-		rel.SourceColumnId = *srcCol
-	}
-	if tgtCol != nil {
-		rel.TargetColumnId = *tgtCol
-	}
-	rel.Config = cfg
-	rel.CreatedAt = createdAt
-	rel.UpdatedAt = updatedAt
-	return &rel, nil
-}
-
-func scanRelationRow(row pgx.Row) (*apiv1.Relation, error) {
-	var rel apiv1.Relation
-	var srcCol, tgtCol *string
-	var cfg map[string]any
-	var createdAt, updatedAt time.Time
-	if err := row.Scan(&rel.SourceTableId, &rel.Name, &rel.Kind, &srcCol, &rel.TargetTableId, &tgtCol, &cfg, &createdAt, &updatedAt); err != nil {
-		return nil, err
-	}
-	rel.Id = rel.Name
-	if srcCol != nil {
-		rel.SourceColumnId = *srcCol
-	}
-	if tgtCol != nil {
-		rel.TargetColumnId = *tgtCol
-	}
-	rel.Config = cfg
-	rel.CreatedAt = createdAt
-	rel.UpdatedAt = updatedAt
-	return &rel, nil
+	return &apiv1schema.DeleteRelationResponse{}, err
 }

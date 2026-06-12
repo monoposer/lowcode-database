@@ -24,24 +24,32 @@
 |------|------|
 | `cmd/server/` | HTTP 入口 |
 | `cmd/migrate/` | Schema 迁移 CLI |
-| `internal/api/` | 路由与 handler |
+| `internal/api/` | 路由与 handler（`/v1/admin/*`、`/v1/data/*`） |
 | `internal/apiv1/` | JSON 请求/响应类型（手写，无 proto） |
-| `internal/service/` | 业务逻辑（按域拆分 `*_service.go`） |
+| `internal/service/` | 业务逻辑，按域拆分：`schema`、`data`、`catalog`、`graph`、`platform` |
+| `internal/service/shared/` | 跨域 helpers（result type、cells、config） |
 | `internal/dsl/`、`internal/query/` | 过滤 DSL → SQL |
-| `internal/cache/` | Redis 元数据缓存（data source / view / column spec） |
-| `internal/metrics/` | DataSource 查询 metrics（最近 N 次平均耗时） |
+| `internal/event/` | 事件总线与 HTTP webhook 投递 |
+| `internal/infra/postgres/` | 双库 TenantManager、连接池 |
+| `internal/infra/redis/` | Redis 客户端（可选） |
+| `internal/platform/cache/` | Redis 元数据缓存（data source / view / column spec） |
+| `internal/platform/metrics/` | DataSource 查询 metrics（最近 N 次平均耗时） |
+| `internal/platform/auth/` | API Key 校验 |
+| `internal/platform/authz/` | RBAC 中间件（file / http driver） |
 | `internal/logger/` | JSON 结构化日志 |
 | `docker/postgres/migrations/` | Meta/Data SQL 迁移文件 |
-| `internal/db/` | 双库 TenantManager |
+| `pkg/eventschema/` | 对外事件 JSON Schema |
+| `docs/` | 架构文档（见 [docs/README.md](docs/README.md)） |
 
 调试 UI 见独立仓库 **lowcode-database-playground**。
 
 ## 架构要点
 
-- **Meta DB**：`lc_tables`、`lc_columns`、`lc_choices`（ENUM 注册）、`lc_relations`、`lc_data_sources`、`lc_tenants` 等
+- **Meta DB**：`lc_tables`、`lc_columns`、`lc_choices`（ENUM 注册）、`lc_relations`、`lc_data_sources`、`lc_tenants`、`lc_event_sinks` 等
 - **Data DB**：物理表 `lc_t_*`、PG ENUM 类型、索引（以 PG catalog 为准）
 - **Choice**：data DB 的 PG ENUM（类型名与 logical name 相同），catalog 为唯一来源
 - **Index**：读写直接对接 PostgreSQL（`pg_index` / `pg_class`），不依赖 `lc_indexes` 镜像
+- **Event delivery**：HTTP POST 到 `lc_event_sinks.target_url`；Kafka/Redis/SQS 等见 [docs/event-delivery.md](docs/event-delivery.md) · [docs/事件投递.md](docs/事件投递.md)
 
 ## 性能与可观测性
 
@@ -65,5 +73,6 @@ make run
 - 虚拟列（`formula` / `relationship` / `lookup` / `rollup`）无 PG 物理列
 - 改 schema：**编辑 `docker/postgres/migrations/`**，执行 `make migrate` 或 `docker compose up` 首次初始化
 - 业务服务 **不** 自动跑 migration
+- 事件投递 **仅** HTTP webhook，无内置 Kafka/Redis 原生 driver
 
-详见 [.cursor/DEVELOPMENT.md](.cursor/DEVELOPMENT.md)
+详见 [.cursor/DEVELOPMENT.md](.cursor/DEVELOPMENT.md) · 架构文档 [docs/README.md](docs/README.md)

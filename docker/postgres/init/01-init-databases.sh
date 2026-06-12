@@ -49,6 +49,12 @@ if [ -d /migrations/data ]; then
     apply_dir lowcode_data /migrations/data
 fi
 
+# PostGIS: extension binaries come from the Docker image / OS packages; must be enabled per database.
+echo "==> lowcode_data: CREATE EXTENSION postgis (optional geo columns)"
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" -d lowcode_data <<-EOSQL
+    CREATE EXTENSION IF NOT EXISTS postgis;
+EOSQL
+
 # Bootstrap default tenant (matches DEFAULT_TENANT_ID=default)
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" -d lowcode_meta <<-EOSQL
     INSERT INTO lc_tenants (id, display_name, data_dsn)

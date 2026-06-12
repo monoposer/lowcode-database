@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -13,21 +14,25 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/solat/lowcode-database/internal/api"
-	"github.com/solat/lowcode-database/internal/cache"
 	"github.com/solat/lowcode-database/internal/config"
-	"github.com/solat/lowcode-database/internal/db"
+	"github.com/solat/lowcode-database/internal/event"
+	"github.com/solat/lowcode-database/internal/infra/postgres"
+	infraredis "github.com/solat/lowcode-database/internal/infra/redis"
 	"github.com/solat/lowcode-database/internal/logger"
-	"github.com/solat/lowcode-database/internal/metrics"
-	"github.com/solat/lowcode-database/internal/redisclient"
+	"github.com/solat/lowcode-database/internal/platform/auth"
+	"github.com/solat/lowcode-database/internal/platform/authz"
+	"github.com/solat/lowcode-database/internal/platform/cache"
+	"github.com/solat/lowcode-database/internal/platform/metrics"
 	"github.com/solat/lowcode-database/internal/service"
-	"github.com/solat/lowcode-database/internal/sink"
+	"github.com/solat/lowcode-database/internal/telemetry"
+	"github.com/solat/lowcode-database/internal/version"
 )
 
 func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Tenant-Id, X-Tenant-ID, X-Requested-With")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Tenant-Id, X-Tenant-ID, X-Api-Key, Authorization, X-User-Sub, X-User-Roles, X-Requested-With")
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -59,16 +64,21 @@ func main() {
 	}
 
 	var (
-		httpAddr = flag.String("http-addr", cfg.HTTPAddr, "HTTP JSON API listen address")
+		httpAddr    = flag.String("http-addr", cfg.HTTPAddr, "HTTP JSON API listen address")
+		showVersion = flag.Bool("version", false, "print version and exit")
 	)
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(version.String())
+		return
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	appLog := logger.New(cfg.LogLevel)
 
-	rdb, err := redisclient.Open(ctx, cfg)
+	rdb, err := infraredis.Open(ctx, cfg)
 	if err != nil {
 		log.Fatalf("redis: %v", err)
 	}
@@ -79,30 +89,45 @@ func main() {
 		}
 	}
 
-	tenantMgr, err := db.NewTenantManager(ctx, cfg)
+	tenantMgr, err := postgres.NewTenantManager(ctx, cfg)
 	if err != nil {
 		log.Fatalf("init tenant manager: %v", err)
 	}
 
-	hooks := sink.NewDispatcher(tenantMgr)
+	eventBus := event.NewBus(tenantMgr, event.DeliveryConfigFrom(
+		cfg.EventRetryMax, cfg.EventRetryInitialMS, cfg.EventDLQEnabled, cfg.MetricsBackend,
+	))
 	metaCache := cache.New(cfg, rdb)
 	dsMetrics := metrics.New(cfg, rdb)
 	if cfg.MetricsBackend != "" && cfg.MetricsBackend != "noop" {
 		appLog.Info("metrics enabled", "backend", cfg.MetricsBackend, "window", cfg.MetricsWindowSize)
 	}
 
-	lcSvc := service.NewLowcodeService(tenantMgr, cfg.MaxRow, hooks,
+	var tel telemetry.Provider = telemetry.Noop{}
+	lcSvc := service.NewLowcodeService(tenantMgr, cfg.MaxRow, eventBus,
 		service.WithCache(metaCache, time.Duration(cfg.CacheTTLSeconds)*time.Second),
 		service.WithMetrics(dsMetrics),
 		service.WithLogger(appLog, time.Duration(cfg.SlowQueryThresholdMS)*time.Millisecond),
 		service.WithLogSQL(cfg.LogSQL),
+		service.WithTelemetry(tel),
 	)
 	if cfg.LogSQL {
 		appLog.Info("sql logging enabled", "env", "LOG_SQL")
 	}
 
+	authorizer, err := authz.NewFromConfig(cfg)
+	if err != nil {
+		log.Fatalf("authz: %v", err)
+	}
+	if cfg.AuthzDriver != "" && cfg.AuthzDriver != "noop" {
+		appLog.Info("authz enabled", "driver", cfg.AuthzDriver, "required", cfg.AuthzRequired)
+	}
+
 	mux := http.NewServeMux()
-	mux.Handle("/v1/", api.NewHandler(lcSvc))
+	apiHandler := api.NewHandler(lcSvc)
+	authValidator := auth.NewValidator(tenantMgr.MetaPool(), cfg)
+	authzMiddleware := authz.NewMiddleware(authorizer, cfg.AuthzRequired)
+	mux.Handle("/v1/", authValidator.Middleware(authzMiddleware.Handler(apiHandler)))
 	if cfg.MetricsBackend == "prometheus" {
 		mux.Handle("/metrics", promhttp.Handler())
 	}
@@ -118,7 +143,11 @@ func main() {
 	}
 
 	go func() {
-		appLog.Info("server starting", "addr", *httpAddr)
+		appLog.Info("server starting",
+			"addr", *httpAddr,
+			"version", version.Version,
+			"commit", version.Commit,
+		)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("HTTP server error: %v", err)
 		}

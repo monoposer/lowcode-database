@@ -4,8 +4,6 @@ import (
 	"context"
 
 	formulacompile "github.com/solat/lowcode-database/internal/formula"
-	"github.com/solat/lowcode-database/internal/service/catalog"
-	"github.com/solat/lowcode-database/internal/service/schema"
 	"github.com/solat/lowcode-database/internal/service/shared"
 )
 
@@ -32,7 +30,7 @@ func (s *Data) resolveDataSourceViewProjection(ctx context.Context, tableID stri
 			return nil, err
 		}
 		var normErr error
-		reqCols, normErr = schema.New(s.B).NormalizeColumnNames(ctx, tid, tableID, reqCols)
+		reqCols, normErr = s.meta().NormalizeColumnNames(ctx, tid, tableID, reqCols)
 		if normErr != nil {
 			return nil, normErr
 		}
@@ -40,7 +38,7 @@ func (s *Data) resolveDataSourceViewProjection(ctx context.Context, tableID stri
 
 	viewCols := dsCols
 	if len(viewCols) == 0 {
-		allCols, _, _, err := catalog.New(s.B).LoadAllColumnMeta(ctx, tableID)
+		allCols, _, _, err := s.meta().LoadAllColumnMeta(ctx, tableID)
 		if err != nil {
 			return nil, err
 		}

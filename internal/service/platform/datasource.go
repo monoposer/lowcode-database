@@ -5,85 +5,54 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
-
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-
-	"github.com/solat/lowcode-database/internal/apiv1"
-	"github.com/solat/lowcode-database/internal/service/schema"
+	"github.com/solat/lowcode-database/internal/apiv1/datasource"
 	"github.com/solat/lowcode-database/internal/service/shared"
+	"time"
 )
 
-// -------- DataSource (list / view definition) --------
-
-func (s *Platform) ResolveDataSourceRef(ctx context.Context, tableRef, dsRef string) (tableID, dsName string, err error) {
-	if dsRef == "" {
-		return "", "", fmt.Errorf("data source name is required")
+func scanDataSource(rows pgx.Rows) (*datasource.DataSource, error) {
+	var ds datasource.DataSource
+	var filter map[string]any
+	var sortJSON []byte
+	var colNames []string
+	var cfg map[string]any
+	var createdAt, updatedAt time.Time
+	if err := rows.Scan(&ds.TableId, &ds.Name, &ds.Label, &filter, &sortJSON, &colNames, &cfg, &createdAt, &updatedAt); err != nil {
+		return nil, err
 	}
-	if tableRef == "" {
-		return "", "", fmt.Errorf("table_id is required")
-	}
-	tableID, err = s.B.ResolveTableName(ctx, tableRef)
-	if err != nil {
-		return "", "", err
-	}
-	if err := shared.ValidateTableName(dsRef); err != nil {
-		return "", "", fmt.Errorf("data source name: %w", err)
-	}
-	return tableID, dsRef, nil
+	ds.Id = ds.Name
+	ds.Filter = filter
+	ds.Config = cfg
+	ds.ColumnIds = colNames
+	_ = json.Unmarshal(sortJSON, &ds.Sort)
+	ds.CreatedAt = createdAt
+	ds.UpdatedAt = updatedAt
+	return &ds, nil
 }
 
-func (s *Platform) CreateDataSource(ctx context.Context, req *apiv1.CreateDataSourceRequest) (*apiv1.CreateDataSourceResponse, error) {
-	tid, err := s.B.TenantID(ctx)
-	if err != nil {
+func scanDataSourceRow(row pgx.Row) (*datasource.DataSource, error) {
+	var ds datasource.DataSource
+	var filter map[string]any
+	var sortJSON []byte
+	var colNames []string
+	var cfg map[string]any
+	var createdAt, updatedAt time.Time
+	if err := row.Scan(&ds.TableId, &ds.Name, &ds.Label, &filter, &sortJSON, &colNames, &cfg, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
-	if req.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
-	if req.TableId == "" {
-		return nil, fmt.Errorf("table_id is required")
-	}
-	if err := shared.ValidateTableName(req.Name); err != nil {
-		return nil, err
-	}
-	tableName, err := s.B.ResolveTableName(ctx, req.TableId)
-	if err != nil {
-		return nil, err
-	}
-	colNames, err := schema.New(s.B).NormalizeColumnNames(ctx, tid, tableName, req.ColumnIds)
-	if err != nil {
-		return nil, err
-	}
-	filter := req.Filter
-	if filter == nil {
-		filter = map[string]any{}
-	}
-	sortJSON, _ := json.Marshal(req.Sort)
-	cfg := req.Config
-	if cfg == nil {
-		cfg = map[string]any{}
-	}
-
-	meta := s.B.Tenants.MetaPool()
-	row := meta.QueryRow(ctx, `
-		INSERT INTO lc_data_sources (tenant_id, table_id, name, label, filter, sort, column_names, config)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING table_id, name, label, filter, sort, column_names, config, created_at, updated_at`,
-		tid, tableName, req.Name, req.Label, filter, sortJSON, colNames, cfg)
-	ds, err := scanDataSourceRow(row)
-	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return nil, fmt.Errorf("data source %q already exists for this table", req.Name)
-		}
-		return nil, err
-	}
-	return &apiv1.CreateDataSourceResponse{DataSource: ds}, nil
+	ds.Id = ds.Name
+	ds.Filter = filter
+	ds.Config = cfg
+	ds.ColumnIds = colNames
+	_ = json.Unmarshal(sortJSON, &ds.Sort)
+	ds.CreatedAt = createdAt
+	ds.UpdatedAt = updatedAt
+	return &ds, nil
 }
 
-func (s *Platform) ListDataSources(ctx context.Context, req *apiv1.ListDataSourcesRequest) (*apiv1.ListDataSourcesResponse, error) {
+func (s *Platform) ListDataSources(ctx context.Context, req *datasource.ListDataSourcesRequest) (*datasource.ListDataSourcesResponse, error) {
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
@@ -111,7 +80,7 @@ func (s *Platform) ListDataSources(ctx context.Context, req *apiv1.ListDataSourc
 	}
 	defer rows.Close()
 
-	var resp apiv1.ListDataSourcesResponse
+	var resp datasource.ListDataSourcesResponse
 	for rows.Next() {
 		ds, err := scanDataSource(rows)
 		if err != nil {
@@ -122,7 +91,7 @@ func (s *Platform) ListDataSources(ctx context.Context, req *apiv1.ListDataSourc
 	return &resp, rows.Err()
 }
 
-func (s *Platform) GetDataSource(ctx context.Context, req *apiv1.GetDataSourceRequest) (*apiv1.GetDataSourceResponse, error) {
+func (s *Platform) GetDataSource(ctx context.Context, req *datasource.GetDataSourceRequest) (*datasource.GetDataSourceResponse, error) {
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
@@ -141,10 +110,63 @@ func (s *Platform) GetDataSource(ctx context.Context, req *apiv1.GetDataSourceRe
 		}
 		return nil, err
 	}
-	return &apiv1.GetDataSourceResponse{DataSource: ds}, nil
+	return &datasource.GetDataSourceResponse{DataSource: ds}, nil
 }
 
-func (s *Platform) UpdateDataSource(ctx context.Context, req *apiv1.UpdateDataSourceRequest) (*apiv1.UpdateDataSourceResponse, error) {
+func (s *Platform) ResolveDataSourceRef(ctx context.Context, tableRef, dsRef string) (tableID, dsName string, err error) {
+	return s.meta().ResolveDataSourceRef(ctx, tableRef, dsRef)
+}
+
+func (s *Platform) CreateDataSource(ctx context.Context, req *datasource.CreateDataSourceRequest) (*datasource.CreateDataSourceResponse, error) {
+	tid, err := s.B.TenantID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if req.Name == "" {
+		return nil, fmt.Errorf("name is required")
+	}
+	if req.TableId == "" {
+		return nil, fmt.Errorf("table_id is required")
+	}
+	if err := shared.ValidateTableName(req.Name); err != nil {
+		return nil, err
+	}
+	tableName, err := s.B.ResolveTableName(ctx, req.TableId)
+	if err != nil {
+		return nil, err
+	}
+	colNames, err := s.meta().NormalizeColumnNames(ctx, tid, tableName, req.ColumnIds)
+	if err != nil {
+		return nil, err
+	}
+	filter := req.Filter
+	if filter == nil {
+		filter = map[string]any{}
+	}
+	sortJSON, _ := json.Marshal(req.Sort)
+	cfg := req.Config
+	if cfg == nil {
+		cfg = map[string]any{}
+	}
+
+	meta := s.B.Tenants.MetaPool()
+	row := meta.QueryRow(ctx, `
+		INSERT INTO lc_data_sources (tenant_id, table_id, name, label, filter, sort, column_names, config)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING table_id, name, label, filter, sort, column_names, config, created_at, updated_at`,
+		tid, tableName, req.Name, req.Label, filter, sortJSON, colNames, cfg)
+	ds, err := scanDataSourceRow(row)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return nil, fmt.Errorf("data source %q already exists for this table", req.Name)
+		}
+		return nil, err
+	}
+	return &datasource.CreateDataSourceResponse{DataSource: ds}, nil
+}
+
+func (s *Platform) UpdateDataSource(ctx context.Context, req *datasource.UpdateDataSourceRequest) (*datasource.UpdateDataSourceResponse, error) {
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
@@ -159,7 +181,7 @@ func (s *Platform) UpdateDataSource(ctx context.Context, req *apiv1.UpdateDataSo
 	}
 	var colArg any
 	if req.ColumnIds != nil {
-		names, err := schema.New(s.B).NormalizeColumnNames(ctx, tid, tableID, req.ColumnIds)
+		names, err := s.meta().NormalizeColumnNames(ctx, tid, tableID, req.ColumnIds)
 		if err != nil {
 			return nil, err
 		}
@@ -181,10 +203,10 @@ func (s *Platform) UpdateDataSource(ctx context.Context, req *apiv1.UpdateDataSo
 		return nil, err
 	}
 	s.B.InvalidateDataSourceCache(ctx, ds.TableId, ds.Name)
-	return &apiv1.UpdateDataSourceResponse{DataSource: ds}, nil
+	return &datasource.UpdateDataSourceResponse{DataSource: ds}, nil
 }
 
-func (s *Platform) DeleteDataSource(ctx context.Context, req *apiv1.DeleteDataSourceRequest) (*apiv1.DeleteDataSourceResponse, error) {
+func (s *Platform) DeleteDataSource(ctx context.Context, req *datasource.DeleteDataSourceRequest) (*datasource.DeleteDataSourceResponse, error) {
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
@@ -199,45 +221,5 @@ func (s *Platform) DeleteDataSource(ctx context.Context, req *apiv1.DeleteDataSo
 	if err == nil {
 		s.B.InvalidateDataSourceCache(ctx, tableID, dsName)
 	}
-	return &apiv1.DeleteDataSourceResponse{}, err
-}
-
-func scanDataSource(rows pgx.Rows) (*apiv1.DataSource, error) {
-	var ds apiv1.DataSource
-	var filter map[string]any
-	var sortJSON []byte
-	var colNames []string
-	var cfg map[string]any
-	var createdAt, updatedAt time.Time
-	if err := rows.Scan(&ds.TableId, &ds.Name, &ds.Label, &filter, &sortJSON, &colNames, &cfg, &createdAt, &updatedAt); err != nil {
-		return nil, err
-	}
-	ds.Id = ds.Name
-	ds.Filter = filter
-	ds.Config = cfg
-	ds.ColumnIds = colNames
-	_ = json.Unmarshal(sortJSON, &ds.Sort)
-	ds.CreatedAt = createdAt
-	ds.UpdatedAt = updatedAt
-	return &ds, nil
-}
-
-func scanDataSourceRow(row pgx.Row) (*apiv1.DataSource, error) {
-	var ds apiv1.DataSource
-	var filter map[string]any
-	var sortJSON []byte
-	var colNames []string
-	var cfg map[string]any
-	var createdAt, updatedAt time.Time
-	if err := row.Scan(&ds.TableId, &ds.Name, &ds.Label, &filter, &sortJSON, &colNames, &cfg, &createdAt, &updatedAt); err != nil {
-		return nil, err
-	}
-	ds.Id = ds.Name
-	ds.Filter = filter
-	ds.Config = cfg
-	ds.ColumnIds = colNames
-	_ = json.Unmarshal(sortJSON, &ds.Sort)
-	ds.CreatedAt = createdAt
-	ds.UpdatedAt = updatedAt
-	return &ds, nil
+	return &datasource.DeleteDataSourceResponse{}, err
 }

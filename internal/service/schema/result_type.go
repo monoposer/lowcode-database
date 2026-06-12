@@ -3,16 +3,14 @@ package schema
 import (
 	"context"
 	"fmt"
-
 	"github.com/jackc/pgx/v5"
-
-	"github.com/solat/lowcode-database/internal/apiv1"
+	apiv1schema "github.com/solat/lowcode-database/internal/apiv1/schema"
 	"github.com/solat/lowcode-database/internal/columntype"
 	"github.com/solat/lowcode-database/internal/service/shared"
 )
 
 // EnsureColumnResultType fills config.result_type_id and Column.ResultTypeId for API responses.
-func (s *Schema) EnsureColumnResultType(ctx context.Context, tenantID, tableKey string, c *apiv1.Column) error {
+func (s *Schema) EnsureColumnResultType(ctx context.Context, tenantID, tableKey string, c *apiv1schema.Column) error {
 	if c == nil {
 		return nil
 	}
@@ -101,6 +99,15 @@ func (s *Schema) resolveColumnResultTypeID(
 	}
 }
 
+func (s *Schema) loadColumnMeta(ctx context.Context, tenantID, tableKey, colName string) (typeID string, cfg map[string]any, err error) {
+	err = s.B.Tenants.MetaPool().QueryRow(ctx, `
+		SELECT type_id, config FROM lc_columns
+		WHERE tenant_id = $1 AND table_id = $2 AND name = $3`,
+		tenantID, tableKey, colName,
+	).Scan(&typeID, &cfg)
+	return typeID, cfg, err
+}
+
 func (s *Schema) lookupResultTypeID(ctx context.Context, tenantID, hostTable string, cfg map[string]any, visiting map[string]bool) (string, error) {
 	relName := shared.CfgString(cfg, "relation_column_id")
 	fieldName := shared.CfgString(cfg, "target_column_id")
@@ -141,15 +148,6 @@ func (s *Schema) lookupResultTypeID(ctx context.Context, tenantID, hostTable str
 		return shared.ScalarResultTypeToArray(targetRT), nil
 	}
 	return targetRT, nil
-}
-
-func (s *Schema) loadColumnMeta(ctx context.Context, tenantID, tableKey, colName string) (typeID string, cfg map[string]any, err error) {
-	err = s.B.Tenants.MetaPool().QueryRow(ctx, `
-		SELECT type_id, config FROM lc_columns
-		WHERE tenant_id = $1 AND table_id = $2 AND name = $3`,
-		tenantID, tableKey, colName,
-	).Scan(&typeID, &cfg)
-	return typeID, cfg, err
 }
 
 func (s *Schema) rollupResultTypeID(ctx context.Context, tenantID, hostTable string, cfg map[string]any, visiting map[string]bool) (string, error) {

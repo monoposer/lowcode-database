@@ -1,20 +1,14 @@
 package schema
 
 import (
-	"github.com/solat/lowcode-database/internal/service/shared"
 	"context"
 	"fmt"
-	"strings"
-
 	"github.com/jackc/pgx/v5"
-
-	"github.com/solat/lowcode-database/internal/apiv1"
+	apiv1schema "github.com/solat/lowcode-database/internal/apiv1/schema"
 	"github.com/solat/lowcode-database/internal/columntype"
+	"github.com/solat/lowcode-database/internal/service/shared"
+	"strings"
 )
-
-type idPgQuerier interface {
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-}
 
 func resolveTableIDTypeID(idType string) (string, error) {
 	if idType == "" {
@@ -47,6 +41,14 @@ func buildTableIDColumnDDL(typeID string) (string, error) {
 	default:
 		return fmt.Sprintf("id %s PRIMARY KEY", pgType), nil
 	}
+}
+
+func buildTableSystemColumnsDDL(typeID string) (string, error) {
+	idPart, err := buildTableIDColumnDDL(typeID)
+	if err != nil {
+		return "", err
+	}
+	return idPart + ", updated_at timestamptz NOT NULL DEFAULT now()", nil
 }
 
 func pgTypeToLogicalID(pgType string) string {
@@ -87,6 +89,10 @@ func isIntegerIDPgType(pgType string) bool {
 	}
 }
 
+type idPgQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 func PageTokenIDCompare(baseAlias, idPgType string, argIdx int) string {
 	if isIntegerIDPgType(idPgType) {
 		return fmt.Sprintf("%s.id > $%d::bigint", baseAlias, argIdx)
@@ -122,7 +128,7 @@ func loadPhysicalIDPgType(ctx context.Context, db idPgQuerier, schemaName, table
 	return pgType, nil
 }
 
-func (s *Schema) fillTableIDType(ctx context.Context, t *apiv1.Table) error {
+func (s *Schema) fillTableIDType(ctx context.Context, t *apiv1schema.Table) error {
 	if t == nil || t.SchemaName == "" || t.Name == "" {
 		return nil
 	}
@@ -134,7 +140,7 @@ func (s *Schema) fillTableIDType(ctx context.Context, t *apiv1.Table) error {
 	return nil
 }
 
-func (s *Schema) fillTableIDTypes(ctx context.Context, tables []*apiv1.Table) error {
+func (s *Schema) fillTableIDTypes(ctx context.Context, tables []*apiv1schema.Table) error {
 	if len(tables) == 0 {
 		return nil
 	}
@@ -142,7 +148,7 @@ func (s *Schema) fillTableIDTypes(ctx context.Context, tables []*apiv1.Table) er
 	if err != nil {
 		return err
 	}
-	bySchema := map[string][]*apiv1.Table{}
+	bySchema := map[string][]*apiv1schema.Table{}
 	for _, t := range tables {
 		if t == nil {
 			continue

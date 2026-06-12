@@ -5,6 +5,9 @@ import (
 	"strings"
 )
 
+// -------- Classify --------
+// -------- Classify --------
+
 const ConfigKeyResultTypeID = "result_type_id"
 
 // ConfigResultTypeID reads persisted value-type metadata from column config.
@@ -63,6 +66,8 @@ func ValidateResultTypeID(id string) error {
 		return fmt.Errorf("unknown result_type_id %q", id)
 	}
 }
+
+// -------- Infer --------
 
 // InferFormulaResultTypeId guesses formula return type from expression shape.
 func InferFormulaResultTypeId(expr string) string {

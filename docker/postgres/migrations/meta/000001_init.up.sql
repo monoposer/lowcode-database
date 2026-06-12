@@ -6,11 +6,14 @@
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 CREATE TABLE IF NOT EXISTS lc_tenants (
-    id           TEXT PRIMARY KEY,
-    display_name TEXT NOT NULL DEFAULT '',
-    data_dsn     TEXT NOT NULL,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    id             TEXT PRIMARY KEY,
+    display_name   TEXT NOT NULL DEFAULT '',
+    data_dsn       TEXT NOT NULL,
+    read_dsn       TEXT NOT NULL DEFAULT '',
+    read_only      BOOLEAN NOT NULL DEFAULT FALSE,
+    pool_max_conns INT NOT NULL DEFAULT 0,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS lc_tables (
@@ -40,11 +43,13 @@ CREATE TABLE IF NOT EXISTS lc_columns (
     FOREIGN KEY (tenant_id, table_id) REFERENCES lc_tables(tenant_id, name) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS lc_webhooks (
+CREATE TABLE IF NOT EXISTS lc_event_sinks (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id    TEXT NOT NULL DEFAULT 'default',
     name         TEXT NOT NULL,
-    target_url   TEXT NOT NULL,
+    sink         TEXT NOT NULL DEFAULT 'webhook',
+    sink_config  JSONB NOT NULL DEFAULT '{}'::jsonb,
+    target_url   TEXT,
     table_filter TEXT NOT NULL DEFAULT '',
     events       JSONB NOT NULL DEFAULT '[]'::jsonb,
     headers      JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -54,6 +59,21 @@ CREATE TABLE IF NOT EXISTS lc_webhooks (
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (tenant_id, name)
 );
+
+CREATE TABLE IF NOT EXISTS lc_api_keys (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id      TEXT NOT NULL DEFAULT 'default',
+    name           TEXT NOT NULL,
+    key_hash       TEXT NOT NULL,
+    key_prefix     TEXT NOT NULL DEFAULT '',
+    enabled        BOOLEAN NOT NULL DEFAULT TRUE,
+    rate_limit_rps INT NOT NULL DEFAULT 0,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (tenant_id, name)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS lc_api_keys_key_hash_idx ON lc_api_keys (key_hash);
 
 CREATE TABLE IF NOT EXISTS lc_relations (
     tenant_id         TEXT NOT NULL DEFAULT 'default',
@@ -85,3 +105,34 @@ CREATE TABLE IF NOT EXISTS lc_data_sources (
     PRIMARY KEY (tenant_id, table_id, name),
     FOREIGN KEY (tenant_id, table_id) REFERENCES lc_tables(tenant_id, name) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS lc_event_delivery_log (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id   TEXT NOT NULL DEFAULT 'default',
+    sink_id     UUID,
+    event_type  TEXT NOT NULL,
+    table_id    TEXT NOT NULL DEFAULT '',
+    target_url  TEXT NOT NULL DEFAULT '',
+    attempts    INT NOT NULL DEFAULT 0,
+    status      TEXT NOT NULL,
+    last_error  TEXT NOT NULL DEFAULT '',
+    payload     JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS lc_event_delivery_log_tenant_created_idx
+    ON lc_event_delivery_log (tenant_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS lc_schema_audit (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id     TEXT NOT NULL DEFAULT 'default',
+    action        TEXT NOT NULL,
+    resource_type TEXT NOT NULL DEFAULT '',
+    resource_id   TEXT NOT NULL DEFAULT '',
+    table_id      TEXT NOT NULL DEFAULT '',
+    detail        JSONB NOT NULL DEFAULT '{}'::jsonb,
+    occurred_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS lc_schema_audit_tenant_occurred_idx
+    ON lc_schema_audit (tenant_id, occurred_at DESC);

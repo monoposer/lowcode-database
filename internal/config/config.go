@@ -39,6 +39,32 @@ type Config struct {
 	LogLevel             string
 	// LogSQL logs row-query SQL and bind args at info level (for local debugging).
 	LogSQL bool
+
+	// APIKeyRequired rejects /v1/* without a valid X-Api-Key when true.
+	APIKeyRequired bool
+	// RateLimitRPS default per API key (0 = 100).
+	RateLimitRPS int
+
+	// AuthzDriver: noop | file | http (empty = noop).
+	AuthzDriver string
+	// AuthzFile path to JSON RBAC grants when AuthzDriver=file.
+	AuthzFile string
+	// AuthzHTTPURL external authorize endpoint when AuthzDriver=http.
+	AuthzHTTPURL string
+	// AuthzRequired rejects /v1/* without X-User-Sub or X-User-Roles when true.
+	AuthzRequired bool
+
+	// Postgres pool defaults (meta + tenant data pools).
+	PGMaxConns           int
+	PGMinConns           int
+	PGMaxConnLifetimeMin int
+	MaxTenantDataPools   int
+	DefaultTenantPoolMax int
+
+	// Event delivery retry + dead-letter log.
+	EventRetryMax       int
+	EventRetryInitialMS int
+	EventDLQEnabled     bool
 }
 
 // Load reads configuration from environment variables, optionally populating
@@ -62,6 +88,20 @@ func Load() (*Config, error) {
 		SlowQueryThresholdMS: getenvInt("SLOW_QUERY_THRESHOLD_MS", 500),
 		LogLevel:             getenvDefault("LOG_LEVEL", "info"),
 		LogSQL:               getenvBool("LOG_SQL", false),
+		APIKeyRequired:       getenvBool("API_KEY_REQUIRED", false),
+		RateLimitRPS:         getenvInt("RATE_LIMIT_RPS", 100),
+		AuthzDriver:          os.Getenv("AUTHZ_DRIVER"),
+		AuthzFile:            os.Getenv("AUTHZ_FILE"),
+		AuthzHTTPURL:         os.Getenv("AUTHZ_HTTP_URL"),
+		AuthzRequired:        getenvBool("AUTHZ_REQUIRED", false),
+		PGMaxConns:           getenvInt("PG_MAX_CONNS", 10),
+		PGMinConns:           getenvInt("PG_MIN_CONNS", 1),
+		PGMaxConnLifetimeMin: getenvInt("PG_MAX_CONN_LIFETIME_MIN", 60),
+		MaxTenantDataPools:   getenvInt("MAX_TENANT_DATA_POOLS", 50),
+		DefaultTenantPoolMax: getenvInt("DEFAULT_TENANT_POOL_MAX_CONNS", 0),
+		EventRetryMax:        getenvInt("EVENT_RETRY_MAX", 3),
+		EventRetryInitialMS:  getenvInt("EVENT_RETRY_INITIAL_MS", 500),
+		EventDLQEnabled:      getenvBool("EVENT_DLQ_ENABLED", true),
 	}
 
 	if cfg.MetaDatabaseURL == "" {
@@ -83,27 +123,6 @@ func firstNonEmpty(vals ...string) string {
 func getenvDefault(key, def string) string {
 	if v, ok := os.LookupEnv(key); ok && v != "" {
 		return v
-	}
-	return def
-}
-
-func getenvInt(key string, def int) int {
-	if v, ok := os.LookupEnv(key); ok && v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-			return n
-		}
-	}
-	return def
-}
-
-func getenvBool(key string, def bool) bool {
-	if v, ok := os.LookupEnv(key); ok && v != "" {
-		switch strings.ToLower(strings.TrimSpace(v)) {
-		case "1", "true", "yes", "on":
-			return true
-		case "0", "false", "no", "off":
-			return false
-		}
 	}
 	return def
 }
@@ -132,4 +151,25 @@ func loadDotEnvIfPresent() {
 		}
 		_ = os.Setenv(key, val)
 	}
+}
+
+func getenvInt(key string, def int) int {
+	if v, ok := os.LookupEnv(key); ok && v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			return n
+		}
+	}
+	return def
+}
+
+func getenvBool(key string, def bool) bool {
+	if v, ok := os.LookupEnv(key); ok && v != "" {
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "1", "true", "yes", "on":
+			return true
+		case "0", "false", "no", "off":
+			return false
+		}
+	}
+	return def
 }

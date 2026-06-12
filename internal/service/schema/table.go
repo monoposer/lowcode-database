@@ -1,20 +1,17 @@
 package schema
 
 import (
-	"github.com/solat/lowcode-database/internal/service/shared"
 	"context"
 	"fmt"
-	"time"
-
 	"github.com/jackc/pgx/v5"
-
-	"github.com/solat/lowcode-database/internal/apiv1"
-	"github.com/solat/lowcode-database/internal/service/catalog"
+	"github.com/jackc/pgx/v5/pgxpool"
+	apiv1schema "github.com/solat/lowcode-database/internal/apiv1/schema"
+	"github.com/solat/lowcode-database/internal/event"
+	"github.com/solat/lowcode-database/internal/service/shared"
+	"time"
 )
 
-// -------- Table --------
-
-func (s *Schema) CreateTable(ctx context.Context, req *apiv1.CreateTableRequest) (*apiv1.CreateTableResponse, error) {
+func (s *Schema) CreateTable(ctx context.Context, req *apiv1schema.CreateTableRequest) (*apiv1schema.CreateTableResponse, error) {
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
@@ -35,7 +32,7 @@ func (s *Schema) CreateTable(ctx context.Context, req *apiv1.CreateTableRequest)
 	if err != nil {
 		return nil, err
 	}
-	idDDL, err := buildTableIDColumnDDL(idType)
+	idDDL, err := buildTableSystemColumnsDDL(idType)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +67,7 @@ func (s *Schema) CreateTable(ctx context.Context, req *apiv1.CreateTableRequest)
 	`
 	row := meta.QueryRow(ctx, ins, tid, req.Name, req.Label, schemaName)
 
-	var t apiv1.Table
+	var t apiv1schema.Table
 	var createdAt, updatedAt time.Time
 	if err := row.Scan(&t.Name, &t.Label, &t.SchemaName, &createdAt, &updatedAt); err != nil {
 		dropSQL := fmt.Sprintf(`DROP TABLE IF EXISTS %s.%s`,
@@ -85,44 +82,49 @@ func (s *Schema) CreateTable(ctx context.Context, req *apiv1.CreateTableRequest)
 	if err := s.fillTableIDType(ctx, &t); err != nil {
 		return nil, err
 	}
+	if err := s.registerSystemColumns(ctx, meta, tid, req.Name, idType); err != nil {
+		return nil, err
+	}
+	s.B.EmitEvent(ctx, event.MetadataTableCreated, t.Name, map[string]any{
+		"table": tableToMap(&t),
+	})
 
-	return &apiv1.CreateTableResponse{Table: &t}, nil
+	return &apiv1schema.CreateTableResponse{Table: &t}, nil
 }
 
-func (s *Schema) DeleteTable(ctx context.Context, req *apiv1.DeleteTableRequest) (*apiv1.DeleteTableResponse, error) {
-	tid, err := s.B.TenantID(ctx)
-	if err != nil {
-		return nil, err
+func (s *Schema) registerSystemColumns(ctx context.Context, meta *pgxpool.Pool, tid, tableName, idType string) error {
+	const ins = `
+		INSERT INTO lc_columns (tenant_id, table_id, name, label, type_id, is_nullable, position, config)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, '{"system":true}'::jsonb)
+	`
+	if _, err := meta.Exec(ctx, ins, tid, tableName, "id", "ID", idType, false, 0); err != nil {
+		return err
 	}
-	meta := s.B.Tenants.MetaPool()
-	data, err := s.B.Tenants.DataPool(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	var schemaName string
-	if err := meta.QueryRow(ctx, `SELECT schema_name FROM lc_tables WHERE name = $1 AND tenant_id = $2`, req.Id, tid).
-		Scan(&schemaName); err != nil {
-		if err == pgx.ErrNoRows {
-			return &apiv1.DeleteTableResponse{}, nil
-		}
-		return nil, err
-	}
-
-	dropSQL := fmt.Sprintf(`DROP TABLE IF EXISTS %s.%s`,
-		pgx.Identifier{schemaName}.Sanitize(), pgx.Identifier{req.Id}.Sanitize())
-	if _, err := data.Exec(ctx, dropSQL); err != nil {
-		return nil, err
-	}
-
-	if _, err := meta.Exec(ctx, `DELETE FROM lc_tables WHERE name = $1 AND tenant_id = $2`, req.Id, tid); err != nil {
-		return nil, err
-	}
-	s.B.InvalidateTableMetaCache(ctx, req.Id)
-	return &apiv1.DeleteTableResponse{}, nil
+	_, err := meta.Exec(ctx, ins, tid, tableName, "updated_at", "Updated At", "timestamptz", false, 1)
+	return err
 }
 
-func (s *Schema) ListTables(ctx context.Context, _ *apiv1.ListTablesRequest) (*apiv1.ListTablesResponse, error) {
+func tableToMap(t *apiv1schema.Table) map[string]any {
+	if t == nil {
+		return nil
+	}
+	return map[string]any{
+		"id": t.Id, "name": t.Name, "label": t.Label,
+		"schemaName": t.SchemaName, "idType": t.IdType,
+	}
+}
+
+func columnToMap(c *apiv1schema.Column) map[string]any {
+	if c == nil {
+		return nil
+	}
+	return map[string]any{
+		"id": c.Id, "tableId": c.TableId, "name": c.Name,
+		"typeId": c.TypeId, "label": c.Label,
+	}
+}
+
+func (s *Schema) ListTables(ctx context.Context, _ *apiv1schema.ListTablesRequest) (*apiv1schema.ListTablesResponse, error) {
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
@@ -135,9 +137,9 @@ func (s *Schema) ListTables(ctx context.Context, _ *apiv1.ListTablesRequest) (*a
 	}
 	defer rows.Close()
 
-	var res apiv1.ListTablesResponse
+	var res apiv1schema.ListTablesResponse
 	for rows.Next() {
-		var t apiv1.Table
+		var t apiv1schema.Table
 		var createdAt, updatedAt time.Time
 		if err := rows.Scan(&t.Name, &t.Label, &t.SchemaName, &createdAt, &updatedAt); err != nil {
 			return nil, err
@@ -156,8 +158,115 @@ func (s *Schema) ListTables(ctx context.Context, _ *apiv1.ListTablesRequest) (*a
 	return &res, nil
 }
 
-// RenameTable 重命名表（meta name 与 PG 物理表名同步变更）。
-func (s *Schema) RenameTable(ctx context.Context, req *apiv1.RenameTableRequest) (*apiv1.RenameTableResponse, error) {
+func (s *Schema) GetTableSchema(ctx context.Context, req *apiv1schema.GetTableSchemaRequest) (*apiv1schema.GetTableSchemaResponse, error) {
+	tid, err := s.B.TenantID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	meta := s.B.Tenants.MetaPool()
+	if req.TableId == "" {
+		return nil, fmt.Errorf("table_id is required")
+	}
+
+	var tbl apiv1schema.Table
+	row := meta.QueryRow(ctx, `
+		SELECT name, label, schema_name, created_at, updated_at
+		FROM lc_tables
+		WHERE name = $1 AND tenant_id = $2
+	`, req.TableId, tid)
+	var tblCreatedAt, tblUpdatedAt time.Time
+	if err := row.Scan(&tbl.Name, &tbl.Label, &tbl.SchemaName, &tblCreatedAt, &tblUpdatedAt); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("table not found")
+		}
+		return nil, err
+	}
+	tbl.Id = tbl.Name
+	tbl.CreatedAt = tblCreatedAt
+	tbl.UpdatedAt = tblUpdatedAt
+	if err := s.fillTableIDType(ctx, &tbl); err != nil {
+		return nil, err
+	}
+
+	colRows, err := meta.Query(ctx, `
+		SELECT id, table_id, name, label, type_id, is_nullable, position, config, created_at, updated_at
+		FROM lc_columns
+		WHERE table_id = $1 AND tenant_id = $2
+		ORDER BY position
+	`, req.TableId, tid)
+	if err != nil {
+		return nil, err
+	}
+	defer colRows.Close()
+
+	var columns []*apiv1schema.Column
+	for colRows.Next() {
+		var c apiv1schema.Column
+		var cfg map[string]any
+		var createdAt, updatedAt time.Time
+		if err := colRows.Scan(&c.Id, &c.TableId, &c.Name, &c.Label, &c.TypeId, &c.IsNullable, &c.Position, &cfg, &createdAt, &updatedAt); err != nil {
+			return nil, err
+		}
+		c.CreatedAt = createdAt
+		c.UpdatedAt = updatedAt
+		if cfg != nil {
+			c.Config = cfg
+		}
+		PublicColumn(&c)
+		columns = append(columns, &c)
+	}
+	if err := colRows.Err(); err != nil {
+		return nil, err
+	}
+
+	indexes, err := listTableIndexesViaCatalog(s, ctx, req.TableId, tbl.SchemaName, tbl.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &apiv1schema.GetTableSchemaResponse{
+		Table:   &tbl,
+		Columns: columns,
+		Indexes: indexes,
+	}, nil
+}
+
+func (s *Schema) DeleteTable(ctx context.Context, req *apiv1schema.DeleteTableRequest) (*apiv1schema.DeleteTableResponse, error) {
+	tid, err := s.B.TenantID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	meta := s.B.Tenants.MetaPool()
+	data, err := s.B.Tenants.DataPool(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var schemaName string
+	if err := meta.QueryRow(ctx, `SELECT schema_name FROM lc_tables WHERE name = $1 AND tenant_id = $2`, req.Id, tid).
+		Scan(&schemaName); err != nil {
+		if err == pgx.ErrNoRows {
+			return &apiv1schema.DeleteTableResponse{}, nil
+		}
+		return nil, err
+	}
+
+	dropSQL := fmt.Sprintf(`DROP TABLE IF EXISTS %s.%s`,
+		pgx.Identifier{schemaName}.Sanitize(), pgx.Identifier{req.Id}.Sanitize())
+	if _, err := data.Exec(ctx, dropSQL); err != nil {
+		return nil, err
+	}
+
+	if _, err := meta.Exec(ctx, `DELETE FROM lc_tables WHERE name = $1 AND tenant_id = $2`, req.Id, tid); err != nil {
+		return nil, err
+	}
+	s.B.InvalidateTableMetaCache(ctx, req.Id)
+	s.B.EmitEvent(ctx, event.MetadataTableDeleted, req.Id, map[string]any{"tableId": req.Id})
+	return &apiv1schema.DeleteTableResponse{}, nil
+}
+
+// RenameTable renames a table (meta logical name and PG physical table stay in sync).
+func (s *Schema) RenameTable(ctx context.Context, req *apiv1schema.RenameTableRequest) (*apiv1schema.RenameTableResponse, error) {
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
@@ -224,70 +333,19 @@ func (s *Schema) RenameTable(ctx context.Context, req *apiv1.RenameTableRequest)
 	}
 	defer tx.Rollback(ctx)
 
-	if _, err := tx.Exec(ctx, `
-		ALTER TABLE lc_columns DROP CONSTRAINT IF EXISTS lc_columns_tenant_table_fk;
-		ALTER TABLE lc_relations DROP CONSTRAINT IF EXISTS lc_relations_tenant_id_source_table_id_fkey;
-		ALTER TABLE lc_relations DROP CONSTRAINT IF EXISTS lc_relations_tenant_id_target_table_id_fkey;
-		ALTER TABLE lc_data_sources DROP CONSTRAINT IF EXISTS lc_data_sources_tenant_id_table_id_fkey;
-	`); err != nil {
+	if err := dropTableRenameFKConstraints(ctx, tx); err != nil {
 		return nil, err
 	}
-
-	if _, err := tx.Exec(ctx, `
-		UPDATE lc_tables SET name = $1, updated_at = now() WHERE name = $2 AND tenant_id = $3
-	`, newName, oldName, tid); err != nil {
+	if err := updateTableRenameMetaRefs(ctx, tx, tid, oldName, newName); err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE lc_columns SET table_id = $1 WHERE table_id = $2 AND tenant_id = $3`, newName, oldName, tid); err != nil {
-		return nil, err
-	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE lc_columns
-		SET config = jsonb_set(config, '{target_table_id}', to_jsonb($1::text), true),
-		    updated_at = now()
-		WHERE config->>'target_table_id' = $2 AND tenant_id = $3
-	`, newName, oldName, tid); err != nil {
-		return nil, err
-	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE lc_relations SET source_table_id = $1, updated_at = now()
-		WHERE source_table_id = $2 AND tenant_id = $3
-	`, newName, oldName, tid); err != nil {
-		return nil, err
-	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE lc_relations SET target_table_id = $1, updated_at = now()
-		WHERE target_table_id = $2 AND tenant_id = $3
-	`, newName, oldName, tid); err != nil {
-		return nil, err
-	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE lc_data_sources SET table_id = $1, updated_at = now()
-		WHERE table_id = $2 AND tenant_id = $3
-	`, newName, oldName, tid); err != nil {
-		return nil, err
-	}
-
-	if _, err := tx.Exec(ctx, `
-		ALTER TABLE lc_columns
-		  ADD CONSTRAINT lc_columns_tenant_table_fk
-		  FOREIGN KEY (tenant_id, table_id) REFERENCES lc_tables(tenant_id, name) ON DELETE CASCADE;
-		ALTER TABLE lc_relations
-		  ADD CONSTRAINT lc_relations_tenant_id_source_table_id_fkey
-		  FOREIGN KEY (tenant_id, source_table_id) REFERENCES lc_tables(tenant_id, name) ON DELETE CASCADE;
-		ALTER TABLE lc_relations
-		  ADD CONSTRAINT lc_relations_tenant_id_target_table_id_fkey
-		  FOREIGN KEY (tenant_id, target_table_id) REFERENCES lc_tables(tenant_id, name) ON DELETE CASCADE;
-		ALTER TABLE lc_data_sources
-		  ADD CONSTRAINT lc_data_sources_tenant_id_table_id_fkey
-		  FOREIGN KEY (tenant_id, table_id) REFERENCES lc_tables(tenant_id, name) ON DELETE CASCADE;
-	`); err != nil {
+	if err := restoreTableRenameFKConstraints(ctx, tx); err != nil {
 		return nil, err
 	}
 
 	const sel = `SELECT name, label, schema_name, created_at, updated_at FROM lc_tables WHERE name = $1 AND tenant_id = $2`
 	row := tx.QueryRow(ctx, sel, newName, tid)
-	var t apiv1.Table
+	var t apiv1schema.Table
 	var createdAt, updatedAt time.Time
 	if err := row.Scan(&t.Name, &t.Label, &t.SchemaName, &createdAt, &updatedAt); err != nil {
 		return nil, err
@@ -305,82 +363,76 @@ func (s *Schema) RenameTable(ctx context.Context, req *apiv1.RenameTableRequest)
 	if err := s.fillTableIDType(ctx, &t); err != nil {
 		return nil, err
 	}
-	return &apiv1.RenameTableResponse{Table: &t}, nil
+	s.B.EmitEvent(ctx, event.MetadataTableRenamed, newName, map[string]any{
+		"oldName": oldName,
+		"newName": newName,
+		"table":   tableToMap(&t),
+	})
+	return &apiv1schema.RenameTableResponse{Table: &t}, nil
 }
 
-func (s *Schema) GetTableSchema(ctx context.Context, req *apiv1.GetTableSchemaRequest) (*apiv1.GetTableSchemaResponse, error) {
-	tid, err := s.B.TenantID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	meta := s.B.Tenants.MetaPool()
-	if req.TableId == "" {
-		return nil, fmt.Errorf("table_id is required")
-	}
+func dropTableRenameFKConstraints(ctx context.Context, tx pgx.Tx) error {
+	_, err := tx.Exec(ctx, `
+		ALTER TABLE lc_columns DROP CONSTRAINT IF EXISTS lc_columns_tenant_table_fk;
+		ALTER TABLE lc_relations DROP CONSTRAINT IF EXISTS lc_relations_tenant_id_source_table_id_fkey;
+		ALTER TABLE lc_relations DROP CONSTRAINT IF EXISTS lc_relations_tenant_id_target_table_id_fkey;
+		ALTER TABLE lc_data_sources DROP CONSTRAINT IF EXISTS lc_data_sources_tenant_id_table_id_fkey;
+	`)
+	return err
+}
 
-	var tbl apiv1.Table
-	row := meta.QueryRow(ctx, `
-		SELECT name, label, schema_name, created_at, updated_at
-		FROM lc_tables
-		WHERE name = $1 AND tenant_id = $2
-	`, req.TableId, tid)
-	var tblCreatedAt, tblUpdatedAt time.Time
-	if err := row.Scan(&tbl.Name, &tbl.Label, &tbl.SchemaName, &tblCreatedAt, &tblUpdatedAt); err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("table not found")
-		}
-		return nil, err
+func updateTableRenameMetaRefs(ctx context.Context, tx pgx.Tx, tid, oldName, newName string) error {
+	if _, err := tx.Exec(ctx, `
+		UPDATE lc_tables SET name = $1, updated_at = now() WHERE name = $2 AND tenant_id = $3
+	`, newName, oldName, tid); err != nil {
+		return err
 	}
-	tbl.Id = tbl.Name
-	tbl.CreatedAt = tblCreatedAt
-	tbl.UpdatedAt = tblUpdatedAt
-	if err := s.fillTableIDType(ctx, &tbl); err != nil {
-		return nil, err
+	if _, err := tx.Exec(ctx, `UPDATE lc_columns SET table_id = $1 WHERE table_id = $2 AND tenant_id = $3`, newName, oldName, tid); err != nil {
+		return err
 	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE lc_columns
+		SET config = jsonb_set(config, '{target_table_id}', to_jsonb($1::text), true),
+		    updated_at = now()
+		WHERE config->>'target_table_id' = $2 AND tenant_id = $3
+	`, newName, oldName, tid); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE lc_relations SET source_table_id = $1, updated_at = now()
+		WHERE source_table_id = $2 AND tenant_id = $3
+	`, newName, oldName, tid); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE lc_relations SET target_table_id = $1, updated_at = now()
+		WHERE target_table_id = $2 AND tenant_id = $3
+	`, newName, oldName, tid); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE lc_data_sources SET table_id = $1, updated_at = now()
+		WHERE table_id = $2 AND tenant_id = $3
+	`, newName, oldName, tid); err != nil {
+		return err
+	}
+	return nil
+}
 
-	colRows, err := meta.Query(ctx, `
-		SELECT id, table_id, name, label, type_id, is_nullable, position, config, created_at, updated_at
-		FROM lc_columns
-		WHERE table_id = $1 AND tenant_id = $2
-		ORDER BY position
-	`, req.TableId, tid)
-	if err != nil {
-		return nil, err
-	}
-	defer colRows.Close()
-
-	var columns []*apiv1.Column
-	for colRows.Next() {
-		var c apiv1.Column
-		var cfg map[string]any
-		var createdAt, updatedAt time.Time
-		if err := colRows.Scan(&c.Id, &c.TableId, &c.Name, &c.Label, &c.TypeId, &c.IsNullable, &c.Position, &cfg, &createdAt, &updatedAt); err != nil {
-			return nil, err
-		}
-		c.CreatedAt = createdAt
-		c.UpdatedAt = updatedAt
-		if cfg != nil {
-			c.Config = cfg
-		}
-		PublicColumn(&c)
-		columns = append(columns, &c)
-	}
-	if err := colRows.Err(); err != nil {
-		return nil, err
-	}
-
-	pgIdxRows, err := catalog.New(s.B).ListPGIndexes(ctx, tbl.SchemaName, tbl.Name)
-	if err != nil {
-		return nil, err
-	}
-	indexes, err := catalog.New(s.B).PGIndexesToAPI(ctx, req.TableId, tbl.SchemaName, tbl.Name, pgIdxRows)
-	if err != nil {
-		return nil, err
-	}
-
-	return &apiv1.GetTableSchemaResponse{
-		Table:   &tbl,
-		Columns: columns,
-		Indexes: indexes,
-	}, nil
+func restoreTableRenameFKConstraints(ctx context.Context, tx pgx.Tx) error {
+	_, err := tx.Exec(ctx, `
+		ALTER TABLE lc_columns
+		  ADD CONSTRAINT lc_columns_tenant_table_fk
+		  FOREIGN KEY (tenant_id, table_id) REFERENCES lc_tables(tenant_id, name) ON DELETE CASCADE;
+		ALTER TABLE lc_relations
+		  ADD CONSTRAINT lc_relations_tenant_id_source_table_id_fkey
+		  FOREIGN KEY (tenant_id, source_table_id) REFERENCES lc_tables(tenant_id, name) ON DELETE CASCADE;
+		ALTER TABLE lc_relations
+		  ADD CONSTRAINT lc_relations_tenant_id_target_table_id_fkey
+		  FOREIGN KEY (tenant_id, target_table_id) REFERENCES lc_tables(tenant_id, name) ON DELETE CASCADE;
+		ALTER TABLE lc_data_sources
+		  ADD CONSTRAINT lc_data_sources_tenant_id_table_id_fkey
+		  FOREIGN KEY (tenant_id, table_id) REFERENCES lc_tables(tenant_id, name) ON DELETE CASCADE;
+	`)
+	return err
 }

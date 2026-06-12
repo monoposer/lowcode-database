@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/solat/lowcode-database/pkg/eventschema/metadata.table.renamed",
+  "title": "metadata.table.renamed",
+  "description": "Emitted when a table logical name is renamed.",
+  "type": "object",
+  "required": ["oldName", "newName", "table"],
+  "properties": {
+    "oldName": { "type": "string" },
+    "newName": { "type": "string" },
+    "table": { "type": "object", "additionalProperties": true }
+  },
+  "additionalProperties": false
+}

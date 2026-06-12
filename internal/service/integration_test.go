@@ -3,13 +3,23 @@ package service_test
 import (
 	"encoding/json"
 	"fmt"
-	"testing"
-
 	"github.com/solat/lowcode-database/internal/apiv1"
+
+	"github.com/solat/lowcode-database/internal/apiv1/datasource"
+
+	"github.com/solat/lowcode-database/internal/apiv1/graph"
+
+	"github.com/solat/lowcode-database/internal/apiv1/platform"
+
+	"github.com/solat/lowcode-database/internal/apiv1/row"
+
+	apiv1schema "github.com/solat/lowcode-database/internal/apiv1/schema"
+
 	"github.com/solat/lowcode-database/internal/testutil"
+	"testing"
 )
 
-func saveGraphItems(t *testing.T, resp apiv1.SaveGraphResponse) []map[string]any {
+func saveGraphItems(t *testing.T, resp graph.SaveGraphResponse) []map[string]any {
 	t.Helper()
 	switch v := resp["items"].(type) {
 	case []map[string]any:
@@ -48,33 +58,33 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 	vendorTable := testutil.UniqueName("vendor")
 	orderTable := testutil.UniqueName("order")
 
-	if _, err := svc.CreateTable(ctx, &apiv1.CreateTableRequest{Name: vendorTable}); err != nil {
+	if _, err := svc.CreateTable(ctx, &apiv1schema.CreateTableRequest{Name: vendorTable}); err != nil {
 		t.Fatalf("create vendor table: %v", err)
 	}
-	if _, err := svc.CreateTable(ctx, &apiv1.CreateTableRequest{Name: orderTable}); err != nil {
+	if _, err := svc.CreateTable(ctx, &apiv1schema.CreateTableRequest{Name: orderTable}); err != nil {
 		t.Fatalf("create order table: %v", err)
 	}
 
 	// --- columns: scalar types ---
-	nameCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	nameCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: vendorTable, Name: "name", TypeId: "text", Position: 1,
 	})
 	if err != nil {
 		t.Fatalf("add text column: %v", err)
 	}
-	scoreCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	scoreCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: vendorTable, Name: "score", TypeId: "double", Position: 2,
 	})
 	if err != nil {
 		t.Fatalf("add double column: %v", err)
 	}
-	activeCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	activeCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: vendorTable, Name: "active", TypeId: "bool", Position: 3,
 	})
 	if err != nil {
 		t.Fatalf("add bool column: %v", err)
 	}
-	metaCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	metaCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: vendorTable, Name: "meta", TypeId: "jsonb", Position: 4,
 	})
 	if err != nil {
@@ -86,14 +96,14 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 	_ = metaCol
 
 	// int8 id column on vendor for FK demo
-	vendorIDCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	vendorIDCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: vendorTable, Name: "legacy_id", TypeId: "int8", Position: 5,
 	})
 	if err != nil {
 		t.Fatalf("add int8 column: %v", err)
 	}
 
-	amountCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	amountCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: orderTable, Name: "amount", TypeId: "precision", Position: 1,
 	})
 	if err != nil {
@@ -101,7 +111,7 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 	}
 
 	// relation_fk on order -> vendor legacy_id
-	fkCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	fkCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: orderTable, Name: "vendor_ref", TypeId: "relation_fk", Position: 2,
 		Config: map[string]any{
 			"target_table_id":  vendorTable,
@@ -113,14 +123,14 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 	}
 
 	// relationship many: orders linked by vendor uuid id
-	linkCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	linkCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: orderTable, Name: "vendor_id", TypeId: "uuid", Position: 3,
 	})
 	if err != nil {
 		t.Fatalf("add uuid column: %v", err)
 	}
 
-	relCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	relCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: vendorTable, Name: "orders", TypeId: "relationship", Position: 6,
 		Config: map[string]any{
 			"target_table_id": orderTable,
@@ -133,7 +143,7 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 	}
 
 	// formula on vendor
-	formulaCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	formulaCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: vendorTable, Name: "double_score", TypeId: "formula", Position: 7,
 		Config: map[string]any{"expression": "{{score}} * 2"},
 	})
@@ -143,10 +153,10 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 
 	// --- choice (PG ENUM) ---
 	choiceName := testutil.UniqueName("status")
-	choiceResp, err := svc.CreateChoice(ctx, &apiv1.CreateChoiceRequest{
+	choiceResp, err := svc.CreateChoice(ctx, &apiv1schema.CreateChoiceRequest{
 		Name:  choiceName,
 		Label: "Status",
-		Values: []*apiv1.ChoiceItem{
+		Values: []*apiv1schema.ChoiceItem{
 			{Value: "active", Label: "Active"},
 			{Value: "inactive", Label: "Inactive"},
 		},
@@ -155,7 +165,7 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 		t.Fatalf("create choice: %v", err)
 	}
 
-	statusCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	statusCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: vendorTable, Name: "status", TypeId: choiceName, Position: 8,
 	})
 	if err != nil {
@@ -164,12 +174,12 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 	_ = statusCol
 
 	// --- relation registry ---
-	_, err = svc.CreateRelation(ctx, &apiv1.CreateRelationRequest{
-		Name:          testutil.UniqueName("order_vendor"),
-		Kind:          "MANY_TO_ONE",
-		SourceTableId: orderTable,
+	_, err = svc.CreateRelation(ctx, &apiv1schema.CreateRelationRequest{
+		Name:           testutil.UniqueName("order_vendor"),
+		Kind:           "MANY_TO_ONE",
+		SourceTableId:  orderTable,
 		SourceColumnId: fkCol.Column.Name,
-		TargetTableId: vendorTable,
+		TargetTableId:  vendorTable,
 		TargetColumnId: vendorIDCol.Column.Name,
 	})
 	if err != nil {
@@ -177,13 +187,13 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 	}
 
 	// --- rows ---
-	vendorRow, err := svc.CreateRow(ctx, &apiv1.CreateRowRequest{
+	vendorRow, err := svc.CreateRow(ctx, &row.CreateRowRequest{
 		TableId: vendorTable,
 		Cells: map[string]*apiv1.Value{
-			nameCol.Column.Id:   apiv1.StringValue("Acme"),
-			scoreCol.Column.Id:  apiv1.NumberValue(10),
-			activeCol.Column.Id: apiv1.BoolValue(true),
-			metaCol.Column.Id:   apiv1.JsonValue(map[string]any{"tier": "gold"}),
+			nameCol.Column.Id:     apiv1.StringValue("Acme"),
+			scoreCol.Column.Id:    apiv1.NumberValue(10),
+			activeCol.Column.Id:   apiv1.BoolValue(true),
+			metaCol.Column.Id:     apiv1.JsonValue(map[string]any{"tier": "gold"}),
 			vendorIDCol.Column.Id: apiv1.NumberValue(1001),
 		},
 	})
@@ -191,12 +201,12 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 		t.Fatalf("create vendor row: %v", err)
 	}
 
-	_, err = svc.CreateRow(ctx, &apiv1.CreateRowRequest{
+	_, err = svc.CreateRow(ctx, &row.CreateRowRequest{
 		TableId: orderTable,
 		Cells: map[string]*apiv1.Value{
-			amountCol.Column.Id:     apiv1.NumberValue(99.5),
-			fkCol.Column.Id:         apiv1.NumberValue(1001),
-			linkCol.Column.Id:       apiv1.StringValue(vendorRow.Row.Id),
+			amountCol.Column.Id: apiv1.NumberValue(99.5),
+			fkCol.Column.Id:     apiv1.NumberValue(1001),
+			linkCol.Column.Id:   apiv1.StringValue(vendorRow.Row.Id),
 		},
 	})
 	if err != nil {
@@ -204,20 +214,20 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 	}
 
 	// --- index ---
-	_, err = svc.CreateIndex(ctx, &apiv1.CreateIndexRequest{
+	_, err = svc.CreateIndex(ctx, &apiv1schema.CreateIndexRequest{
 		TableId: vendorTable, Name: "idx_score", ColumnIds: []string{scoreCol.Column.Id},
 	})
 	if err != nil {
 		t.Fatalf("create index: %v", err)
 	}
 
-	idxList, err := svc.ListIndexes(ctx, &apiv1.ListIndexesRequest{TableId: vendorTable})
+	idxList, err := svc.ListIndexes(ctx, &apiv1schema.ListIndexesRequest{TableId: vendorTable})
 	if err != nil || len(idxList.Indexes) == 0 {
 		t.Fatalf("list indexes: %v len=%d", err, len(idxList.Indexes))
 	}
 
 	// --- data source (list / view definition) ---
-	dsResp, err := svc.CreateDataSource(ctx, &apiv1.CreateDataSourceRequest{
+	dsResp, err := svc.CreateDataSource(ctx, &datasource.CreateDataSourceRequest{
 		Name:      testutil.UniqueName("active_vendors"),
 		Label:     "Active Vendors",
 		TableId:   vendorTable,
@@ -231,7 +241,7 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 		t.Fatalf("create data source: %v", err)
 	}
 
-	dsQuery, err := svc.QueryDataSource(ctx, &apiv1.QueryDataSourceRequest{
+	dsQuery, err := svc.QueryDataSource(ctx, &datasource.QueryDataSourceRequest{
 		TableId:      vendorTable,
 		DataSourceId: dsResp.DataSource.Name,
 		PageSize:     10,
@@ -247,9 +257,9 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 	}
 
 	// --- query rows with filter ---
-	qrows, err := svc.QueryRows(ctx, &apiv1.QueryRowsRequest{
-		TableId: vendorTable,
-		Filter:  map[string]any{"type": "EQ", "attr": nameCol.Column.Id, "val": "Acme"},
+	qrows, err := svc.QueryRows(ctx, &row.QueryRowsRequest{
+		TableId:  vendorTable,
+		Filter:   map[string]any{"type": "EQ", "attr": nameCol.Column.Id, "val": "Acme"},
 		PageSize: 10,
 	})
 	if err != nil {
@@ -260,7 +270,7 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 	}
 
 	// --- ER diagram ---
-	er, err := svc.GetERDiagram(ctx, &apiv1.GetERDiagramRequest{})
+	er, err := svc.GetERDiagram(ctx, &apiv1schema.GetERDiagramRequest{})
 	if err != nil {
 		t.Fatalf("er diagram: %v", err)
 	}
@@ -272,7 +282,7 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 	}
 
 	// --- list tables / schema ---
-	tables, err := svc.ListTables(ctx, &apiv1.ListTablesRequest{})
+	tables, err := svc.ListTables(ctx, &apiv1schema.ListTablesRequest{})
 	if err != nil {
 		t.Fatalf("list tables: %v", err)
 	}
@@ -286,7 +296,7 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 		t.Fatal("vendor table not in list")
 	}
 
-	schema, err := svc.GetTableSchema(ctx, &apiv1.GetTableSchemaRequest{TableId: vendorTable})
+	schema, err := svc.GetTableSchema(ctx, &apiv1schema.GetTableSchemaRequest{TableId: vendorTable})
 	if err != nil {
 		t.Fatalf("get schema: %v", err)
 	}
@@ -299,10 +309,10 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 	if err != nil || len(items) != 2 {
 		t.Fatalf("resolve choice: err=%v len=%d", err, len(items))
 	}
-	_, err = svc.UpdateChoice(ctx, &apiv1.UpdateChoiceRequest{
+	_, err = svc.UpdateChoice(ctx, &apiv1schema.UpdateChoiceRequest{
 		Id:            choiceName,
 		ReplaceValues: true,
-		Values: []*apiv1.ChoiceItem{
+		Values: []*apiv1schema.ChoiceItem{
 			{Value: "active"},
 			{Value: "inactive"},
 			{Value: "pending"},
@@ -315,10 +325,10 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 	if err != nil || len(items) != 3 {
 		t.Fatalf("choice after replace add: err=%v len=%d", err, len(items))
 	}
-	_, err = svc.UpdateChoice(ctx, &apiv1.UpdateChoiceRequest{
+	_, err = svc.UpdateChoice(ctx, &apiv1schema.UpdateChoiceRequest{
 		Id:            choiceName,
 		ReplaceValues: true,
-		Values: []*apiv1.ChoiceItem{
+		Values: []*apiv1schema.ChoiceItem{
 			{Value: "active"},
 			{Value: "inactive"},
 		},
@@ -330,9 +340,9 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 	if err != nil || len(items) != 2 {
 		t.Fatalf("choice after replace remove: err=%v len=%d", err, len(items))
 	}
-	_, err = svc.UpdateChoice(ctx, &apiv1.UpdateChoiceRequest{
+	_, err = svc.UpdateChoice(ctx, &apiv1schema.UpdateChoiceRequest{
 		Id:     choiceName,
-		Values: []*apiv1.ChoiceItem{{Value: "archived"}},
+		Values: []*apiv1schema.ChoiceItem{{Value: "archived"}},
 	})
 	if err != nil {
 		t.Fatalf("append choice value: %v", err)
@@ -343,7 +353,7 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 	}
 
 	// --- expand relationship ---
-	listResp, err := svc.ListRows(ctx, &apiv1.ListRowsRequest{
+	listResp, err := svc.ListRows(ctx, &row.ListRowsRequest{
 		TableId: vendorTable, PageSize: 10,
 		ExpandColumnIds: []string{relCol.Column.Id},
 	})
@@ -356,14 +366,14 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 
 	// --- rename table ---
 	renamed := vendorTable + "_renamed"
-	_, err = svc.RenameTable(ctx, &apiv1.RenameTableRequest{Id: vendorTable, NewName: renamed})
+	_, err = svc.RenameTable(ctx, &apiv1schema.RenameTableRequest{Id: vendorTable, NewName: renamed})
 	if err != nil {
 		t.Fatalf("rename table: %v", err)
 	}
 
 	// cleanup renamed table
-	_, _ = svc.DeleteTable(ctx, &apiv1.DeleteTableRequest{Id: renamed})
-	_, _ = svc.DeleteTable(ctx, &apiv1.DeleteTableRequest{Id: orderTable})
+	_, _ = svc.DeleteTable(ctx, &apiv1schema.DeleteTableRequest{Id: renamed})
+	_, _ = svc.DeleteTable(ctx, &apiv1schema.DeleteTableRequest{Id: orderTable})
 }
 
 func TestIntegrationTypesList(t *testing.T) {
@@ -371,7 +381,7 @@ func TestIntegrationTypesList(t *testing.T) {
 	defer cleanup()
 	ctx := testutil.Ctx()
 
-	types, err := svc.ListTypes(ctx, &apiv1.ListTypesRequest{})
+	types, err := svc.ListTypes(ctx, &platform.ListTypesRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -394,22 +404,22 @@ func TestIntegrationTableRowIDType(t *testing.T) {
 	ctx := testutil.Ctx()
 
 	tableName := testutil.UniqueName("int8_ids")
-	resp, err := svc.CreateTable(ctx, &apiv1.CreateTableRequest{Name: tableName, IdType: "int8"})
+	resp, err := svc.CreateTable(ctx, &apiv1schema.CreateTableRequest{Name: tableName, IdType: "int8"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if resp.Table.IdType != "int8" {
 		t.Fatalf("idType=%q", resp.Table.IdType)
 	}
-	defer func() { _, _ = svc.DeleteTable(ctx, &apiv1.DeleteTableRequest{Id: tableName}) }()
+	defer func() { _, _ = svc.DeleteTable(ctx, &apiv1schema.DeleteTableRequest{Id: tableName}) }()
 
-	col, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	col, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: tableName, Name: "title", TypeId: "text", Position: 1,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	row, err := svc.CreateRow(ctx, &apiv1.CreateRowRequest{
+	row, err := svc.CreateRow(ctx, &row.CreateRowRequest{
 		TableId: tableName,
 		Cells:   map[string]*apiv1.Value{col.Column.Id: apiv1.StringValue("hello")},
 	})
@@ -419,9 +429,9 @@ func TestIntegrationTableRowIDType(t *testing.T) {
 	if row.Row.Id == "" {
 		t.Fatal("expected numeric row id")
 	}
-	schema, err := svc.GetTableSchema(ctx, &apiv1.GetTableSchemaRequest{TableId: tableName})
-	if err != nil || schema.Table.IdType != "int8" {
-		t.Fatalf("schema idType=%q err=%v", schema.Table.IdType, err)
+	schemaResp, err := svc.GetTableSchema(ctx, &apiv1schema.GetTableSchemaRequest{TableId: tableName})
+	if err != nil || schemaResp.Table.IdType != "int8" {
+		t.Fatalf("schema idType=%q err=%v", schemaResp.Table.IdType, err)
 	}
 }
 
@@ -431,10 +441,10 @@ func TestIntegrationColumnTypes(t *testing.T) {
 	ctx := testutil.Ctx()
 
 	tableName := testutil.UniqueName("types_demo")
-	if _, err := svc.CreateTable(ctx, &apiv1.CreateTableRequest{Name: tableName}); err != nil {
+	if _, err := svc.CreateTable(ctx, &apiv1schema.CreateTableRequest{Name: tableName}); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _, _ = svc.DeleteTable(ctx, &apiv1.DeleteTableRequest{Id: tableName}) }()
+	defer func() { _, _ = svc.DeleteTable(ctx, &apiv1schema.DeleteTableRequest{Id: tableName}) }()
 
 	typeSpecs := []struct {
 		name   string
@@ -452,13 +462,13 @@ func TestIntegrationColumnTypes(t *testing.T) {
 		{"c_text_arr", "text_array"},
 	}
 	for i, spec := range typeSpecs {
-		if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+		if _, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 			TableId: tableName, Name: spec.name, TypeId: spec.typeID, Position: int32(i + 1),
 		}); err != nil {
 			t.Fatalf("add column %s (%s): %v", spec.name, spec.typeID, err)
 		}
 	}
-	cols, err := svc.ListColumns(ctx, &apiv1.ListColumnsRequest{TableId: tableName})
+	cols, err := svc.ListColumns(ctx, &apiv1schema.ListColumnsRequest{TableId: tableName})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -475,40 +485,40 @@ func TestIntegrationSaveGraph(t *testing.T) {
 	orderTable := testutil.UniqueName("order")
 	itemTable := testutil.UniqueName("order_item")
 
-	if _, err := svc.CreateTable(ctx, &apiv1.CreateTableRequest{Name: orderTable}); err != nil {
+	if _, err := svc.CreateTable(ctx, &apiv1schema.CreateTableRequest{Name: orderTable}); err != nil {
 		t.Fatalf("create order table: %v", err)
 	}
-	if _, err := svc.CreateTable(ctx, &apiv1.CreateTableRequest{Name: itemTable}); err != nil {
+	if _, err := svc.CreateTable(ctx, &apiv1schema.CreateTableRequest{Name: itemTable}); err != nil {
 		t.Fatalf("create item table: %v", err)
 	}
 
-	amountCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	amountCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: orderTable, Name: "amount", TypeId: "precision", Position: 1,
 	})
 	if err != nil {
 		t.Fatalf("add amount: %v", err)
 	}
 
-	qtyCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	qtyCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: itemTable, Name: "qty", TypeId: "int8", Position: 1,
 	})
 	if err != nil {
 		t.Fatalf("add qty: %v", err)
 	}
-	goodsCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	goodsCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: itemTable, Name: "goods_id", TypeId: "text", Position: 2,
 	})
 	if err != nil {
 		t.Fatalf("add goods_id: %v", err)
 	}
-	orderLinkCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	orderLinkCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: itemTable, Name: "order_id", TypeId: "uuid", Position: 3,
 	})
 	if err != nil {
 		t.Fatalf("add order_id: %v", err)
 	}
 
-	_, err = svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	_, err = svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: orderTable, Name: "items", TypeId: "relationship", Position: 2,
 		Config: map[string]any{
 			"target_table_id": itemTable,
@@ -521,7 +531,7 @@ func TestIntegrationSaveGraph(t *testing.T) {
 	}
 
 	// create with nested items
-	createBody := &apiv1.SaveGraphRequest{}
+	createBody := &graph.SaveGraphRequest{}
 	if err := json.Unmarshal([]byte(`{
 		"amount": 100,
 		"items": [
@@ -556,7 +566,7 @@ func TestIntegrationSaveGraph(t *testing.T) {
 			{ "qty": 3, "goods_id": "g3" }
 		]
 	}`, created["id"], item1ID)
-	updateBody := &apiv1.SaveGraphRequest{}
+	updateBody := &graph.SaveGraphRequest{}
 	if err := json.Unmarshal([]byte(updateRaw), updateBody); err != nil {
 		t.Fatal(err)
 	}
@@ -572,7 +582,7 @@ func TestIntegrationSaveGraph(t *testing.T) {
 		t.Fatalf("expected 2 items after update, got %+v", updated["items"])
 	}
 
-	list, err := svc.ListRows(ctx, &apiv1.ListRowsRequest{
+	list, err := svc.ListRows(ctx, &row.ListRowsRequest{
 		TableId:         itemTable,
 		ExpandColumnIds: []string{},
 		PageSize:        50,
@@ -599,53 +609,53 @@ func TestIntegrationSaveGraphLookupWrite(t *testing.T) {
 	itemTable := testutil.UniqueName("order_item")
 
 	for _, name := range []string{goodsTable, orderTable, itemTable} {
-		if _, err := svc.CreateTable(ctx, &apiv1.CreateTableRequest{Name: name}); err != nil {
+		if _, err := svc.CreateTable(ctx, &apiv1schema.CreateTableRequest{Name: name}); err != nil {
 			t.Fatalf("create table %s: %v", name, err)
 		}
 	}
 
-	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	if _, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: goodsTable, Name: "name", TypeId: "text", Position: 1,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	goodsApple, err := svc.CreateRow(ctx, &apiv1.CreateRowRequest{
+	goodsApple, err := svc.CreateRow(ctx, &row.CreateRowRequest{
 		TableId: goodsTable,
 		Cells:   map[string]*apiv1.Value{"name": apiv1.StringValue("Apple")},
 	})
 	if err != nil {
 		t.Fatalf("create goods Apple: %v", err)
 	}
-	if _, err := svc.CreateRow(ctx, &apiv1.CreateRowRequest{
+	if _, err := svc.CreateRow(ctx, &row.CreateRowRequest{
 		TableId: goodsTable,
 		Cells:   map[string]*apiv1.Value{"name": apiv1.StringValue("Banana")},
 	}); err != nil {
 		t.Fatalf("create goods Banana: %v", err)
 	}
 
-	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	if _, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: orderTable, Name: "amount", TypeId: "precision", Position: 1,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	if _, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: itemTable, Name: "qty", TypeId: "int8", Position: 1,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	goodsFKCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	goodsFKCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: itemTable, Name: "goods_id", TypeId: "uuid", Position: 2,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	orderLinkCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	orderLinkCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: itemTable, Name: "order_id", TypeId: "uuid", Position: 3,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	goodsRelCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	goodsRelCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: itemTable, Name: "goods", TypeId: "relationship", Position: 4,
 		Config: map[string]any{
 			"target_table_id":  goodsTable,
@@ -656,7 +666,7 @@ func TestIntegrationSaveGraphLookupWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	if _, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: itemTable, Name: "goods_name", TypeId: "lookup", Position: 5,
 		Config: map[string]any{
 			"relation_column_id": goodsRelCol.Column.Id,
@@ -665,7 +675,7 @@ func TestIntegrationSaveGraphLookupWrite(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	if _, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: orderTable, Name: "items", TypeId: "relationship", Position: 2,
 		Config: map[string]any{
 			"target_table_id": itemTable,
@@ -676,7 +686,7 @@ func TestIntegrationSaveGraphLookupWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	createBody := &apiv1.SaveGraphRequest{}
+	createBody := &graph.SaveGraphRequest{}
 	if err := json.Unmarshal([]byte(`{
 		"amount": 100,
 		"items": [
@@ -709,7 +719,7 @@ func TestIntegrationSaveGraphLookupWrite(t *testing.T) {
 			{ "qty": 3, "goods_name": "Apple" }
 		]
 	}`, created["id"], item1ID)
-	updateBody := &apiv1.SaveGraphRequest{}
+	updateBody := &graph.SaveGraphRequest{}
 	if err := json.Unmarshal([]byte(updateRaw), updateBody); err != nil {
 		t.Fatal(err)
 	}
@@ -732,27 +742,27 @@ func TestIntegrationSaveGraphOneRelCreate(t *testing.T) {
 	orderTable := testutil.UniqueName("order")
 
 	for _, name := range []string{warehouseTable, orderTable} {
-		if _, err := svc.CreateTable(ctx, &apiv1.CreateTableRequest{Name: name}); err != nil {
+		if _, err := svc.CreateTable(ctx, &apiv1schema.CreateTableRequest{Name: name}); err != nil {
 			t.Fatalf("create table %s: %v", name, err)
 		}
 	}
-	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	if _, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: warehouseTable, Name: "name", TypeId: "text", Position: 1,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	if _, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: orderTable, Name: "amount", TypeId: "precision", Position: 1,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	warehouseFKCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	warehouseFKCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: orderTable, Name: "warehouse_id", TypeId: "uuid", Position: 2,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	warehouseRelCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	warehouseRelCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: orderTable, Name: "warehouse", TypeId: "relationship", Position: 3,
 		Config: map[string]any{
 			"target_table_id":  warehouseTable,
@@ -765,7 +775,7 @@ func TestIntegrationSaveGraphOneRelCreate(t *testing.T) {
 	}
 	_ = warehouseRelCol
 
-	body := &apiv1.SaveGraphRequest{}
+	body := &graph.SaveGraphRequest{}
 	if err := json.Unmarshal([]byte(`{
 		"amount": 100,
 		"warehouse": { "name": "华东仓" }
@@ -797,38 +807,38 @@ func TestIntegrationSaveGraphNestedOneRelCreate(t *testing.T) {
 	itemTable := testutil.UniqueName("order_item")
 
 	for _, name := range []string{goodsTable, orderTable, itemTable} {
-		if _, err := svc.CreateTable(ctx, &apiv1.CreateTableRequest{Name: name}); err != nil {
+		if _, err := svc.CreateTable(ctx, &apiv1schema.CreateTableRequest{Name: name}); err != nil {
 			t.Fatalf("create table %s: %v", name, err)
 		}
 	}
-	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	if _, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: goodsTable, Name: "name", TypeId: "text", Position: 1,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	if _, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: orderTable, Name: "amount", TypeId: "precision", Position: 1,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	if _, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: itemTable, Name: "qty", TypeId: "int8", Position: 1,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	goodsFKCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	goodsFKCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: itemTable, Name: "goods_id", TypeId: "uuid", Position: 2,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	orderLinkCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	orderLinkCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: itemTable, Name: "order_id", TypeId: "uuid", Position: 3,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	if _, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: itemTable, Name: "goods", TypeId: "relationship", Position: 4,
 		Config: map[string]any{
 			"target_table_id":  goodsTable,
@@ -838,7 +848,7 @@ func TestIntegrationSaveGraphNestedOneRelCreate(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	if _, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: orderTable, Name: "items", TypeId: "relationship", Position: 2,
 		Config: map[string]any{
 			"target_table_id": itemTable,
@@ -849,7 +859,7 @@ func TestIntegrationSaveGraphNestedOneRelCreate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	body := &apiv1.SaveGraphRequest{}
+	body := &graph.SaveGraphRequest{}
 	if err := json.Unmarshal([]byte(`{
 		"amount": 100,
 		"items": [
@@ -868,7 +878,7 @@ func TestIntegrationSaveGraphNestedOneRelCreate(t *testing.T) {
 	if goodsID == "" {
 		t.Fatalf("missing goods_id on item: %+v", item)
 	}
-	list, err := svc.ListRows(ctx, &apiv1.ListRowsRequest{TableId: goodsTable, PageSize: 10})
+	list, err := svc.ListRows(ctx, &row.ListRowsRequest{TableId: goodsTable, PageSize: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -888,32 +898,32 @@ func TestIntegrationSaveGraphCreateOrderShape(t *testing.T) {
 	itemTable := testutil.UniqueName("order_item")
 
 	for _, name := range []string{supplyTable, goodsTable, orderTable, itemTable} {
-		if _, err := svc.CreateTable(ctx, &apiv1.CreateTableRequest{Name: name}); err != nil {
+		if _, err := svc.CreateTable(ctx, &apiv1schema.CreateTableRequest{Name: name}); err != nil {
 			t.Fatalf("create table %s: %v", name, err)
 		}
 	}
-	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	if _, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: supplyTable, Name: "code", TypeId: "text", Position: 1,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	if _, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: goodsTable, Name: "name", TypeId: "text", Position: 1,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	if _, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: orderTable, Name: "order_remark", TypeId: "text", Position: 1,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	supplyFKCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	supplyFKCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: orderTable, Name: "supply_id", TypeId: "uuid", Position: 2,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	supplyRelCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	supplyRelCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: orderTable, Name: "supply", TypeId: "relationship", Position: 3,
 		Config: map[string]any{
 			"target_table_id":  supplyTable,
@@ -924,7 +934,7 @@ func TestIntegrationSaveGraphCreateOrderShape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	if _, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: orderTable, Name: "supply_code", TypeId: "lookup", Position: 4,
 		Config: map[string]any{
 			"relation_column_id": supplyRelCol.Column.Id,
@@ -933,24 +943,24 @@ func TestIntegrationSaveGraphCreateOrderShape(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	if _, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: itemTable, Name: "qty", TypeId: "int8", Position: 1,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	goodsFKCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	goodsFKCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: itemTable, Name: "goods_id", TypeId: "uuid", Position: 2,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	orderLinkCol, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	orderLinkCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: itemTable, Name: "order_id", TypeId: "uuid", Position: 3,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	if _, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: itemTable, Name: "goods", TypeId: "relationship", Position: 4,
 		Config: map[string]any{
 			"target_table_id":  goodsTable,
@@ -960,7 +970,7 @@ func TestIntegrationSaveGraphCreateOrderShape(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AddColumn(ctx, &apiv1.AddColumnRequest{
+	if _, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
 		TableId: orderTable, Name: "items", TypeId: "relationship", Position: 5,
 		Config: map[string]any{
 			"target_table_id": itemTable,
@@ -971,7 +981,7 @@ func TestIntegrationSaveGraphCreateOrderShape(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	body := &apiv1.SaveGraphRequest{}
+	body := &graph.SaveGraphRequest{}
 	if err := json.Unmarshal([]byte(`{
 		"order_remark": "rush",
 		"supply": { "code": "SUP-001" },

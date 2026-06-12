@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/solat/lowcode-database/pkg/eventschema/envelope",
+  "title": "Lowcode Event Envelope",
+  "description": "Top-level wrapper delivered to every event sink (webhook, kafka, redis, …). The `data` field shape depends on `type`; see per-type payload schemas under records.* and metadata.*.",
+  "type": "object",
+  "required": ["type", "tenantId", "occurredAt", "data"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "description": "Event type identifier, e.g. records.after.insert or metadata.table.created"
+    },
+    "tenantId": {
+      "type": "string",
+      "description": "Tenant id (X-Tenant-Id) that produced the event"
+    },
+    "tableId": {
+      "type": "string",
+      "description": "Logical table name when the event is scoped to a table"
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC timestamp (RFC3339Nano) when the change occurred"
+    },
+    "data": {
+      "type": "object",
+      "description": "Type-specific payload; see payload schema for this event type"
+    }
+  },
+  "additionalProperties": false
+}

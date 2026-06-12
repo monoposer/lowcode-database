@@ -18,4 +18,3 @@ func FromContext(ctx context.Context) string {
 	}
 	return ""
 }
-

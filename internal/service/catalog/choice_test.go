@@ -1,9 +1,9 @@
 package catalog
 
 import (
-	"testing"
+	apiv1schema "github.com/solat/lowcode-database/internal/apiv1/schema"
 
-	"github.com/solat/lowcode-database/internal/apiv1"
+	"testing"
 )
 
 func TestChoiceLogicalNameFromPgType(t *testing.T) {
@@ -37,7 +37,7 @@ func TestChoiceLogicalNameFromPgTypeNewNaming(t *testing.T) {
 }
 
 func TestEnumValuesFromItems(t *testing.T) {
-	lits, err := enumValuesFromItems([]*apiv1.ChoiceItem{
+	lits, err := enumValuesFromItems([]*apiv1schema.ChoiceItem{
 		{Value: "active", Label: "Active"},
 		{Name: "inactive", Label: "Inactive"},
 	})

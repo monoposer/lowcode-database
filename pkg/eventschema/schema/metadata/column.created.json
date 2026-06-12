@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/solat/lowcode-database/pkg/eventschema/metadata.column.created",
+  "title": "metadata.column.created",
+  "description": "Emitted when a column is added (physical or virtual).",
+  "type": "object",
+  "required": ["column"],
+  "properties": {
+    "column": { "type": "object", "additionalProperties": true }
+  },
+  "additionalProperties": false
+}

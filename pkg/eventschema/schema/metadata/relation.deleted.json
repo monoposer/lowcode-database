@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/solat/lowcode-database/pkg/eventschema/metadata.relation.deleted",
+  "title": "metadata.relation.deleted",
+  "description": "Emitted when a relation is removed.",
+  "type": "object",
+  "required": ["relationId"],
+  "properties": {
+    "relationId": { "type": "string" }
+  },
+  "additionalProperties": false
+}

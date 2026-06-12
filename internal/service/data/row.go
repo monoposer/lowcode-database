@@ -4,30 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
-
 	"github.com/jackc/pgx/v5"
-
 	"github.com/solat/lowcode-database/internal/apiv1"
-	"github.com/solat/lowcode-database/internal/service/catalog"
-	"github.com/solat/lowcode-database/internal/service/schema"
+	"github.com/solat/lowcode-database/internal/apiv1/row"
+	"github.com/solat/lowcode-database/internal/event"
 	"github.com/solat/lowcode-database/internal/service/shared"
-	"github.com/solat/lowcode-database/internal/sink"
+	"strings"
 )
 
-const (
-	maxExpandPathDepth = 5
-	maxExpandManyRows  = 100
-)
-
-// fetchRelatedOpts controls optional projection when loading related rows.
-type fetchRelatedOpts struct {
-	SelectColumnIDs []string // ids of physical columns on the target table; empty = all physical columns
-}
-
-// -------- Row / Cell --------
-
-func (s *Data) CreateRow(ctx context.Context, req *apiv1.CreateRowRequest) (*apiv1.CreateRowResponse, error) {
+func (s *Data) CreateRow(ctx context.Context, req *row.CreateRowRequest) (*row.CreateRowResponse, error) {
 	data, err := s.B.Tenants.DataPool(ctx)
 	if err != nil {
 		return nil, err
@@ -37,7 +22,7 @@ func (s *Data) CreateRow(ctx context.Context, req *apiv1.CreateRowRequest) (*api
 		return nil, fmt.Errorf("table_id is required")
 	}
 
-	cols, schemaName, tableName, err := catalog.New(s.B).LoadColumns(ctx, tableID)
+	cols, schemaName, tableName, err := s.meta().LoadColumns(ctx, tableID)
 	if err != nil {
 		return nil, err
 	}
@@ -80,22 +65,22 @@ func (s *Data) CreateRow(ctx context.Context, req *apiv1.CreateRowRequest) (*api
 		return nil, err
 	}
 
-	resp := &apiv1.CreateRowResponse{
-		Row: &apiv1.Row{
+	resp := &row.CreateRowResponse{
+		Row: &row.Row{
 			Id:    rowID,
 			Cells: shared.NormalizeInputCells(req.Cells, cols),
 		},
 	}
-	if s.B.Hooks != nil {
-		s.B.Hooks.Emit(ctx, sink.RecordsAfterInsert, tableID, map[string]any{
+	if s.B.Events != nil {
+		s.B.EmitEvent(ctx, event.RecordsAfterInsert, tableID, map[string]any{
 			"row": shared.RowToMap(resp.Row),
 		})
 	}
 	return resp, nil
 }
 
-// 这里为了简单，只实现按 id 精确匹配的 UpdateRow，BulkUpsertRows 里会复用。
-func (s *Data) UpdateRow(ctx context.Context, req *apiv1.UpdateRowRequest) (*apiv1.UpdateRowResponse, error) {
+// UpdateRowByID updates a row matched by primary key; reused from BulkUpsertRows.
+func (s *Data) UpdateRow(ctx context.Context, req *row.UpdateRowRequest) (*row.UpdateRowResponse, error) {
 	data, err := s.B.Tenants.DataPool(ctx)
 	if err != nil {
 		return nil, err
@@ -105,7 +90,7 @@ func (s *Data) UpdateRow(ctx context.Context, req *apiv1.UpdateRowRequest) (*api
 		return nil, fmt.Errorf("table_id and row_id are required")
 	}
 
-	cols, schemaName, tableName, err := catalog.New(s.B).LoadColumns(ctx, tableID)
+	cols, schemaName, tableName, err := s.meta().LoadColumns(ctx, tableID)
 	if err != nil {
 		return nil, err
 	}
@@ -129,6 +114,7 @@ func (s *Data) UpdateRow(ctx context.Context, req *apiv1.UpdateRowRequest) (*api
 		return nil, fmt.Errorf("no valid cells for known columns")
 	}
 
+	setParts = shared.TouchUpdatedAtSQL(setParts)
 	args = append(args, req.RowId)
 	update := fmt.Sprintf(`UPDATE %s.%s SET %s WHERE id = $%d`,
 		pgx.Identifier{schemaName}.Sanitize(),
@@ -140,21 +126,21 @@ func (s *Data) UpdateRow(ctx context.Context, req *apiv1.UpdateRowRequest) (*api
 		return nil, err
 	}
 
-	resp := &apiv1.UpdateRowResponse{
-		Row: &apiv1.Row{
+	resp := &row.UpdateRowResponse{
+		Row: &row.Row{
 			Id:    req.RowId,
 			Cells: shared.NormalizeInputCells(req.Cells, cols),
 		},
 	}
-	if s.B.Hooks != nil {
-		s.B.Hooks.Emit(ctx, sink.RecordsAfterUpdate, tableID, map[string]any{
+	if s.B.Events != nil {
+		s.B.EmitEvent(ctx, event.RecordsAfterUpdate, tableID, map[string]any{
 			"row": shared.RowToMap(resp.Row),
 		})
 	}
 	return resp, nil
 }
 
-func (s *Data) DeleteRow(ctx context.Context, req *apiv1.DeleteRowRequest) (*apiv1.DeleteRowResponse, error) {
+func (s *Data) DeleteRow(ctx context.Context, req *row.DeleteRowRequest) (*row.DeleteRowResponse, error) {
 	data, err := s.B.Tenants.DataPool(ctx)
 	if err != nil {
 		return nil, err
@@ -164,7 +150,7 @@ func (s *Data) DeleteRow(ctx context.Context, req *apiv1.DeleteRowRequest) (*api
 		return nil, fmt.Errorf("table_id and row_id are required")
 	}
 
-	_, schemaName, tableName, err := catalog.New(s.B).LoadColumns(ctx, tableID)
+	_, schemaName, tableName, err := s.meta().LoadColumns(ctx, tableID)
 	if err != nil {
 		return nil, err
 	}
@@ -175,167 +161,17 @@ func (s *Data) DeleteRow(ctx context.Context, req *apiv1.DeleteRowRequest) (*api
 	if _, err := data.Exec(ctx, del, req.RowId); err != nil {
 		return nil, err
 	}
-	if s.B.Hooks != nil {
-		s.B.Hooks.Emit(ctx, sink.RecordsAfterDelete, tableID, map[string]any{
+	if s.B.Events != nil {
+		s.B.EmitEvent(ctx, event.RecordsAfterDelete, tableID, map[string]any{
 			"rowId": req.RowId,
 		})
 	}
-	return &apiv1.DeleteRowResponse{}, nil
-}
-
-type lookupJoinSpec struct {
-	LookupColumnName  string
-	Cardinality       string
-	Alias             string
-	TargetSchema      string
-	TargetTable       string
-	SelectExpr        string
-	TargetValuePgType string
-	BaseFKPgCol       string
-	LinkPgCol         string
-	Filter            map[string]any
-	TargetCols        []shared.ColumnMeta
-	ExtraFromSQL      string
-}
-
-func (s *Data) buildLookupJoinSpecs(ctx context.Context, tableID string, argAcc *argAccumulator) ([]lookupJoinSpec, error) {
-	tid, err := s.B.TenantID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	resolvedName, err := s.B.ResolveTableName(ctx, tableID)
-	if err != nil {
-		return nil, err
-	}
-	meta := s.B.Tenants.MetaPool()
-	const q = `
-		SELECT c.name, c.config
-		FROM lc_columns c
-		WHERE c.table_id = $1 AND c.tenant_id = $2 AND c.type_id = 'lookup'
-	`
-	rows, err := meta.Query(ctx, q, resolvedName, tid)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	aliases := newJoinAliasRegistry()
-	var specs []lookupJoinSpec
-	for rows.Next() {
-		var colName string
-		var cfg map[string]any
-		if err := rows.Scan(&colName, &cfg); err != nil {
-			return nil, err
-		}
-		relID := shared.CfgString(cfg, "relation_column_id")
-		fieldID := shared.CfgString(cfg, "target_column_id")
-		if relID == "" || fieldID == "" {
-			continue
-		}
-		rels, err := schema.New(s.B).LoadRelationshipColumns(ctx, tableID, []string{relID})
-		if err != nil || len(rels) == 0 {
-			continue
-		}
-		rel := rels[0]
-		tgtSchema, tgtTable, err := s.tableSchemaName(ctx, rel.TargetTableId)
-		if err != nil {
-			continue
-		}
-		var filter map[string]any
-		if raw, ok := cfg["filter"].(map[string]any); ok && len(raw) > 0 {
-			filter = raw
-		}
-		targetCols, _, _, err := catalog.New(s.B).LoadColumns(ctx, rel.TargetTableId)
-		if err != nil {
-			continue
-		}
-
-		if rel.Cardinality == "many" && rel.LinkColumnId != "" {
-			linkPg, err := schema.New(s.B).ColumnPgColumnByRef(ctx, tid, rel.TargetTableId, rel.LinkColumnId)
-			if err != nil {
-				continue
-			}
-			resolved, err := s.resolveLookupTargetValue(ctx, rel.TargetTableId, fieldID, "_r", argAcc, map[string]bool{}, aliases)
-			if err != nil {
-				return nil, fmt.Errorf("lookup %q: %w", colName, err)
-			}
-			extraWhere := ""
-			if len(filter) > 0 && len(targetCols) > 0 {
-				wSQL, wArgs, err := linkedTableFilterSQL(map[string]any{"filter": filter}, "_r", targetCols, argAcc.nextArgStart())
-				if err != nil {
-					return nil, fmt.Errorf("lookup %q filter: %w", colName, err)
-				}
-				if wSQL != "" {
-					extraWhere = wSQL
-					argAcc.append(wArgs...)
-				}
-			}
-			arrayPgType := shared.ScalarPgTypeToArray(resolved.PgType)
-			selectExpr := shared.LookupManyAggregateSQL(
-				resolved.SelectExpr, linkPg, tgtSchema, tgtTable, "_b", extraWhere, resolved.ExtraFrom, arrayPgType,
-			)
-			specs = append(specs, lookupJoinSpec{
-				LookupColumnName:  colName,
-				Cardinality:       "many",
-				TargetSchema:      tgtSchema,
-				TargetTable:       tgtTable,
-				SelectExpr:        selectExpr,
-				TargetValuePgType: arrayPgType,
-				LinkPgCol:         linkPg,
-				Filter:            filter,
-				TargetCols:        targetCols,
-			})
-			continue
-		}
-
-		if rel.Cardinality != "one" || rel.TargetColumnId == "" {
-			continue
-		}
-		var baseFKPg string
-		if baseFKPg, err = schema.New(s.B).ColumnPgColumnByRef(ctx, tid, tableID, rel.TargetColumnId); err != nil {
-			continue
-		}
-		alias := aliases.sharedRelRowAlias(rel.Id)
-		resolved, err := s.resolveLookupTargetValue(ctx, rel.TargetTableId, fieldID, alias, argAcc, map[string]bool{}, aliases)
-		if err != nil {
-			return nil, fmt.Errorf("lookup %q: %w", colName, err)
-		}
-		tgtValuePgType := resolved.PgType
-		if tgtValuePgType == "" {
-			for _, tc := range targetCols {
-				if tc.Name == fieldID {
-					tgtValuePgType = tc.PgType
-					break
-				}
-			}
-		}
-		allTarget, _, _, _ := catalog.New(s.B).LoadAllColumnMeta(ctx, rel.TargetTableId)
-		for _, tc := range allTarget {
-			if tc.Name == fieldID && tc.PgType != "" {
-				tgtValuePgType = tc.PgType
-				break
-			}
-		}
-		specs = append(specs, lookupJoinSpec{
-			LookupColumnName:  colName,
-			Cardinality:       "one",
-			Alias:             alias,
-			TargetSchema:      tgtSchema,
-			TargetTable:       tgtTable,
-			SelectExpr:        resolved.SelectExpr,
-			TargetValuePgType: tgtValuePgType,
-			BaseFKPgCol:       baseFKPg,
-			Filter:            filter,
-			TargetCols:        targetCols,
-			ExtraFromSQL:      resolved.ExtraFrom,
-		})
-	}
-	return specs, rows.Err()
+	return &row.DeleteRowResponse{}, nil
 }
 
 // ListRows delegates to QueryRows for filter/sort/pagination support.
-func (s *Data) ListRows(ctx context.Context, req *apiv1.ListRowsRequest) (*apiv1.ListRowsResponse, error) {
-	qresp, err := s.QueryRows(ctx, &apiv1.QueryRowsRequest{
+func (s *Data) ListRows(ctx context.Context, req *row.ListRowsRequest) (*row.ListRowsResponse, error) {
+	qresp, err := s.QueryRows(ctx, &row.QueryRowsRequest{
 		TableId:         req.TableId,
 		PageSize:        req.PageSize,
 		PageToken:       req.PageToken,
@@ -345,10 +181,53 @@ func (s *Data) ListRows(ctx context.Context, req *apiv1.ListRowsRequest) (*apiv1
 	if err != nil {
 		return nil, err
 	}
-	return &apiv1.ListRowsResponse{
+	return &row.ListRowsResponse{
 		Rows:          qresp.Rows,
 		NextPageToken: qresp.NextPageToken,
 	}, nil
+}
+
+// insertRowTx inserts one row; cells keys are logical column names (legacy UUID accepted).
+func (s *Data) insertRowTx(ctx context.Context, tx pgx.Tx, cols []shared.ColumnMeta, schemaName, tableName string, cells map[string]*apiv1.Value) (string, error) {
+	cells = shared.NormalizeInputCells(cells, cols)
+	var pgCols []string
+	var args []any
+	for _, c := range cols {
+		val, ok := cells[c.Name]
+		if !ok {
+			continue
+		}
+		pgCols = append(pgCols, c.Name)
+		args = append(args, shared.ValueToAnyForColumn(val, c.PgType))
+	}
+	if len(pgCols) == 0 {
+		return "", nil
+	}
+	colsSQL := strings.Join(pgCols, ", ")
+	params := make([]string, len(pgCols))
+	for i := range params {
+		params[i] = fmt.Sprintf("$%d", i+1)
+	}
+	paramSQL := strings.Join(params, ", ")
+	insert := fmt.Sprintf(`INSERT INTO %s.%s (%s) VALUES (%s) RETURNING id::text`,
+		pgx.Identifier{schemaName}.Sanitize(),
+		pgx.Identifier{tableName}.Sanitize(),
+		colsSQL, paramSQL)
+	var id string
+	if err := tx.QueryRow(ctx, insert, args...).Scan(&id); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+const (
+	maxExpandPathDepth = 5
+	maxExpandManyRows  = 100
+)
+
+// fetchRelatedOpts controls optional projection when loading related rows.
+type fetchRelatedOpts struct {
+	SelectColumnIDs []string // ids of physical columns on the target table; empty = all physical columns
 }
 
 func relationshipExpandValue(rel shared.RelationshipColumn, related []map[string]any) *apiv1.Value {
@@ -376,7 +255,7 @@ func (s *Data) expandPathResult(ctx context.Context, tableID, rowID string, rowC
 		return nil, fmt.Errorf("path segment too short")
 	}
 	relID := parts[0]
-	rels, err := schema.New(s.B).LoadRelationshipColumns(ctx, tableID, []string{relID})
+	rels, err := s.meta().LoadRelationshipColumns(ctx, tableID, []string{relID})
 	if err != nil {
 		return nil, err
 	}
@@ -436,17 +315,17 @@ func cellsAnyToValues(m map[string]any) map[string]*apiv1.Value {
 	return out
 }
 
-// fetchRelatedRows 根据 relationship 配置查询关联行，每项为 { "id", "cells" }（cells 为列 id -> 原生 JSON 值）。
+// fetchRelatedRows loads related rows per relationship config; each item is { "id", "cells" } (column id -> native JSON).
 func (s *Data) fetchRelatedRows(ctx context.Context, sourceTableID string, rel shared.RelationshipColumn, currentRowID string, currentRowCells map[string]*apiv1.Value, opts fetchRelatedOpts) ([]map[string]any, error) {
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	data, err := s.B.Tenants.DataPool(ctx)
+	data, err := s.B.Tenants.DataReadPool(ctx)
 	if err != nil {
 		return nil, err
 	}
-	targetCols, targetSchema, targetTable, err := catalog.New(s.B).LoadColumns(ctx, rel.TargetTableId)
+	targetCols, targetSchema, targetTable, err := s.meta().LoadColumns(ctx, rel.TargetTableId)
 	if err != nil {
 		return nil, err
 	}
@@ -482,7 +361,7 @@ func (s *Data) fetchRelatedRows(ctx context.Context, sourceTableID string, rel s
 		if rel.LinkColumnId == "" {
 			return nil, nil
 		}
-		linkPgCol, err := schema.New(s.B).ColumnPgColumnByRef(ctx, tid, rel.TargetTableId, rel.LinkColumnId)
+		linkPgCol, err := s.meta().ColumnPgColumnByRef(ctx, tid, rel.TargetTableId, rel.LinkColumnId)
 		if err != nil {
 			return nil, nil
 		}
@@ -499,7 +378,7 @@ func (s *Data) fetchRelatedRows(ctx context.Context, sourceTableID string, rel s
 		args = []any{currentRowID}
 	} else {
 		relatedID := ""
-		fkColName, err := schema.New(s.B).ColumnPgColumnByRef(ctx, tid, sourceTableID, rel.TargetColumnId)
+		fkColName, err := s.meta().ColumnPgColumnByRef(ctx, tid, sourceTableID, rel.TargetColumnId)
 		if err == nil {
 			if v, ok := currentRowCells[fkColName]; ok && v != nil && v.StringValue != nil {
 				relatedID = *v.StringValue
