@@ -7,17 +7,17 @@ lowcode-database organizes code and docs by **business domain**. Runtime archite
 │ server · migrate            │
 └──────────────┬──────────────┘
                ▼
-┌──────────── api ──────────────┐     ┌──────── apiv1 ────────┐
-│ routes · admin/* · data/*     │────▶│ JSON request/response │
-└──────────────┬────────────────┘     └───────────────────────┘
+┌──────────── api ──────────────┐
+│ routes · admin/* · data/*     │
+└──────────────┬────────────────┘
                ▼
-┌────────────────── LowcodeService ──────────────────────────┐
-│ schema │ catalog │ data │ platform                         │
-└───┬────────┬───────┬─────────┬─────────────────────────────┘
+┌────────────────── LowcodeService (+ domain JSON types) ──┐
+│ schema │ catalog │ data │ platform │ shared.Value        │
+└───┬────────┬───────┬─────────┬───────────────────────────┘
     │        │       │         │
     ▼        ▼       ▼         ▼
  meta    columntype  dsl     event
- shared  typespec    query
+ shared              query
          formula
                │
                ▼
@@ -41,13 +41,13 @@ lowcode-database organizes code and docs by **business domain**. Runtime archite
 
 ---
 
-## Transport and contracts
+## Transport
 
 | Module | Path | Doc |
 |--------|------|-----|
 | **api** | `internal/api` | [api.md](api.md) |
-| **apiv1** | `internal/apiv1` | [api.md](api.md) |
-| **typespec** | `pkg/typespec` | [catalog.md](catalog.md) |
+
+JSON request/response types live in the matching `internal/service/<domain>` package (see table above).
 
 ---
 
@@ -66,8 +66,8 @@ Not in this version (plugins, graph query, Choice/ENUM, authz): [roadmap.md](../
 
 | Module | Path | Doc |
 |--------|------|-----|
-| **infra** | `infra/postgres` · `infra/redis` · `tenant` · `migrator` · `config` | [infra.md](infra.md) |
-| **platform-services** | `platform/authn` · `cache` · `metrics` · `logger` | [platform-services.md](platform-services.md) |
+| **infra** | `pkg/infra` · `pkg/tenant` · `pkg/migrator` · `pkg/config` | [infra.md](infra.md) |
+| **platform-services** | `pkg/platform` · `pkg/logger` · `pkg/telemetry` | [platform-services.md](platform-services.md) |
 | **cmd** | `cmd/server` · `cmd/migrate` | [cmd.md](cmd.md) |
 
 ---
@@ -77,17 +77,17 @@ Not in this version (plugins, graph query, Choice/ENUM, authz): [roadmap.md](../
 | Path | Module doc |
 |------|------------|
 | `cmd/` | [cmd.md](cmd.md) |
-| `internal/api`, `internal/apiv1` | [api.md](api.md) |
+| `internal/api` | [api.md](api.md) |
 | `internal/service/schema` | [schema.md](schema.md) |
-| `internal/service/catalog`, `internal/columntype`, `pkg/typespec` | [catalog.md](catalog.md) |
+| `internal/service/catalog`, `internal/columntype` | [catalog.md](catalog.md) |
 | `internal/service/data` | [data.md](data.md) |
 | `internal/service/calc` | [record-calc.md](../architecture/record-calc.md) |
 | `internal/service/platform` | [platform.md](platform.md) |
 | `internal/service/meta`, `internal/service/shared` | [meta-shared.md](meta-shared.md) |
 | `internal/dsl`, `internal/query`, `internal/formula` | [query-engine.md](query-engine.md) |
 | `internal/event` | [event.md](event.md) |
-| `internal/infra`, `internal/tenant`, `internal/migrator`, `internal/config` | [infra.md](infra.md) |
-| `internal/platform/authn`, `cache`, `metrics`, `internal/logger`, `telemetry` | [platform-services.md](platform-services.md) |
+| `pkg/infra`, `pkg/tenant`, `pkg/migrator`, `pkg/config` | [infra.md](infra.md) |
+| `pkg/platform`, `pkg/logger`, `pkg/telemetry` | [platform-services.md](platform-services.md) |
 
 ---
 

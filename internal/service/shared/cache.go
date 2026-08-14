@@ -5,8 +5,8 @@ import (
 	"fmt"
 )
 
-func CacheKeyQuery(tenantID, tableID, queryName string) string {
-	return fmt.Sprintf("lc:meta:query:%s:%s:%s", tenantID, tableID, queryName)
+func CacheKeyQuery(tenantID, tableName, queryName string) string {
+	return fmt.Sprintf("lc:meta:query:%s:%s:%s", tenantID, tableName, queryName)
 }
 
 func CacheKeyColumns(tenantID, tableName string) string {
@@ -22,12 +22,12 @@ func (b *Base) invalidate(ctx context.Context, keys ...string) {
 	_ = b.Cache.Delete(ctx, keys...)
 }
 
-func (b *Base) InvalidateQueryCache(ctx context.Context, tableID, queryName string) {
+func (b *Base) InvalidateQueryCache(ctx context.Context, tableName, queryName string) {
 	tid, err := b.TenantID(ctx)
 	if err != nil {
 		return
 	}
-	b.invalidate(ctx, CacheKeyQuery(tid, tableID, queryName))
+	b.invalidate(ctx, CacheKeyQuery(tid, tableName, queryName))
 }
 
 func (b *Base) InvalidateTableMetaCache(ctx context.Context, tableName string) {

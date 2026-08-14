@@ -118,9 +118,6 @@ func EffectivePgType(pgType string, typeConfig map[string]any) string {
 		}
 		out = fmt.Sprintf("numeric(%d,%d)", int(p), int(scale))
 	}
-	if CfgBool(typeConfig, "array") && out != "" && !strings.HasSuffix(out, "[]") {
-		out += "[]"
-	}
 	return out
 }
 
@@ -139,7 +136,7 @@ type LookupWriteSpec struct {
 	LookupName    string
 	LocalFKColumn string
 	LocalFKPgType string
-	TargetTableID string
+	TargetTableName string
 	TargetSchema  string
 	TargetTable   string
 	SearchColumn  string

@@ -3,21 +3,16 @@ package schema
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
-
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	apiv1schema "github.com/monoposer/lowcode-database/internal/apiv1/schema"
 	"github.com/monoposer/lowcode-database/internal/columntype"
 	"github.com/monoposer/lowcode-database/internal/event"
 	formulacompile "github.com/monoposer/lowcode-database/internal/formula"
 	"github.com/monoposer/lowcode-database/internal/service/catalog"
 	"github.com/monoposer/lowcode-database/internal/service/shared"
-	"github.com/monoposer/lowcode-database/pkg/typespec"
 )
 
-func (s *Schema) AddColumn(ctx context.Context, req *apiv1schema.AddColumnRequest) (*apiv1schema.AddColumnResponse, error) {
+func (s *Schema) AddColumn(ctx context.Context, req *Column) (*Column, error) {
 	tenantID, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
@@ -36,7 +31,7 @@ func (s *Schema) AddColumn(ctx context.Context, req *apiv1schema.AddColumnReques
 		SELECT name
 		FROM lc_tables
 		WHERE name = $1 AND tenant_id = $2 AND base_id = $3`,
-		req.TableId, tenantID, baseID,
+		req.TableName, tenantID, baseID,
 	).Scan(&tableKey); err != nil {
 		return nil, err
 	}
@@ -47,9 +42,9 @@ func (s *Schema) AddColumn(ctx context.Context, req *apiv1schema.AddColumnReques
 	}
 
 	const ins = `
-		INSERT INTO lc_columns (tenant_id, base_id, table_id, name, label, type_id, is_nullable, position, config)
+		INSERT INTO lc_columns (tenant_id, base_id, table_name, name, label, type_id, is_nullable, position, config)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING id, table_id, name, label, type_id, is_nullable, position, config, created_at, updated_at
+		RETURNING id, table_name, name, label, type_id, is_nullable, position, config, created_at, updated_at
 	`
 	row := meta.QueryRow(ctx, ins,
 		tenantID,
@@ -63,10 +58,10 @@ func (s *Schema) AddColumn(ctx context.Context, req *apiv1schema.AddColumnReques
 		prep.cfg,
 	)
 
-	var c apiv1schema.Column
+	var c Column
 	var cfgOut map[string]any
 	var createdAt, updatedAt time.Time
-	if err := row.Scan(&c.Id, &c.TableId, &c.Name, &c.Label, &c.TypeId, &c.IsNullable, &c.Position, &cfgOut, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&c.Id, &c.TableName, &c.Name, &c.Label, &c.TypeId, &c.IsNullable, &c.Position, &cfgOut, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
 	c.CreatedAt = createdAt
@@ -81,7 +76,7 @@ func (s *Schema) AddColumn(ctx context.Context, req *apiv1schema.AddColumnReques
 
 	s.B.InvalidateTableMetaCache(ctx, tableKey)
 	s.B.EmitEvent(ctx, event.MetadataColumnCreated, tableKey, map[string]any{"column": columnToMap(&c)})
-	return &apiv1schema.AddColumnResponse{Column: &c}, nil
+	return &c, nil
 }
 
 type addColumnPrepared struct {
@@ -95,7 +90,7 @@ type addColumnPrepared struct {
 	cfg             map[string]any
 }
 
-func (s *Schema) prepareAddColumn(ctx context.Context, tid, tableKey string, req *apiv1schema.AddColumnRequest) (*addColumnPrepared, error) {
+func (s *Schema) prepareAddColumn(ctx context.Context, tid, tableKey string, req *Column) (*addColumnPrepared, error) {
 	colType, resolveErr := columntype.Resolve(req.TypeId)
 
 	cfg := req.Config
@@ -106,20 +101,10 @@ func (s *Schema) prepareAddColumn(ctx context.Context, tid, tableKey string, req
 	out := &addColumnPrepared{cfg: cfg}
 
 	if resolveErr == nil {
-		out.typeID = typespec.CanonicalID(req.TypeId)
+		out.typeID = columntype.CanonicalID(req.TypeId)
 		out.pgType = colType.PgType
 		out.kind = colType.Kind
 		out.typeConfig = colType.Config
-		if typespec.IsArrayType(req.TypeId) || shared.CfgBool(cfg, "array") {
-			if !typespec.AllowsArray(out.typeID) {
-				return nil, fmt.Errorf("type %q does not support array", out.typeID)
-			}
-			cfg["array"] = true
-			out.cfg = cfg
-			if !strings.HasSuffix(out.pgType, "[]") && out.pgType != "" {
-				out.pgType = out.pgType + "[]"
-			}
-		}
 	} else {
 		cat := catalog.New(s.B)
 		columnTypeRef, isColumnTypeCol, err := cat.ResolveColumnTypeRef(ctx, tid, req.TypeId)
@@ -132,9 +117,10 @@ func (s *Schema) prepareAddColumn(ctx context.Context, tid, tableKey string, req
 		out.isColumnTypeCol = true
 		out.columnTypeRef = columnTypeRef
 		out.typeID = columnTypeRef
+		out.pgType = cat.ColumnPgTypeSQL(ctx, tid, columnTypeRef, nil)
 	}
 
-	if out.kind == "link" || typespec.IsLinkType(out.typeID) {
+	if out.kind == "link" || columntype.IsLinkType(out.typeID) {
 		out.typeID = "link"
 		out.kind = "link"
 	}
@@ -192,7 +178,7 @@ func (s *Schema) addPhysicalColumnDDL(
 	ctx context.Context,
 	data *pgxpool.Pool,
 	tid, schemaName, tableKey string,
-	req *apiv1schema.AddColumnRequest,
+	req *Column,
 	prep *addColumnPrepared,
 ) error {
 	return fmt.Errorf("physical column DDL is not supported for virtual_records storage")
@@ -206,7 +192,7 @@ func dropPhysicalColumn(ctx context.Context, data *pgxpool.Pool, schemaName, tab
 	_ = colName
 }
 
-func (s *Schema) UpdateColumn(ctx context.Context, req *apiv1schema.UpdateColumnRequest) (*apiv1schema.UpdateColumnResponse, error) {
+func (s *Schema) UpdateColumn(ctx context.Context, req *Column, isNullable *bool) (*Column, error) {
 	tenantID, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
@@ -217,14 +203,14 @@ func (s *Schema) UpdateColumn(ctx context.Context, req *apiv1schema.UpdateColumn
 	}
 	meta := s.B.Tenants.MetaPool()
 
-	colDBID, err := s.ResolveColumnDBID(ctx, tenantID, req.TableId, req.Id)
+	colDBID, err := s.ResolveColumnDBID(ctx, tenantID, req.TableName, req.Id)
 	if err != nil {
 		return nil, err
 	}
 
 	var curTypeID, tableKey, curName string
 	err = meta.QueryRow(ctx, `
-		SELECT c.type_id, c.table_id, c.name
+		SELECT c.type_id, c.table_name, c.name
 		FROM lc_columns c
 		WHERE c.id = $1 AND c.tenant_id = $2 AND c.base_id = $3`,
 		colDBID, tenantID, baseID,
@@ -248,13 +234,13 @@ func (s *Schema) UpdateColumn(ctx context.Context, req *apiv1schema.UpdateColumn
 		    config = COALESCE($5, config),
 		    updated_at = now()
 		WHERE id = $1 AND tenant_id = $6 AND base_id = $9
-		RETURNING id, table_id, name, label, type_id, is_nullable, position, config, created_at, updated_at
+		RETURNING id, table_name, name, label, type_id, is_nullable, position, config, created_at, updated_at
 	`
-	var c apiv1schema.Column
+	var c Column
 	var cfgMap map[string]any
-	row := meta.QueryRow(ctx, q, colDBID, req.Name, req.IsNullable, req.Position, cfgArg, tenantID, req.TypeId, req.Label, baseID)
+	row := meta.QueryRow(ctx, q, colDBID, req.Name, isNullable, req.Position, cfgArg, tenantID, req.TypeId, req.Label, baseID)
 	var createdAt, updatedAt time.Time
-	if err := row.Scan(&c.Id, &c.TableId, &c.Name, &c.Label, &c.TypeId, &c.IsNullable, &c.Position, &cfgMap, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&c.Id, &c.TableName, &c.Name, &c.Label, &c.TypeId, &c.IsNullable, &c.Position, &cfgMap, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
 	c.CreatedAt = createdAt
@@ -262,13 +248,13 @@ func (s *Schema) UpdateColumn(ctx context.Context, req *apiv1schema.UpdateColumn
 	if cfgMap != nil {
 		c.Config = cfgMap
 	}
-	if err := s.EnsureColumnResultType(ctx, tenantID, c.TableId, &c); err != nil {
+	if err := s.EnsureColumnResultType(ctx, tenantID, c.TableName, &c); err != nil {
 		return nil, err
 	}
 	PublicColumn(&c)
-	s.B.InvalidateTableMetaCache(ctx, c.TableId)
-	s.B.EmitEvent(ctx, event.MetadataColumnUpdated, c.TableId, map[string]any{"column": columnToMap(&c)})
-	return &apiv1schema.UpdateColumnResponse{Column: &c}, nil
+	s.B.InvalidateTableMetaCache(ctx, c.TableName)
+	s.B.EmitEvent(ctx, event.MetadataColumnUpdated, c.TableName, map[string]any{"column": columnToMap(&c)})
+	return &c, nil
 }
 
 func (s *Schema) normalizeUpdateColumnConfig(

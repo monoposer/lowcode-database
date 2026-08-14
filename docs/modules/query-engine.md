@@ -27,9 +27,7 @@ Supported: `+ - * / ^ &`, comparisons, `%`, `IF` / `AND` / `OR` / `NOT` / `ISBLA
 
 ## internal/columntype
 
-Built-in **base** type registry (see [catalog.md](catalog.md)).
-
-Vs **pkg/typespec**: typespec defines the canonical list + Domain DDL; columntype is runtime `Resolve`/`List`.
+Built-in **pgType** registry and tenant columnType specs (see [catalog.md](catalog.md)).
 
 ## Data flow
 
@@ -44,4 +42,4 @@ Client filter JSON
 ## Extending
 
 - New filter operators: extend dsl and query.where together
-- New base types: columntype + typespec/base_types.go + docs
+- New base types: `internal/columntype` + docs

@@ -7,25 +7,22 @@ import (
 	"github.com/monoposer/lowcode-database/internal/api/admin"
 	"github.com/monoposer/lowcode-database/internal/api/data"
 	"github.com/monoposer/lowcode-database/internal/api/httputil"
-	"github.com/monoposer/lowcode-database/internal/api/worker"
 	"github.com/monoposer/lowcode-database/internal/service"
 )
 
 const (
-	V1Prefix     = "/v1"
-	AdminPrefix  = V1Prefix + "/admin"
-	DataPrefix   = V1Prefix + "/data"
-	WorkerPrefix = V1Prefix + "/worker"
+	V1Prefix    = "/v1"
+	AdminPrefix = V1Prefix + "/admin"
+	DataPrefix  = V1Prefix + "/data"
 )
 
-// NewHandler serves /v1/admin/*, /v1/data/*, and /v1/worker/* (the only production HTTP surface).
+// NewHandler serves /v1/admin/* and /v1/data/* (the only production HTTP surface).
 func NewHandler(svc *service.LowcodeService) http.Handler {
 	base := &httputil.Base{Svc: svc}
 	r := chi.NewRouter()
 	mountCommon(r, base)
 	mountAdmin(r, base)
 	mountData(r, base)
-	mountCalcWorker(r, base)
 	return r
 }
 
@@ -40,7 +37,6 @@ func mountCommon(r chi.Router, base *httputil.Base) {
 
 func mountAdmin(r chi.Router, base *httputil.Base) {
 	platform := &admin.Platform{Base: base}
-	event := &admin.Event{Base: base}
 	er := &admin.ER{Base: base}
 	tables := &admin.Tables{Base: base}
 	columns := &admin.Columns{Base: base}
@@ -68,16 +64,15 @@ func mountAdmin(r chi.Router, base *httputil.Base) {
 
 		r.Get("/types", platform.ListTypes)
 
-		r.Get("/schema-audit", event.ListSchemaAudit)
 		r.Get("/pg-stat-statements", platform.ListPGStatStatements)
 		r.Get("/runtime", platform.Runtime)
 		r.Get("/cache:inspect", platform.InspectCache)
 
 		r.Get("/tables", tables.List)
 		r.Post("/tables", tables.Create)
-		r.Delete("/tables/{tableId}", tables.Delete)
-		r.Post("/tables/{tableId}:rename", tables.Rename)
-		r.Get("/tables/{tableId}/schema", tables.GetSchema)
+		r.Delete("/tables/{tableName}", tables.Delete)
+		r.Post("/tables/{tableName}:rename", tables.Rename)
+		r.Get("/tables/{tableName}/schema", tables.GetSchema)
 
 		r.Get("/columns", columns.List)
 		r.Post("/columns", columns.Create)
@@ -117,29 +112,17 @@ func mountData(r chi.Router, base *httputil.Base) {
 	dataQueries := &data.Queries{Base: base}
 
 	r.Route(DataPrefix, func(r chi.Router) {
-		r.Get("/tables/{tableId}/rows", rows.List)
-		r.Post("/tables/{tableId}/rows", rows.Create)
-		r.Post("/tables/{tableId}/rows:query", rows.Query)
-		r.Post("/tables/{tableId}/rows:bulkUpsert", rows.BulkUpsert)
-		r.Post("/tables/{tableId}/rows:bulkDelete", rows.BulkDelete)
-		r.Post("/tables/{tableId}/rows:import", rows.Import)
-		r.Post("/tables/{tableId}/rows:export", rows.Export)
-		r.Post("/tables/{tableId}/rows:search", rows.Search)
-		r.Patch("/tables/{tableId}/rows/{rowId}", rows.Update)
-		r.Get("/tables/{tableId}/rows/{rowId}", rows.Get)
-		r.Delete("/tables/{tableId}/rows/{rowId}", rows.Delete)
+		r.Get("/tables/{tableName}/rows", rows.List)
+		r.Post("/tables/{tableName}/rows", rows.Create)
+		r.Post("/tables/{tableName}/rows:query", rows.Query)
+		r.Post("/tables/{tableName}/rows:bulkUpsert", rows.BulkUpsert)
+		r.Post("/tables/{tableName}/rows:bulkDelete", rows.BulkDelete)
+		r.Post("/tables/{tableName}/rows:export", rows.Export)
+		r.Post("/tables/{tableName}/rows:search", rows.Search)
+		r.Patch("/tables/{tableName}/rows/{rowId}", rows.Update)
+		r.Get("/tables/{tableName}/rows/{rowId}", rows.Get)
+		r.Delete("/tables/{tableName}/rows/{rowId}", rows.Delete)
 
 		r.Post("/queries/{name}", dataQueries.Query)
-	})
-}
-
-func mountCalcWorker(r chi.Router, base *httputil.Base) {
-	calcH := &worker.Calc{Base: base}
-	r.Route(WorkerPrefix, func(r chi.Router) {
-		r.Post("/calc:drain", calcH.Drain)
-		r.Post("/calc:claim", calcH.Claim)
-		r.Post("/calc:ack", calcH.Ack)
-		r.Post("/calc:replay", calcH.Replay)
-		r.Get("/calc:stats", calcH.Stats)
 	})
 }

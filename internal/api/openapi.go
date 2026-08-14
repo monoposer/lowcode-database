@@ -6,7 +6,7 @@ import (
 	"io/fs"
 	"net/http"
 
-	"github.com/monoposer/lowcode-database/internal/version"
+	"github.com/monoposer/lowcode-database/pkg/version"
 )
 
 //go:embed openapi/*
@@ -53,7 +53,7 @@ func RootHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-// HealthHandler returns liveness JSON including build version (used to align server/worker releases).
+// HealthHandler returns liveness JSON including build version.
 func HealthHandler(role string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

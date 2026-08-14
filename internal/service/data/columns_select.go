@@ -23,14 +23,14 @@ func queryableColumnNames(allCols []shared.FullColumnMeta) []string {
 // resolveQueryProjection returns the column list for a saved query SELECT.
 //   - reqCols empty → use query column_names; empty column_names means SELECT * (all queryable table columns)
 //   - reqCols set   → intersection with the query projection above
-func (s *Data) resolveQueryProjection(ctx context.Context, tableID string, dsCols, reqCols []string) ([]string, error) {
+func (s *Data) resolveQueryProjection(ctx context.Context, tableName string, dsCols, reqCols []string) ([]string, error) {
 	if len(reqCols) > 0 {
 		tid, err := s.B.TenantID(ctx)
 		if err != nil {
 			return nil, err
 		}
 		var normErr error
-		reqCols, normErr = s.meta().NormalizeColumnNames(ctx, tid, tableID, reqCols)
+		reqCols, normErr = s.meta().NormalizeColumnNames(ctx, tid, tableName, reqCols)
 		if normErr != nil {
 			return nil, normErr
 		}
@@ -38,7 +38,7 @@ func (s *Data) resolveQueryProjection(ctx context.Context, tableID string, dsCol
 
 	viewCols := dsCols
 	if len(viewCols) == 0 {
-		allCols, _, _, err := s.meta().LoadAllColumnMeta(ctx, tableID)
+		allCols, _, _, err := s.meta().LoadAllColumnMeta(ctx, tableName)
 		if err != nil {
 			return nil, err
 		}

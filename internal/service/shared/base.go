@@ -4,18 +4,15 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/monoposer/lowcode-database/internal/config"
 	"github.com/monoposer/lowcode-database/internal/event"
-	"github.com/monoposer/lowcode-database/internal/infra/postgres"
-	"github.com/monoposer/lowcode-database/internal/logger"
-	"github.com/monoposer/lowcode-database/internal/platform/cache"
-	"github.com/monoposer/lowcode-database/internal/telemetry"
+	"github.com/monoposer/lowcode-database/pkg/infra/postgres"
+	"github.com/monoposer/lowcode-database/pkg/logger"
+	"github.com/monoposer/lowcode-database/pkg/platform/cache"
 )
 
 // Base holds shared dependencies for all domain services.
 type Base struct {
 	Tenants            *postgres.TenantManager
-	Telemetry          telemetry.Provider
 	MaxRow             int32
 	Cache              cache.MetaCache
 	CacheTTL           time.Duration
@@ -35,15 +32,11 @@ type Base struct {
 	DDLConfirmRequired    bool
 	HTTPMiddleware        func(http.Handler) http.Handler
 	EventBus              event.Bus
-
-	TenantIsolationMode    config.TenantIsolationMode
-	TenantDataSchemaPrefix string
 }
 
 func NewBase(tenants *postgres.TenantManager, maxRow int) *Base {
 	b := &Base{
 		Tenants:               tenants,
-		Telemetry:             telemetry.Noop{},
 		Cache:                 cache.Noop{},
 		CacheTTL:              5 * time.Minute,
 		Log:                   logger.Default(),

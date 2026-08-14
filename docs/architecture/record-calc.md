@@ -44,13 +44,12 @@ Tenant shards and LIST partitions: [virtual-records.md](virtual-records.md) (`re
 |--------|------|
 | `/v1/admin/*` | **Meta API**: tables/fields (including link/formula/lookup/rollup definitions) |
 | `/v1/data/*` | Row CRUD / list cache / live detail |
-| `/v1/worker/*` | **Worker API**: `calc:drain` / `calc:claim` / `calc:ack` (needs `X-Tenant-Id`) |
 
-`internal/service/calc.Worker` polls every active data store from **inside `cmd/server`**: one shared `calc_queue` per DSN, plus each dedicated tenant's `{tenant_id}_calc_queue`. Multi-tenant: `SKIP LOCKED`.
+`internal/service/calc.Worker` polls every active data store from **inside `cmd/server`**: one shared `calc_queue` per DSN, plus each dedicated tenant's `{tenant_id}_calc_queue`. Multi-tenant: `SKIP LOCKED`. There is no public calc HTTP.
 
 ## Field options (`lc_columns.config`)
 
-- **link**: `to_table_id` (or `target_table_id`), `bidirectional`, `inverse_field_id`, `cardinality`
+- **link**: `to_table_name` (or `target_table_name`), `bidirectional`, `inverse_field_id`, `cardinality`
 - **formula**: `expression`, `deps` (may be inferred from `{{col}}`)
 - **lookup**: `link_field_id` / `relation_column_id`, `target_field_id` / `target_column_id`
 - **rollup**: same + `aggregation` / `aggregate` (`sum`|`count`|`max`|`min`|`avg`)

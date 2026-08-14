@@ -6,8 +6,8 @@ import (
 	"strconv"
 
 	"github.com/monoposer/lowcode-database/internal/api/httputil"
-	"github.com/monoposer/lowcode-database/internal/apiv1/query"
-	"github.com/monoposer/lowcode-database/internal/apiv1/row"
+	svcdata "github.com/monoposer/lowcode-database/internal/service/data"
+	"github.com/monoposer/lowcode-database/internal/service/platform"
 )
 
 type Rows struct {
@@ -15,95 +15,89 @@ type Rows struct {
 }
 
 func (h *Rows) Query(w http.ResponseWriter, r *http.Request) {
-	tableID := r.PathValue("tableId")
-	var body row.QueryRowsRequest
+	tableName := r.PathValue("tableName")
+	var body svcdata.QueryRowsRequest
 	if !h.ReadJSON(w, r, &body) {
 		return
 	}
-	body.TableId = tableID
+	body.TableName = tableName
 	resp, err := h.Svc.QueryRows(r.Context(), &body)
 	h.WriteJSON(w, resp, err)
 }
 
 func (h *Rows) List(w http.ResponseWriter, r *http.Request) {
-	tableID := r.PathValue("tableId")
-	resp, err := h.Svc.ListRows(r.Context(), listRowsFromQuery(r, tableID))
+	tableName := r.PathValue("tableName")
+	resp, err := h.Svc.ListRows(r.Context(), listRowsFromQuery(r, tableName))
 	h.WriteJSON(w, resp, err)
 }
 
 func (h *Rows) Create(w http.ResponseWriter, r *http.Request) {
-	tableID := r.PathValue("tableId")
-	var body row.CreateRowRequest
+	tableName := r.PathValue("tableName")
+	var body svcdata.CreateRowRequest
 	if !h.ReadJSON(w, r, &body) {
 		return
 	}
-	body.TableId = tableID
+	body.TableName = tableName
 	resp, err := h.Svc.CreateRow(r.Context(), &body)
 	h.WriteJSON(w, resp, err)
 }
 
 func (h *Rows) Update(w http.ResponseWriter, r *http.Request) {
-	tableID := r.PathValue("tableId")
+	tableName := r.PathValue("tableName")
 	rowID := r.PathValue("rowId")
-	var body row.UpdateRowRequest
+	var body svcdata.UpdateRowRequest
 	if !h.ReadJSON(w, r, &body) {
 		return
 	}
-	body.TableId = tableID
+	body.TableName = tableName
 	body.RowId = rowID
 	resp, err := h.Svc.UpdateRow(r.Context(), &body)
 	h.WriteJSON(w, resp, err)
 }
 
 func (h *Rows) Delete(w http.ResponseWriter, r *http.Request) {
-	tableID := r.PathValue("tableId")
+	tableName := r.PathValue("tableName")
 	rowID := r.PathValue("rowId")
-	resp, err := h.Svc.DeleteRow(r.Context(), &row.DeleteRowRequest{TableId: tableID, RowId: rowID})
+	resp, err := h.Svc.DeleteRow(r.Context(), &svcdata.DeleteRowRequest{TableName: tableName, RowId: rowID})
 	h.WriteJSON(w, resp, err)
 }
 
 func (h *Rows) Get(w http.ResponseWriter, r *http.Request) {
-	tableID := r.PathValue("tableId")
+	tableName := r.PathValue("tableName")
 	rowID := r.PathValue("rowId")
-	resp, err := h.Svc.GetRow(r.Context(), &row.GetRowRequest{TableId: tableID, RowId: rowID})
+	resp, err := h.Svc.GetRow(r.Context(), &svcdata.GetRowRequest{TableName: tableName, RowId: rowID})
 	h.WriteJSON(w, resp, err)
 }
 
 func (h *Rows) BulkUpsert(w http.ResponseWriter, r *http.Request) {
-	tableID := r.PathValue("tableId")
-	var body row.BulkUpsertRowsRequest
+	tableName := r.PathValue("tableName")
+	var body svcdata.BulkUpsertRowsRequest
 	if !h.ReadJSON(w, r, &body) {
 		return
 	}
-	body.TableId = tableID
+	body.TableName = tableName
 	resp, err := h.Svc.BulkUpsertRows(r.Context(), &body)
 	h.WriteJSON(w, resp, err)
 }
 
 func (h *Rows) BulkDelete(w http.ResponseWriter, r *http.Request) {
-	tableID := r.PathValue("tableId")
-	var body row.BulkDeleteRowsRequest
+	tableName := r.PathValue("tableName")
+	var body svcdata.BulkDeleteRowsRequest
 	if !h.ReadJSON(w, r, &body) {
 		return
 	}
-	body.TableId = tableID
+	body.TableName = tableName
 	resp, err := h.Svc.BulkDeleteRows(r.Context(), &body)
 	h.WriteJSON(w, resp, err)
 }
 
-func (h *Rows) Import(w http.ResponseWriter, r *http.Request) {
-	tableID := r.PathValue("tableId")
-	resp, err := h.Svc.ImportRowsStream(r.Context(), tableID, nil, r.Body)
-	h.WriteJSON(w, resp, err)
-}
-
 func (h *Rows) Export(w http.ResponseWriter, r *http.Request) {
-	tableID := r.PathValue("tableId")
-	var body row.ExportRowsRequest
+	tableName := r.PathValue("tableName")
+	var body svcdata.ExportRowsRequest
 	if !h.ReadJSON(w, r, &body) {
 		return
 	}
-	body.TableId = tableID
+	body.TableName = tableName
 	format := body.Format
 	if format == "" {
 		format = "json"
@@ -119,19 +113,19 @@ func (h *Rows) Export(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Rows) Search(w http.ResponseWriter, r *http.Request) {
-	tableID := r.PathValue("tableId")
-	var body row.SearchRowsRequest
+	tableName := r.PathValue("tableName")
+	var body svcdata.SearchRowsRequest
 	if !h.ReadJSON(w, r, &body) {
 		return
 	}
-	body.TableId = tableID
+	body.TableName = tableName
 	resp, err := h.Svc.SearchRows(r.Context(), &body)
 	h.WriteJSON(w, resp, err)
 }
 
-func listRowsFromQuery(r *http.Request, tableID string) *row.ListRowsRequest {
+func listRowsFromQuery(r *http.Request, tableName string) *svcdata.ListRowsRequest {
 	q := r.URL.Query()
-	req := &row.ListRowsRequest{TableId: tableID}
+	req := &svcdata.ListRowsRequest{TableName: tableName}
 	if v := queryFirst(q, "pageSize", "page_size"); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 32); err == nil {
 			req.PageSize = int32(n)
@@ -161,13 +155,13 @@ type Queries struct {
 
 func (h *Queries) Query(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	tableID := httputil.QueryFirst(r, "table_id", "tableId")
-	var body query.ExecuteQueryRequest
+	tableName := httputil.QueryFirst(r, "table_name", "tableName")
+	var body platform.ExecuteQueryRequest
 	if !h.ReadJSON(w, r, &body) {
 		return
 	}
-	if body.TableId == "" {
-		body.TableId = tableID
+	if body.TableName == "" {
+		body.TableName = tableName
 	}
 	body.QueryId = name
 	resp, err := h.Svc.ExecuteQuery(r.Context(), &body)

@@ -203,14 +203,14 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
-  /v1/admin/tables/{tableId}/schema:
+  /v1/admin/tables/{tableName}/schema:
     get:
       tags: [Tables]
       summary: Get table schema (columns + indexes)
       operationId: getTableSchema
       parameters:
         - $ref: "#/components/parameters/TenantIdHeader"
-        - $ref: "#/components/parameters/TableIdPath"
+        - $ref: "#/components/parameters/TableNamePath"
       responses:
         "200":
           description: OK
@@ -223,14 +223,14 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
-  /v1/data/tables/{tableId}/rows:
+  /v1/data/tables/{tableName}/rows:
     get:
       tags: [Tables]
       summary: List rows (paginated)
       operationId: listRows
       parameters:
         - $ref: "#/components/parameters/TenantIdHeader"
-        - $ref: "#/components/parameters/TableIdPath"
+        - $ref: "#/components/parameters/TableNamePath"
         - name: pageSize
           in: query
           schema:
@@ -259,7 +259,7 @@ paths:
       operationId: createRow
       parameters:
         - $ref: "#/components/parameters/TenantIdHeader"
-        - $ref: "#/components/parameters/TableIdPath"
+        - $ref: "#/components/parameters/TableNamePath"
       requestBody:
         required: true
         content:
@@ -278,14 +278,14 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
-  /v1/data/tables/{tableId}/rows/{rowId}:
+  /v1/data/tables/{tableName}/rows/{rowId}:
     patch:
       tags: [Tables]
       summary: Update row
       operationId: updateRow
       parameters:
         - $ref: "#/components/parameters/TenantIdHeader"
-        - $ref: "#/components/parameters/TableIdPath"
+        - $ref: "#/components/parameters/TableNamePath"
         - $ref: "#/components/parameters/RowIdPath"
       requestBody:
         required: true
@@ -310,7 +310,7 @@ paths:
       operationId: deleteRow
       parameters:
         - $ref: "#/components/parameters/TenantIdHeader"
-        - $ref: "#/components/parameters/TableIdPath"
+        - $ref: "#/components/parameters/TableNamePath"
         - $ref: "#/components/parameters/RowIdPath"
       responses:
         "200":
@@ -324,14 +324,14 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
-  /v1/data/tables/{tableId}/rows:query:
+  /v1/data/tables/{tableName}/rows:query:
     post:
       tags: [Tables]
       summary: Query rows with filter, sort, and projection
       operationId: queryRows
       parameters:
         - $ref: "#/components/parameters/TenantIdHeader"
-        - $ref: "#/components/parameters/TableIdPath"
+        - $ref: "#/components/parameters/TableNamePath"
       requestBody:
         required: true
         content:
@@ -350,14 +350,14 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
-  /v1/data/tables/{tableId}/rows:bulkUpsert:
+  /v1/data/tables/{tableName}/rows:bulkUpsert:
     post:
       tags: [Tables]
       summary: Bulk upsert rows
       operationId: bulkUpsertRows
       parameters:
         - $ref: "#/components/parameters/TenantIdHeader"
-        - $ref: "#/components/parameters/TableIdPath"
+        - $ref: "#/components/parameters/TableNamePath"
       requestBody:
         required: true
         content:
@@ -376,14 +376,14 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
-  /v1/data/tables/{tableId}/rows:bulkDelete:
+  /v1/data/tables/{tableName}/rows:bulkDelete:
     post:
       tags: [Tables]
       summary: Bulk delete rows
       operationId: bulkDeleteRows
       parameters:
         - $ref: "#/components/parameters/TenantIdHeader"
-        - $ref: "#/components/parameters/TableIdPath"
+        - $ref: "#/components/parameters/TableNamePath"
       requestBody:
         required: true
         content:
@@ -402,32 +402,6 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
-  /v1/data/tables/{tableId}/rows:import:
-    post:
-      tags: [Tables]
-      summary: Import rows (bulk insert)
-      operationId: importRows
-      parameters:
-        - $ref: "#/components/parameters/TenantIdHeader"
-        - $ref: "#/components/parameters/TableIdPath"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ImportRowsBody"
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ImportRowsResponse"
-        "400":
-          $ref: "#/components/responses/Error"
-        "404":
-          $ref: "#/components/responses/Error"
-
   /v1/admin/columns:
     get:
       tags: [Columns]
@@ -435,7 +409,7 @@ paths:
       operationId: listColumns
       parameters:
         - $ref: "#/components/parameters/TenantIdHeader"
-        - name: table_id
+        - name: table_name
           in: query
           required: true
           schema:
@@ -523,7 +497,7 @@ paths:
       operationId: listIndexes
       parameters:
         - $ref: "#/components/parameters/TenantIdHeader"
-        - name: table_id
+        - name: table_name
           in: query
           required: true
           schema:
@@ -621,7 +595,7 @@ paths:
       operationId: listRelations
       parameters:
         - $ref: "#/components/parameters/TenantIdHeader"
-        - name: table_id
+        - name: table_name
           in: query
           schema:
             type: string
@@ -684,7 +658,7 @@ paths:
       operationId: listQueries
       parameters:
         - $ref: "#/components/parameters/TenantIdHeader"
-        - name: table_id
+        - name: table_name
           in: query
           schema:
             type: string
@@ -826,8 +800,8 @@ components:
       required: true
       schema:
         type: string
-    TableIdPath:
-      name: tableId
+    TableNamePath:
+      name: tableName
       in: path
       required: true
       schema:
@@ -846,7 +820,7 @@ components:
         text/plain:
           schema:
             type: string
-            example: table_id query parameter is required
+            example: table_name query parameter is required
 
   schemas:
     Value:
@@ -923,7 +897,7 @@ components:
       properties:
         id:
           type: string
-        tableId:
+        tableName:
           type: string
         name:
           type: string
@@ -951,7 +925,7 @@ components:
       properties:
         id:
           type: string
-        tableId:
+        tableName:
           type: string
         name:
           type: string
@@ -1253,41 +1227,11 @@ components:
     BulkDeleteRowsResponse:
       type: object
 
-    ImportRowsBody:
-      type: object
-      properties:
-        format:
-          type: integer
-          format: int32
-          description: "0 = unspecified, 1 = JSON rows"
-          enum: [0, 1]
-        rows:
-          type: array
-          items:
-            type: object
-            additionalProperties: true
-        columnMap:
-          type: object
-          additionalProperties:
-            type: string
-      description: Table id is taken from the path.
-
-    ImportRowsResponse:
-      type: object
-      properties:
-        rows:
-          type: array
-          items:
-            $ref: "#/components/schemas/Row"
-        insertedCount:
-          type: integer
-          format: int32
-
     AddColumnRequest:
       type: object
-      required: [tableId]
+      required: [tableName]
       properties:
-        tableId:
+        tableName:
           type: string
         name:
           type: string
@@ -1344,7 +1288,7 @@ components:
     CreateIndexRequest:
       type: object
       properties:
-        tableId:
+        tableName:
           type: string
         name:
           type: string
@@ -1388,11 +1332,11 @@ components:
         kind:
           type: string
           description: ONE_TO_ONE | ONE_TO_MANY | MANY_TO_ONE
-        sourceTableId:
+        sourceTableName:
           type: string
         sourceColumnId:
           type: string
-        targetTableId:
+        targetTableName:
           type: string
         targetColumnId:
           type: string
@@ -1413,11 +1357,11 @@ components:
           type: string
         kind:
           type: string
-        sourceTableId:
+        sourceTableName:
           type: string
         sourceColumnId:
           type: string
-        targetTableId:
+        targetTableName:
           type: string
         targetColumnId:
           type: string
@@ -1451,7 +1395,7 @@ components:
           type: string
         label:
           type: string
-        tableId:
+        tableName:
           type: string
         filter:
           type: object
@@ -1481,7 +1425,7 @@ components:
           type: string
         label:
           type: string
-        tableId:
+        tableName:
           type: string
         filter:
           type: object
@@ -1586,7 +1530,7 @@ components:
     ERNode:
       type: object
       properties:
-        tableId:
+        tableName:
           type: string
         tableName:
           type: string
@@ -1604,11 +1548,11 @@ components:
           type: string
         kind:
           type: string
-        sourceTableId:
+        sourceTableName:
           type: string
         sourceColumnId:
           type: string
-        targetTableId:
+        targetTableName:
           type: string
         targetColumnId:
           type: string

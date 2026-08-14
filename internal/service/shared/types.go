@@ -3,7 +3,7 @@ package shared
 // ColumnMeta is a physical column for row read/write.
 type ColumnMeta struct {
 	Id         string
-	TableId    string
+	TableName    string
 	Name       string
 	TypeId     string
 	PgType     string
@@ -14,7 +14,7 @@ type ColumnMeta struct {
 // RelationshipColumn describes a link column used by lookup/rollup joins.
 type RelationshipColumn struct {
 	Id             string
-	TargetTableId  string
+	TargetTableName  string
 	LinkColumnId   string
 	TargetColumnId string
 	Cardinality    string
@@ -23,7 +23,7 @@ type RelationshipColumn struct {
 // FullColumnMeta includes virtual column metadata for query building.
 type FullColumnMeta struct {
 	Id         string
-	TableId    string
+	TableName    string
 	Name       string
 	TypeId     string
 	Kind       string

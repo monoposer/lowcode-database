@@ -6,7 +6,7 @@ import (
 
 func TestNormalizeRelationshipConfigMany(t *testing.T) {
 	cfg, err := NormalizeRelationshipConfig(map[string]any{
-		"target_table_id": "orders",
+		"target_table_name": "orders",
 		"link_column_id":  "col-uuid",
 	})
 	if err != nil {
@@ -19,7 +19,7 @@ func TestNormalizeRelationshipConfigMany(t *testing.T) {
 
 func TestNormalizeRelationshipConfigOne(t *testing.T) {
 	cfg, err := NormalizeRelationshipConfig(map[string]any{
-		"target_table_id":  "vendor",
+		"target_table_name":  "vendor",
 		"target_column_id": "fk-col",
 	})
 	if err != nil {
@@ -32,7 +32,7 @@ func TestNormalizeRelationshipConfigOne(t *testing.T) {
 
 func TestNormalizeRelationshipConfigConflict(t *testing.T) {
 	_, err := NormalizeRelationshipConfig(map[string]any{
-		"target_table_id":  "vendor",
+		"target_table_name":  "vendor",
 		"link_column_id":   "a",
 		"target_column_id": "b",
 	})

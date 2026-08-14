@@ -8,144 +8,85 @@ import (
 	"fmt"
 	"io"
 	"strings"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/monoposer/lowcode-database/internal/apiv1/row"
 	"github.com/monoposer/lowcode-database/internal/event"
-	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
-func (s *Data) BulkUpsertRows(ctx context.Context, req *row.BulkUpsertRowsRequest) (*row.BulkUpsertRowsResponse, error) {
+func (s *Data) BulkUpsertRows(ctx context.Context, req *BulkUpsertRowsRequest) (*BulkUpsertRowsResponse, error) {
 	if err := s.checkBulkSize(len(req.Items), "bulkUpsert"); err != nil {
 		return nil, err
 	}
-	if s.B.IsRLSTableMode() {
-		return nil, fmt.Errorf("rls_table mode: bulkUpsert not supported yet")
+	if req.TableName == "" {
+		return nil, fmt.Errorf("table_name is required")
 	}
-	data, err := s.B.Tenants.DataPool(ctx)
-	if err != nil {
-		return nil, err
-	}
-	tableID := req.TableId
-	if tableID == "" {
-		return nil, fmt.Errorf("table_id is required")
-	}
-	cols, schemaName, tableName, err := s.meta().LoadColumns(ctx, tableID)
-	if err != nil {
-		return nil, err
-	}
-	if len(cols) == 0 {
-		return nil, fmt.Errorf("no columns for table")
-	}
-
-	tx, err := data.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(ctx)
-
-	var resp row.BulkUpsertRowsResponse
-
+	var resp BulkUpsertRowsResponse
 	for _, item := range req.Items {
 		if item == nil {
 			continue
 		}
 		if item.RowId == "" {
-			id, err := s.insertRowTx(ctx, tx, cols, schemaName, tableName, shared.NormalizeInputCells(item.Cells, cols))
+			out, err := s.CreateRow(ctx, &CreateRowRequest{TableName: req.TableName, Cells: item.Cells})
 			if err != nil {
 				return nil, err
 			}
-			if id == "" {
-				continue
+			if out != nil && out.Row != nil {
+				resp.Rows = append(resp.Rows, out.Row)
 			}
-			resp.Rows = append(resp.Rows, &row.Row{Id: id, Cells: shared.NormalizeInputCells(item.Cells, cols)})
-		} else {
-			if err := s.updateRowTx(ctx, tx, cols, schemaName, tableName, item.RowId, item.Cells); err != nil {
-				return nil, err
-			}
-			resp.Rows = append(resp.Rows, &row.Row{Id: item.RowId, Cells: shared.NormalizeInputCells(item.Cells, cols)})
+			continue
 		}
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
+		out, err := s.UpdateRow(ctx, &UpdateRowRequest{TableName: req.TableName, RowId: item.RowId, Cells: item.Cells})
+		if err != nil {
+			return nil, err
+		}
+		if out != nil && out.Row != nil {
+			resp.Rows = append(resp.Rows, out.Row)
+		}
 	}
 	if len(resp.Rows) > 0 {
 		rows := make([]any, 0, len(resp.Rows))
 		for _, r := range resp.Rows {
-			rows = append(rows, shared.RowToMap(r))
+			rows = append(rows, RowToMap(r))
 		}
-		s.B.EmitEvent(ctx, event.RecordsAfterBulkUpsert, tableID, map[string]any{
-			"rows": rows,
-		})
+		s.B.EmitEvent(ctx, event.RecordsAfterBulkUpsert, req.TableName, map[string]any{"rows": rows})
 	}
 	return &resp, nil
 }
 
-func (s *Data) BulkDeleteRows(ctx context.Context, req *row.BulkDeleteRowsRequest) (*row.BulkDeleteRowsResponse, error) {
+func (s *Data) BulkDeleteRows(ctx context.Context, req *BulkDeleteRowsRequest) (*BulkDeleteRowsResponse, error) {
 	if err := s.checkBulkSize(len(req.RowIds), "bulkDelete"); err != nil {
 		return nil, err
 	}
-	if s.B.IsRLSTableMode() {
-		return nil, fmt.Errorf("rls_table mode: bulkDelete not supported yet")
-	}
-	data, err := s.B.Tenants.DataPool(ctx)
-	if err != nil {
-		return nil, err
-	}
-	tableID := req.TableId
-	if tableID == "" {
-		return nil, fmt.Errorf("table_id is required")
-	}
-	_, schemaName, tableName, err := s.meta().LoadColumns(ctx, tableID)
-	if err != nil {
-		return nil, err
+	if req.TableName == "" {
+		return nil, fmt.Errorf("table_name is required")
 	}
 	if len(req.RowIds) == 0 {
-		return &row.BulkDeleteRowsResponse{}, nil
+		return &BulkDeleteRowsResponse{}, nil
 	}
-
-	tx, err := data.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(ctx)
-
-	del := fmt.Sprintf(`DELETE FROM %s.%s WHERE id = ANY($1)`,
-		pgx.Identifier{schemaName}.Sanitize(),
-		pgx.Identifier{tableName}.Sanitize(),
-	)
-	if _, err := tx.Exec(ctx, del, req.RowIds); err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
-	}
-	if len(req.RowIds) > 0 {
-		ids := make([]any, len(req.RowIds))
-		for i, id := range req.RowIds {
-			ids[i] = id
+	for _, id := range req.RowIds {
+		if _, err := s.DeleteRow(ctx, &DeleteRowRequest{TableName: req.TableName, RowId: id}); err != nil {
+			return nil, err
 		}
-		s.B.EmitEvent(ctx, event.RecordsAfterBulkDelete, tableID, map[string]any{
-			"rowIds": ids,
-		})
 	}
-	return &row.BulkDeleteRowsResponse{}, nil
+	ids := make([]any, len(req.RowIds))
+	for i, id := range req.RowIds {
+		ids[i] = id
+	}
+	s.B.EmitEvent(ctx, event.RecordsAfterBulkDelete, req.TableName, map[string]any{"rowIds": ids})
+	return &BulkDeleteRowsResponse{}, nil
 }
 
-func (s *Data) ExportRows(ctx context.Context, req *row.ExportRowsRequest) (*row.ExportRowsResponse, error) {
+func (s *Data) ExportRows(ctx context.Context, req *ExportRowsRequest) (*ExportRowsResponse, error) {
 	var buf bytes.Buffer
 	format, err := s.ExportRowsTo(ctx, req, &buf)
 	if err != nil {
 		return nil, err
 	}
-	return &row.ExportRowsResponse{Format: format, Content: buf.String()}, nil
+	return &ExportRowsResponse{Format: format, Content: buf.String()}, nil
 }
 
-func (s *Data) ExportRowsTo(ctx context.Context, req *row.ExportRowsRequest, w io.Writer) (string, error) {
+func (s *Data) ExportRowsTo(ctx context.Context, req *ExportRowsRequest, w io.Writer) (string, error) {
 	ctx = withReadConsistency(ctx, req.Consistency)
-	if req.TableId == "" {
-		return "", fmt.Errorf("table_id is required")
+	if req.TableName == "" {
+		return "", fmt.Errorf("table_name is required")
 	}
 	format := strings.ToLower(strings.TrimSpace(req.Format))
 	if format == "" {
@@ -174,8 +115,8 @@ func (s *Data) ExportRowsTo(ctx context.Context, req *row.ExportRowsRequest, w i
 		if remain > pageSize {
 			remain = pageSize
 		}
-		qresp, err := s.QueryRows(ctx, &row.QueryRowsRequest{
-			TableId:   req.TableId,
+		qresp, err := s.QueryRows(ctx, &QueryRowsRequest{
+			TableName:   req.TableName,
 			Filter:    req.Filter,
 			ColumnIds: req.ColumnIds,
 			PageSize:  remain,
@@ -188,7 +129,7 @@ func (s *Data) ExportRowsTo(ctx context.Context, req *row.ExportRowsRequest, w i
 			break
 		}
 		for _, r := range qresp.Rows {
-			m := shared.RowToMap(r)
+			m := RowToMap(r)
 			switch format {
 			case "json":
 				if !jsonStarted {

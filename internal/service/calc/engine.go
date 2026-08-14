@@ -20,7 +20,7 @@ func (e *Engine) Process(ctx context.Context, t Task) error {
 	if e == nil || e.Meta == nil || e.Data == nil {
 		return fmt.Errorf("calc engine: pools required")
 	}
-	tm, err := loadTableMeta(ctx, e.Meta, t.TenantID, t.TableID)
+	tm, err := loadTableMeta(ctx, e.Meta, t.TenantID, t.TableName)
 	if err != nil {
 		return err
 	}
@@ -62,7 +62,7 @@ func (e *Engine) ProcessOrRetry(ctx context.Context, t Task) error {
 }
 
 func writeErrorCaches(ctx context.Context, e *Engine, t Task) {
-	tm, err := loadTableMeta(ctx, e.Meta, t.TenantID, t.TableID)
+	tm, err := loadTableMeta(ctx, e.Meta, t.TenantID, t.TableName)
 	if err != nil {
 		return
 	}
@@ -140,7 +140,7 @@ func EnqueueAfterUserEdit(ctx context.Context, meta, data *pgxpool.Pool, tenantI
 			continue
 		}
 		seen[e.FromRecordID] = true
-		logical := e.FromTableID
+		logical := e.FromTableName
 		if err := Enqueue(ctx, data, tenantID, logical, e.FromRecordID, nil); err != nil {
 			return err
 		}

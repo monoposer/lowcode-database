@@ -9,8 +9,8 @@ import (
 )
 
 // LoadLookupWriteSpecs returns lookup columns that can be resolved to a local FK on write (cardinality-one only).
-func (s *Schema) LoadLookupWriteSpecs(ctx context.Context, tableID string) (map[string]shared.LookupWriteSpec, error) {
-	allCols, schemaName, tableName, err := catalog.New(s.B).LoadAllColumnMeta(ctx, tableID)
+func (s *Schema) LoadLookupWriteSpecs(ctx context.Context, tableName string) (map[string]shared.LookupWriteSpec, error) {
+	allCols, schemaName, tableName, err := catalog.New(s.B).LoadAllColumnMeta(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -35,7 +35,7 @@ func (s *Schema) LoadLookupWriteSpecs(ctx context.Context, tableID string) (map[
 		if relRef == "" || fieldRef == "" {
 			continue
 		}
-		rels, err := s.LoadRelationshipColumns(ctx, tableID, []string{relRef})
+		rels, err := s.LoadRelationshipColumns(ctx, tableName, []string{relRef})
 		if err != nil {
 			return nil, err
 		}
@@ -47,39 +47,39 @@ func (s *Schema) LoadLookupWriteSpecs(ctx context.Context, tableID string) (map[
 			continue
 		}
 
-		localFK, err := s.ResolveColumnName(ctx, tid, tableID, rel.TargetColumnId)
+		localFK, err := s.ResolveColumnName(ctx, tid, tableName, rel.TargetColumnId)
 		if err != nil {
 			return nil, fmt.Errorf("lookup %q: local fk: %w", col.Name, err)
 		}
-		localFKPgType, err := s.columnPgTypeByName(ctx, tid, tableID, localFK)
+		localFKPgType, err := s.columnPgTypeByName(ctx, tid, tableName, localFK)
 		if err != nil {
 			return nil, fmt.Errorf("lookup %q: local fk type: %w", col.Name, err)
 		}
 
-		refCol, err := s.fkReferencedColumnOnTarget(ctx, tid, tableID, localFK)
+		refCol, err := s.fkReferencedColumnOnTarget(ctx, tid, tableName, localFK)
 		if err != nil {
 			return nil, fmt.Errorf("lookup %q: fk ref: %w", col.Name, err)
 		}
 
-		tgt, ok := targetCache[rel.TargetTableId]
+		tgt, ok := targetCache[rel.TargetTableName]
 		if !ok {
 			var err error
-			tgt.cols, tgt.schema, tgt.table, err = catalog.New(s.B).LoadColumns(ctx, rel.TargetTableId)
+			tgt.cols, tgt.schema, tgt.table, err = catalog.New(s.B).LoadColumns(ctx, rel.TargetTableName)
 			if err != nil {
 				return nil, err
 			}
-			targetCache[rel.TargetTableId] = tgt
+			targetCache[rel.TargetTableName] = tgt
 		}
 
-		searchCol, err := s.ResolveColumnName(ctx, tid, rel.TargetTableId, fieldRef)
+		searchCol, err := s.ResolveColumnName(ctx, tid, rel.TargetTableName, fieldRef)
 		if err != nil {
 			return nil, fmt.Errorf("lookup %q: search column: %w", col.Name, err)
 		}
-		searchPgType, err := s.columnPgTypeByName(ctx, tid, rel.TargetTableId, searchCol)
+		searchPgType, err := s.columnPgTypeByName(ctx, tid, rel.TargetTableName, searchCol)
 		if err != nil {
 			return nil, fmt.Errorf("lookup %q: search column type: %w", col.Name, err)
 		}
-		refPgType, err := s.columnPgTypeByName(ctx, tid, rel.TargetTableId, refCol)
+		refPgType, err := s.columnPgTypeByName(ctx, tid, rel.TargetTableName, refCol)
 		if err != nil {
 			return nil, fmt.Errorf("lookup %q: ref column type: %w", col.Name, err)
 		}
@@ -93,7 +93,7 @@ func (s *Schema) LoadLookupWriteSpecs(ctx context.Context, tableID string) (map[
 			LookupName:    col.Name,
 			LocalFKColumn: localFK,
 			LocalFKPgType: localFKPgType,
-			TargetTableID: rel.TargetTableId,
+			TargetTableName: rel.TargetTableName,
 			TargetSchema:  tgt.schema,
 			TargetTable:   tgt.table,
 			SearchColumn:  searchCol,
@@ -109,8 +109,8 @@ func (s *Schema) LoadLookupWriteSpecs(ctx context.Context, tableID string) (map[
 	return out, nil
 }
 
-func (s *Schema) columnPgTypeByName(ctx context.Context, tenantID, tableID, colName string) (string, error) {
-	resolvedTable, err := s.B.ResolveTableName(ctx, tableID)
+func (s *Schema) columnPgTypeByName(ctx context.Context, tenantID, tableName, colName string) (string, error) {
+	resolvedTable, err := s.B.ResolveTableName(ctx, tableName)
 	if err != nil {
 		return "", err
 	}
@@ -122,7 +122,7 @@ func (s *Schema) columnPgTypeByName(ctx context.Context, tenantID, tableID, colN
 	}
 	err = s.B.Tenants.MetaPool().QueryRow(ctx, `
 		SELECT type_id, config FROM lc_columns
-		WHERE tenant_id = $1 AND base_id = $2 AND table_id = $3 AND name = $4`,
+		WHERE tenant_id = $1 AND base_id = $2 AND table_name = $3 AND name = $4`,
 		tenantID, baseID, resolvedTable, colName,
 	).Scan(&typeID, &cfg)
 	if err != nil {
@@ -131,8 +131,8 @@ func (s *Schema) columnPgTypeByName(ctx context.Context, tenantID, tableID, colN
 	return catalog.New(s.B).ColumnPgTypeSQL(ctx, tenantID, typeID, cfg), nil
 }
 
-func (s *Schema) fkReferencedColumnOnTarget(ctx context.Context, tenantID, tableID, fkColName string) (string, error) {
-	resolvedTable, err := s.B.ResolveTableName(ctx, tableID)
+func (s *Schema) fkReferencedColumnOnTarget(ctx context.Context, tenantID, tableName, fkColName string) (string, error) {
+	resolvedTable, err := s.B.ResolveTableName(ctx, tableName)
 	if err != nil {
 		return "", err
 	}
@@ -144,20 +144,20 @@ func (s *Schema) fkReferencedColumnOnTarget(ctx context.Context, tenantID, table
 	var cfg map[string]any
 	err = s.B.Tenants.MetaPool().QueryRow(ctx, `
 		SELECT type_id, config FROM lc_columns
-		WHERE tenant_id = $1 AND base_id = $2 AND table_id = $3 AND name = $4`,
+		WHERE tenant_id = $1 AND base_id = $2 AND table_name = $3 AND name = $4`,
 		tenantID, baseID, resolvedTable, fkColName,
 	).Scan(&typeID, &cfg)
 	if err != nil {
 		return "", err
 	}
-	if typeID != "relation_fk" {
+	if typeID != "link" {
 		return "id", nil
 	}
 	ref := shared.CfgString(cfg, "target_column_id")
 	if ref == "" {
 		return "id", nil
 	}
-	targetTable := shared.CfgString(cfg, "target_table_id")
+	targetTable := shared.CfgString(cfg, "target_table_name")
 	if targetTable == "" {
 		return "id", nil
 	}

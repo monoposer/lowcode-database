@@ -4,8 +4,8 @@
 // Files:
 //
 //   - types.go — ListTypes (pgType + columnType); columnTypeToAPIType
-//   - column_type.go — lc_column_types CRUD, column type DDL (pkg/typespec)
+//   - column_type.go — lc_column_types CRUD
 //   - index.go — index catalog reads
 //
-// Related: internal/columntype (built-in pgType registry), pkg/typespec (portable column type spec).
+// Related: internal/columntype (built-in pgType registry and columnType spec).
 package catalog

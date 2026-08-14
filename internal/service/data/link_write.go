@@ -31,9 +31,9 @@ func persistLinksTx(ctx context.Context, tx pgx.Tx, tenantID, tableName, recordI
 		if !ok {
 			continue
 		}
-		toTable := shared.CfgString(col.Config, "to_table_id")
+		toTable := shared.CfgString(col.Config, "to_table_name")
 		if toTable == "" {
-			toTable = shared.CfgString(col.Config, "target_table_id")
+			toTable = shared.CfgString(col.Config, "target_table_name")
 		}
 		fieldKey := col.Name
 		oldIDs, _ := calc.ListToIDs(ctx, tx, tenantID, recordID, fieldKey)

@@ -5,10 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/monoposer/lowcode-database/internal/platform/cache"
 	"github.com/monoposer/lowcode-database/internal/service/calc"
 	"github.com/monoposer/lowcode-database/internal/service/shared"
-	"github.com/monoposer/lowcode-database/internal/telemetry"
+	"github.com/monoposer/lowcode-database/pkg/platform/cache"
 )
 
 type RuntimeResponse struct {
@@ -16,7 +15,6 @@ type RuntimeResponse struct {
 	PoolCount     int                 `json:"poolCount"`
 	CreateWaiters int32               `json:"createWaiters"`
 	Calc          *calc.QueueSnapshot `json:"calc,omitempty"`
-	Metrics       *telemetry.Snapshot `json:"metrics,omitempty"`
 }
 
 func (s *Platform) Runtime(ctx context.Context) (*RuntimeResponse, error) {
@@ -34,10 +32,6 @@ func (s *Platform) Runtime(ctx context.Context) (*RuntimeResponse, error) {
 			}
 		}
 	}
-	if mem, ok := s.B.Telemetry.(*telemetry.Memory); ok {
-		snap := mem.Snapshot()
-		out.Metrics = &snap
-	}
 	return out, nil
 }
 
@@ -54,7 +48,7 @@ func (s *Platform) InspectCache(ctx context.Context, tableName string) (*CacheIn
 		return nil, err
 	}
 	if tableName == "" {
-		return nil, fmt.Errorf("table_id is required")
+		return nil, fmt.Errorf("table_name is required")
 	}
 	key := shared.CacheKeyColumns(tid, tableName)
 	out := &CacheInspectResponse{Key: key}
@@ -77,7 +71,7 @@ func (s *Platform) InspectCache(ctx context.Context, tableName string) (*CacheIn
 	}
 	if err := s.B.Tenants.MetaPool().QueryRow(ctx, `
 		SELECT COUNT(*)::int FROM lc_columns
-		WHERE tenant_id = $1 AND base_id = $2 AND table_id = $3`, tid, baseID, tableName).Scan(&dbCount); err != nil {
+		WHERE tenant_id = $1 AND base_id = $2 AND table_name = $3`, tid, baseID, tableName).Scan(&dbCount); err != nil {
 		return nil, err
 	}
 	if dbCount != len(cached.Cols) {

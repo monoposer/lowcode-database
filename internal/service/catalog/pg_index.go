@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/jackc/pgx/v5"
-	apiv1schema "github.com/monoposer/lowcode-database/internal/apiv1/schema"
 	"regexp"
 	"strings"
 )
@@ -53,7 +52,7 @@ func (s *Catalog) ListPGIndexes(ctx context.Context, schemaName, tableName strin
 	return out, rows.Err()
 }
 
-func (s *Catalog) PGIndexesToAPI(ctx context.Context, tableID, schemaName, tableName string, rows []pgIndexRow) ([]*apiv1schema.Index, error) {
+func (s *Catalog) PGIndexesToAPI(ctx context.Context, tableName, schemaName, physicalName string, rows []pgIndexRow) ([]*Index, error) {
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
@@ -65,7 +64,7 @@ func (s *Catalog) PGIndexesToAPI(ctx context.Context, tableID, schemaName, table
 		return nil, err
 	}
 	idRows, err := meta.Query(ctx, `
-		SELECT id, name FROM lc_columns WHERE table_id = $1 AND tenant_id = $2 AND base_id = $3`, tableID, tid, baseID)
+		SELECT id, name FROM lc_columns WHERE table_name = $1 AND tenant_id = $2 AND base_id = $3`, tableName, tid, baseID)
 	if err != nil {
 		return nil, err
 	}
@@ -81,16 +80,16 @@ func (s *Catalog) PGIndexesToAPI(ctx context.Context, tableID, schemaName, table
 		return nil, err
 	}
 
-	var indexes []*apiv1schema.Index
+	var indexes []*Index
 	prefix := "idx_" + tableName + "_"
 	for _, r := range rows {
 		logicalName := r.Name
 		if len(r.Name) > len(prefix) && r.Name[:len(prefix)] == prefix {
 			logicalName = r.Name[len(prefix):]
 		}
-		idx := &apiv1schema.Index{
+		idx := &Index{
 			Id:        logicalName,
-			TableId:   tableID,
+			TableName:   tableName,
 			Name:      logicalName,
 			PgIndex:   r.Name,
 			IsUnique:  r.IsUnique,
@@ -106,7 +105,7 @@ func (s *Catalog) PGIndexesToAPI(ctx context.Context, tableID, schemaName, table
 	return indexes, nil
 }
 
-func (s *Catalog) resolveIndexSchema(ctx context.Context, indexName, tableID string) (string, error) {
+func (s *Catalog) resolveIndexSchema(ctx context.Context, indexName, tableName string) (string, error) {
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
 		return "", err
@@ -115,15 +114,15 @@ func (s *Catalog) resolveIndexSchema(ctx context.Context, indexName, tableID str
 	if err != nil {
 		return "", err
 	}
-	if _, err := s.findIndexMeta(ctx, tid, baseID, tableID, indexName); err == nil {
+	if _, err := s.findIndexMeta(ctx, tid, baseID, tableName, indexName); err == nil {
 		return "", nil
 	}
-	schemaName, _, err := s.resolveIndexInPGCatalog(ctx, indexName, tableID)
+	schemaName, _, err := s.resolveIndexInPGCatalog(ctx, indexName, tableName)
 	return schemaName, err
 }
 
 // resolveIndexInPGCatalog locates an index in PG catalog scoped to the current tenant's schemas.
-func (s *Catalog) resolveIndexInPGCatalog(ctx context.Context, indexName, tableID string) (schemaName, pgTable string, err error) {
+func (s *Catalog) resolveIndexInPGCatalog(ctx context.Context, indexName, tableName string) (schemaName, pgTable string, err error) {
 	if indexName == "" {
 		return "", "", fmt.Errorf("index id is required")
 	}
@@ -136,8 +135,8 @@ func (s *Catalog) resolveIndexInPGCatalog(ctx context.Context, indexName, tableI
 		return "", "", err
 	}
 
-	if tableID != "" {
-		_, schemaName, tableName, err := s.B.LoadTablePhysical(ctx, tableID)
+	if tableName != "" {
+		_, schemaName, tableName, err := s.B.LoadTablePhysical(ctx, tableName)
 		if err != nil {
 			return "", "", err
 		}
@@ -184,7 +183,7 @@ func (s *Catalog) resolveIndexInPGCatalog(ctx context.Context, indexName, tableI
 	case 1:
 		return matches[0][0], matches[0][1], nil
 	default:
-		return "", "", fmt.Errorf("index %q is ambiguous; pass table_id query parameter", indexName)
+		return "", "", fmt.Errorf("index %q is ambiguous; pass table_name query parameter", indexName)
 	}
 }
 

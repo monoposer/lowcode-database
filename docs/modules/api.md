@@ -1,6 +1,17 @@
-# api / apiv1
+# api
 
-HTTP transport and JSON contract types. **No business logic.**
+HTTP transport layer. **No business logic.** JSON resource types live in the domain packages under `internal/service/`.
+
+| Package | Role |
+|---------|------|
+| `internal/api` | chi routes, handlers, middleware (`httputil`); HTTP JSON envelopes |
+| `internal/service/schema` | Table, Column, Relation, ER |
+| `internal/service/catalog` | Index, ColumnTypeDef, Type |
+| `internal/service/data` | Row + query/list/bulk/export params |
+| `internal/service/platform` | Tenant, API Key, Query, connection, … |
+| `internal/service/shared` | Cell `Value`, `SortOrder`, conversions |
+
+URL prefix `/v1/` is the HTTP version.
 
 ## internal/api
 
@@ -8,9 +19,9 @@ HTTP transport and JSON contract types. **No business logic.**
 |------|------|
 | `routes.go` | All route registration (chi) |
 | `httputil/base.go` | JSON, tenant context, read-only tenant intercept |
-| `admin/platform.go` | Tenants, connection, API Key, types, schema-audit |
-| `admin/schema.go` | Tables/columns/indexes/Domain/relations/Query |
-| `data/row.go` | Row CRUD, query, bulk, import/export; execute saved Query |
+| `admin/platform.go` | Tenants, connection, API Key, types, webhooks |
+| `admin/schema.go` | Tables/columns/indexes/columnType/relations/Query |
+| `data/row.go` | Row CRUD, query, bulk, export; execute saved Query |
 | `openapi/` | OpenAPI 3 + Swagger UI |
 
 ### API planes
@@ -19,25 +30,11 @@ HTTP transport and JSON contract types. **No business logic.**
 |--------|------|
 | `/v1/admin/*` | Schema changes, tenants, observability (**Meta API**) |
 | `/v1/data/*` | Row I/O, execute saved Query |
-| `/v1/worker/*` | calc_queue drain/claim/ack (**Worker API**) |
 
-Control (`cmd/server`) middleware: CORS → RequestLog → **authn** → `NewHandler` (admin + data + calc HTTP).
+Control (`cmd/server`) middleware: CORS → RequestLog → **authn** → `NewHandler` (admin + data). Calc runs in-process (`internal/service/calc`), not as HTTP.
 
-## internal/apiv1
+## Handler pattern
 
-Hand-written JSON types, **no protobuf**.
+Handlers decode JSON into the service domain type, call `h.Svc.…`, and wrap the entity in a small envelope (`{"table": t}`).
 
-| Subpackage | Types |
-|------------|-------|
-| *(root)* | `Value`, `SortOrder`, cell conversion |
-| `schema/` | Table, Column, Index, **Domain**, Relation, ER |
-| `row/` | Row, CRUD/import/export |
-| `query/` | Query admin + execute (HTTP `/queries`) |
-| `platform/` | Tenant, API Key |
-
-Handler pattern: `admin.Tables{Base}` → `h.Svc.CreateTable(...)` → `LowcodeService` embedded domain methods.
-
-## Conventions
-
-- New endpoints: register in `routes.go` + `apiv1` types + service domain method.
-- Header **`X-Tenant-Id`** is required (middleware writes it into context).
+- New endpoints: register in `routes.go` + domain type in the matching `internal/service/<module>` + service method.

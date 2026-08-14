@@ -12,19 +12,19 @@ import (
 	"time"
 
 	"github.com/monoposer/lowcode-database/internal/api"
-	"github.com/monoposer/lowcode-database/internal/config"
 	"github.com/monoposer/lowcode-database/internal/event"
-	"github.com/monoposer/lowcode-database/internal/infra/postgres"
-	infraredis "github.com/monoposer/lowcode-database/internal/infra/redis"
-	"github.com/monoposer/lowcode-database/internal/logger"
-	"github.com/monoposer/lowcode-database/internal/platform/authn"
-	"github.com/monoposer/lowcode-database/internal/platform/cache"
-	"github.com/monoposer/lowcode-database/internal/platform/ratelimit"
 	"github.com/monoposer/lowcode-database/internal/service"
 	"github.com/monoposer/lowcode-database/internal/service/calc"
-	"github.com/monoposer/lowcode-database/internal/telemetry"
-	"github.com/monoposer/lowcode-database/internal/version"
 	"github.com/monoposer/lowcode-database/internal/worker"
+	"github.com/monoposer/lowcode-database/pkg/config"
+	"github.com/monoposer/lowcode-database/pkg/infra/postgres"
+	infraredis "github.com/monoposer/lowcode-database/pkg/infra/redis"
+	"github.com/monoposer/lowcode-database/pkg/logger"
+	"github.com/monoposer/lowcode-database/pkg/platform/authn"
+	"github.com/monoposer/lowcode-database/pkg/platform/cache"
+	"github.com/monoposer/lowcode-database/pkg/platform/ratelimit"
+	"github.com/monoposer/lowcode-database/pkg/telemetry"
+	"github.com/monoposer/lowcode-database/pkg/version"
 )
 
 func withCORS(next http.Handler) http.Handler {
@@ -94,7 +94,11 @@ func main() {
 	}
 
 	metaCache := cache.New(cfg, rdb)
-	tel := telemetry.NewMemory()
+	shutdownTel, err := telemetry.Init(ctx)
+	if err != nil {
+		log.Fatalf("telemetry: %v", err)
+	}
+	defer func() { _ = shutdownTel(context.Background()) }()
 	bus := event.Open(cfg, rdb)
 	defer bus.Close()
 	lcSvc := service.NewLowcodeService(tenantMgr, cfg.MaxRow,
@@ -102,7 +106,6 @@ func main() {
 		service.WithPGStatStatements(cfg.PGStatStatements),
 		service.WithLogger(appLog, time.Duration(cfg.SlowQueryThresholdMS)*time.Millisecond),
 		service.WithLogSQL(cfg.LogSQL),
-		service.WithTelemetry(tel),
 		service.WithLimits(cfg),
 		service.WithHTTPMiddleware(ratelimit.New(cfg.RateLimitGlobalRPS, cfg.RateLimitTenantRPS).Middleware),
 		service.WithEventBus(bus),
@@ -117,6 +120,7 @@ func main() {
 
 	go (&worker.IndexMigrate{
 		Tenants:  tenantMgr,
+		EventBus: bus,
 		Interval: 10 * time.Second,
 		Timeout:  time.Duration(cfg.IndexBackfillTimeoutSec) * time.Second,
 	}).Run(ctx)
@@ -127,7 +131,6 @@ func main() {
 		Log:           appLog,
 		PerTenant:     cfg.CalcTenantConcurrency,
 		AlertQueueLen: cfg.CalcAlertQueueLen,
-		Telemetry:     tel,
 	}).Run(ctx)
 	appLog.Info("background workers started", "index_migrate", true, "calc", true, "batch", cfg.CalcWorkerBatch, "poll_ms", cfg.CalcWorkerPollMS)
 

@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"github.com/monoposer/lowcode-database/internal/api"
-	"github.com/monoposer/lowcode-database/internal/apiv1/platform"
 
-	apiv1schema "github.com/monoposer/lowcode-database/internal/apiv1/schema"
+	svcschema "github.com/monoposer/lowcode-database/internal/service/schema"
+	"github.com/monoposer/lowcode-database/internal/service/catalog"
 
 	"github.com/monoposer/lowcode-database/internal/testutil"
 	"net/http"
@@ -28,7 +28,9 @@ func TestHandlerListTypes(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d body %s", w.Code, w.Body.String())
 	}
-	var resp platform.ListTypesResponse
+	var resp struct {
+		Types []*catalog.Type `json:"types"`
+	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +57,7 @@ func TestHandlerCreateTableAndQuery(t *testing.T) {
 	}
 
 	colBody, _ := json.Marshal(map[string]any{
-		"tableId": tableName, "name": "title", "typeId": "text", "position": 1,
+		"tableName": tableName, "name": "title", "typeId": "text", "position": 1,
 	})
 	req = httptest.NewRequest(http.MethodPost, "/v1/admin/columns", bytes.NewReader(colBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -65,7 +67,9 @@ func TestHandlerCreateTableAndQuery(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("add column status %d: %s", w.Code, w.Body.String())
 	}
-	var colResp apiv1schema.AddColumnResponse
+	var colResp struct {
+		Column *svcschema.Column `json:"column"`
+	}
 	_ = json.Unmarshal(w.Body.Bytes(), &colResp)
 
 	rowBody, _ := json.Marshal(map[string]any{
@@ -98,7 +102,7 @@ func TestHandlerCreateTableAndQuery(t *testing.T) {
 		t.Fatalf("er diagram status %d: %s", w.Code, w.Body.String())
 	}
 
-	_, _ = svc.DeleteTable(testutil.Ctx(), &apiv1schema.DeleteTableRequest{Id: tableName})
+	_ = svc.DeleteTable(testutil.Ctx(), tableName)
 }
 
 func TestHandlerExecuteQueryNotCreate(t *testing.T) {
@@ -109,7 +113,7 @@ func TestHandlerExecuteQueryNotCreate(t *testing.T) {
 	body := []byte(`{"pageSize":10}`)
 	req := httptest.NewRequest(
 		http.MethodPost,
-		"/v1/data/queries/nonexistent_ds?table_id=nonexistent_tbl",
+		"/v1/data/queries/nonexistent_ds?table_name=nonexistent_tbl",
 		bytes.NewReader(body),
 	)
 	req.Header.Set("Content-Type", "application/json")
@@ -135,7 +139,7 @@ func TestHandlerMissingTenant(t *testing.T) {
 	}
 }
 
-func TestHandlerLegacyPathsNotFound(t *testing.T) {
+func TestHandlerUnversionedTablesPathNotFound(t *testing.T) {
 	svc, cleanup := testutil.SetupIntegration(t)
 	defer cleanup()
 
@@ -145,6 +149,6 @@ func TestHandlerLegacyPathsNotFound(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for legacy path, got %d", w.Code)
+		t.Fatalf("expected 404 for /v1/tables (admin lives under /v1/admin), got %d", w.Code)
 	}
 }

@@ -4,7 +4,7 @@ Tick before going live. Domain model is unchanged. **RBAC is not in this service
 
 ## Process topology
 
-- [ ] **One runtime**: `cmd/server` on `HTTP_ADDR` (`:8080`) serves `/v1/admin/*`, `/v1/data/*`, `/v1/worker/*`, and polls `calc_queue`
+- [ ] **One runtime**: `cmd/server` on `HTTP_ADDR` (`:8080`) serves `/v1/admin/*`, `/v1/data/*`, and polls `calc_queue`
 - [ ] `cmd/migrate` is CLI only; the server does **not** auto-migrate
 - [ ] Horizontal scale = N identical server replicas (set `EVENT_BUS=redis`; calc uses `SKIP LOCKED`)
 - [ ] New data DSN: `make migrate` (or `make docker-migrate`) so PostGIS / `pg_stat_statements` land on that database
@@ -19,7 +19,7 @@ Tick before going live. Domain model is unchanged. **RBAC is not in this service
 
 - [ ] Single instance: `EVENT_BUS=memory` is enough
 - [ ] Multiple replicas: `EVENT_BUS=redis` + `REDIS_URL`
-- [ ] External consumers: `/v1/admin/webhooks` (do not poll `lc_schema_audit`)
+- [ ] External consumers: `/v1/admin/webhooks` (this service does not persist an event log)
 
 ## Database
 

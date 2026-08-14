@@ -8,7 +8,7 @@ import (
 
 // cascadeFulltextDependents refreshes _fulltext_text on rows that lookup this source record.
 func (s *Data) cascadeFulltextDependents(ctx context.Context, sourceTable, sourceRecordID string) {
-	if !s.B.IsVirtualRecordsMode() || sourceRecordID == "" {
+	if sourceRecordID == "" {
 		return
 	}
 	ctx, tables, err := s.B.Tenants.AttachDataTables(ctx)
@@ -29,12 +29,11 @@ func (s *Data) cascadeFulltextDependents(ctx context.Context, sourceTable, sourc
 		return
 	}
 	rows, err := meta.Query(ctx, `
-		SELECT c.table_id, c.config, COALESCE(t.vt_id,'')
+		SELECT c.table_name, c.config, t.vt_id::text
 		FROM lc_columns c
-		JOIN lc_tables t ON t.tenant_id = c.tenant_id AND t.base_id = c.base_id AND t.name = c.table_id
+		JOIN lc_tables t ON t.tenant_id = c.tenant_id AND t.base_id = c.base_id AND t.name = c.table_name
 		WHERE c.tenant_id = $1 AND c.base_id = $2 AND c.type_id = 'lookup'
-		  AND (c.config->>'enable_fulltext') IN ('true','1')
-		  AND COALESCE(t.vt_id,'') <> ''`, tid, baseID)
+		  AND (c.config->>'enable_fulltext') IN ('true','1')`, tid, baseID)
 	if err != nil {
 		return
 	}
@@ -55,14 +54,14 @@ func (s *Data) cascadeFulltextDependents(ctx context.Context, sourceTable, sourc
 		relCol := configString(cfg, "relation_column_id")
 		var relCfgRaw []byte
 		if err := meta.QueryRow(ctx, `
-			SELECT config FROM lc_columns WHERE tenant_id = $1 AND base_id = $2 AND table_id = $3
-			  AND (name = $4 OR id::text = $4) AND type_id IN ('link','relationship','relation_fk')`,
+			SELECT config FROM lc_columns WHERE tenant_id = $1 AND base_id = $2 AND table_name = $3
+			  AND (name = $4 OR id::text = $4) AND type_id IN ('link')`,
 			tid, baseID, depTable, relCol).Scan(&relCfgRaw); err != nil {
 			continue
 		}
 		relCfg := map[string]any{}
 		_ = json.Unmarshal(relCfgRaw, &relCfg)
-		if configString(relCfg, "target_table_id") != sourceTable {
+		if configString(relCfg, "target_table_name") != sourceTable {
 			continue
 		}
 		fk := configString(relCfg, "target_column_id")

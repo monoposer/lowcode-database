@@ -10,7 +10,7 @@ type Envelope struct {
 	ID       string         `json:"id"`
 	Type     string         `json:"type"`
 	TenantID string         `json:"tenantId"`
-	TableID  string         `json:"tableId,omitempty"`
+	TableName  string         `json:"tableName,omitempty"`
 	Data     map[string]any `json:"data,omitempty"`
 	Time     time.Time      `json:"time"`
 }

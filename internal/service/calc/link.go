@@ -7,16 +7,16 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/monoposer/lowcode-database/internal/infra/postgres"
+	"github.com/monoposer/lowcode-database/pkg/infra/postgres"
 )
 
 func linkTbl(ctx context.Context) string { return postgres.TablesFromContext(ctx).QLinkRef() }
 
 type LinkEdge struct {
-	FromTableID  string
+	FromTableName  string
 	FromRecordID string
 	FromFieldID  string
-	ToTableID    string
+	ToTableName    string
 	ToRecordID   string
 }
 
@@ -46,7 +46,7 @@ type queryRower interface {
 
 func ListIncoming(ctx context.Context, pool *pgxpool.Pool, tenantID, toRecordID string) ([]LinkEdge, error) {
 	rows, err := pool.Query(ctx, fmt.Sprintf(`
-		SELECT from_table_id, from_record_id, from_field_id, to_table_id, to_record_id
+		SELECT from_table_name, from_record_id, from_field_id, to_table_name, to_record_id
 		FROM %s WHERE tenant_id = $1 AND to_record_id = $2`, linkTbl(ctx)), tenantID, toRecordID)
 	if err != nil {
 		return nil, err
@@ -55,7 +55,7 @@ func ListIncoming(ctx context.Context, pool *pgxpool.Pool, tenantID, toRecordID 
 	var out []LinkEdge
 	for rows.Next() {
 		var e LinkEdge
-		if err := rows.Scan(&e.FromTableID, &e.FromRecordID, &e.FromFieldID, &e.ToTableID, &e.ToRecordID); err != nil {
+		if err := rows.Scan(&e.FromTableName, &e.FromRecordID, &e.FromFieldID, &e.ToTableName, &e.ToRecordID); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
@@ -63,7 +63,7 @@ func ListIncoming(ctx context.Context, pool *pgxpool.Pool, tenantID, toRecordID 
 	return out, rows.Err()
 }
 
-func ReplaceLinks(ctx context.Context, tx pgx.Tx, tenantID, fromTableID, fromRecordID, fromFieldID, toTableID string, toIDs []string) error {
+func ReplaceLinks(ctx context.Context, tx pgx.Tx, tenantID, fromTableName, fromRecordID, fromFieldID, toTableName string, toIDs []string) error {
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		DELETE FROM %s
 		WHERE tenant_id = $1 AND from_record_id = $2 AND from_field_id = $3`, linkTbl(ctx)),
@@ -76,25 +76,25 @@ func ReplaceLinks(ctx context.Context, tx pgx.Tx, tenantID, fromTableID, fromRec
 			continue
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s (tenant_id, from_table_id, from_record_id, from_field_id, to_table_id, to_record_id)
+			INSERT INTO %s (tenant_id, from_table_name, from_record_id, from_field_id, to_table_name, to_record_id)
 			VALUES ($1,$2,$3,$4,$5,$6)
 			ON CONFLICT (from_record_id, from_field_id, to_record_id) DO NOTHING`, linkTbl(ctx)),
-			tenantID, fromTableID, fromRecordID, fromFieldID, toTableID, toID); err != nil {
+			tenantID, fromTableName, fromRecordID, fromFieldID, toTableName, toID); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func InsertInverse(ctx context.Context, tx pgx.Tx, tenantID, fromTableID, fromRecordID, inverseFieldID, toTableID, toRecordID string) error {
+func InsertInverse(ctx context.Context, tx pgx.Tx, tenantID, fromTableName, fromRecordID, inverseFieldID, toTableName, toRecordID string) error {
 	if inverseFieldID == "" || toRecordID == "" {
 		return nil
 	}
 	_, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s (tenant_id, from_table_id, from_record_id, from_field_id, to_table_id, to_record_id)
+		INSERT INTO %s (tenant_id, from_table_name, from_record_id, from_field_id, to_table_name, to_record_id)
 		VALUES ($1,$2,$3,$4,$5,$6)
 		ON CONFLICT (from_record_id, from_field_id, to_record_id) DO NOTHING`, linkTbl(ctx)),
-		tenantID, toTableID, toRecordID, inverseFieldID, fromTableID, fromRecordID)
+		tenantID, toTableName, toRecordID, inverseFieldID, fromTableName, fromRecordID)
 	return err
 }
 

@@ -1,6 +1,6 @@
 import { colorSchemeDark, themeQuartz } from 'ag-grid-community'
 
-/** Dark studio theme — use with AG Grid v33+ Theming API (no legacy ag-grid.css). */
+/** Dark studio theme — AG Grid v33+ Theming API. */
 export const gridTheme = themeQuartz.withPart(colorSchemeDark).withParams({
   accentColor: '#3ecf8e',
   backgroundColor: '#171717',

@@ -4,14 +4,11 @@ import (
 	"context"
 	"fmt"
 	"time"
-
 	"github.com/jackc/pgx/v5"
-
-	apiv1schema "github.com/monoposer/lowcode-database/internal/apiv1/schema"
 	"github.com/monoposer/lowcode-database/internal/event"
 )
 
-func (s *Schema) ListColumns(ctx context.Context, req *apiv1schema.ListColumnsRequest) (*apiv1schema.ListColumnsResponse, error) {
+func (s *Schema) ListColumns(ctx context.Context, tableName string) ([]*Column, error) {
 	tenantID, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
@@ -21,14 +18,15 @@ func (s *Schema) ListColumns(ctx context.Context, req *apiv1schema.ListColumnsRe
 		return nil, err
 	}
 	meta := s.B.Tenants.MetaPool()
-	tableName, err := s.B.ResolveTableName(ctx, req.TableId)
+	resolved, err := s.B.ResolveTableName(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}
+	tableName = resolved
 	const q = `
-		SELECT id, table_id, name, label, type_id, is_nullable, position, config, created_at, updated_at
+		SELECT id, table_name, name, label, type_id, is_nullable, position, config, created_at, updated_at
 		FROM lc_columns
-		WHERE table_id = $1 AND tenant_id = $2 AND base_id = $3
+		WHERE table_name = $1 AND tenant_id = $2 AND base_id = $3
 		ORDER BY position
 	`
 	rows, err := meta.Query(ctx, q, tableName, tenantID, baseID)
@@ -37,12 +35,12 @@ func (s *Schema) ListColumns(ctx context.Context, req *apiv1schema.ListColumnsRe
 	}
 	defer rows.Close()
 
-	var res apiv1schema.ListColumnsResponse
+	var out []*Column
 	for rows.Next() {
-		var c apiv1schema.Column
+		var c Column
 		var cfg map[string]any
 		var createdAt, updatedAt time.Time
-		if err := rows.Scan(&c.Id, &c.TableId, &c.Name, &c.Label, &c.TypeId, &c.IsNullable, &c.Position, &cfg, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&c.Id, &c.TableName, &c.Name, &c.Label, &c.TypeId, &c.IsNullable, &c.Position, &cfg, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
 		c.CreatedAt = createdAt
@@ -54,50 +52,50 @@ func (s *Schema) ListColumns(ctx context.Context, req *apiv1schema.ListColumnsRe
 			return nil, err
 		}
 		PublicColumn(&c)
-		res.Columns = append(res.Columns, &c)
+		out = append(out, &c)
 	}
-	return &res, rows.Err()
+	return out, rows.Err()
 }
 
-func (s *Schema) DeleteColumn(ctx context.Context, req *apiv1schema.DeleteColumnRequest) (*apiv1schema.DeleteColumnResponse, error) {
+func (s *Schema) DeleteColumn(ctx context.Context, tableName, id string) error {
 	tenantID, err := s.B.TenantID(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	baseID, err := s.B.BaseID(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	colDBID, err := s.ResolveColumnDBID(ctx, tenantID, req.TableId, req.Id)
+	colDBID, err := s.ResolveColumnDBID(ctx, tenantID, tableName, id)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	meta := s.B.Tenants.MetaPool()
 
-	var tableID string
+	var tableKey string
 	if err := meta.QueryRow(ctx, `
-		SELECT c.table_id
+		SELECT c.table_name
 		FROM lc_columns c
 		WHERE c.id = $1 AND c.tenant_id = $2 AND c.base_id = $3`,
 		colDBID, tenantID, baseID,
-	).Scan(&tableID); err != nil {
+	).Scan(&tableKey); err != nil {
 		if err == pgx.ErrNoRows {
-			return &apiv1schema.DeleteColumnResponse{}, nil
+			return nil
 		}
-		return nil, err
+		return err
 	}
 
 	if _, err := meta.Exec(ctx, `
 		DELETE FROM lc_columns WHERE id = $1 AND tenant_id = $2 AND base_id = $3`,
 		colDBID, tenantID, baseID); err != nil {
-		return nil, err
+		return err
 	}
 
-	s.B.InvalidateTableMetaCache(ctx, tableID)
-	s.B.EmitEvent(ctx, event.MetadataColumnDeleted, tableID, map[string]any{
-		"tableId": tableID, "columnId": colDBID,
+	s.B.InvalidateTableMetaCache(ctx, tableKey)
+	s.B.EmitEvent(ctx, event.MetadataColumnDeleted, tableKey, map[string]any{
+		"tableName": tableKey, "columnId": colDBID,
 	})
-	return &apiv1schema.DeleteColumnResponse{}, nil
+	return nil
 }
 
 func (s *Schema) AlterColumnType(ctx context.Context, schemaName, tableName, colName, fromTypeID, toTypeID string) error {

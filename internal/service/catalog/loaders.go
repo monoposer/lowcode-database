@@ -7,8 +7,8 @@ import (
 	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
-func (s *Catalog) LoadColumns(ctx context.Context, tableID string) ([]shared.ColumnMeta, string, string, error) {
-	resolvedName, err := s.B.ResolveTableName(ctx, tableID)
+func (s *Catalog) LoadColumns(ctx context.Context, tableName string) ([]shared.ColumnMeta, string, string, error) {
+	resolvedName, err := s.B.ResolveTableName(ctx, tableName)
 	if err != nil {
 		return nil, "", "", err
 	}
@@ -22,11 +22,11 @@ func (s *Catalog) LoadColumns(ctx context.Context, tableID string) ([]shared.Col
 	}
 	meta := s.B.Tenants.MetaPool()
 	const q = `
-		SELECT c.id, c.table_id, c.name, c.type_id, c.is_nullable, c.position, c.config,
+		SELECT c.id, c.table_name, c.name, c.type_id, c.is_nullable, c.position, c.config,
 		       t.name
 		FROM lc_columns c
-		JOIN lc_tables t ON c.table_id = t.name AND c.tenant_id = t.tenant_id AND c.base_id = t.base_id
-		WHERE c.table_id = $1 AND c.tenant_id = $2 AND c.base_id = $3
+		JOIN lc_tables t ON c.table_name = t.name AND c.tenant_id = t.tenant_id AND c.base_id = t.base_id
+		WHERE c.table_name = $1 AND c.tenant_id = $2 AND c.base_id = $3
 		ORDER BY c.position
 	`
 	rows, err := meta.Query(ctx, q, resolvedName, tid, baseID)
@@ -36,12 +36,12 @@ func (s *Catalog) LoadColumns(ctx context.Context, tableID string) ([]shared.Col
 	defer rows.Close()
 
 	var cols []shared.ColumnMeta
-	var tableName string
+	var physicalName string
 	for rows.Next() {
 		var c shared.ColumnMeta
 		var cfg map[string]any
-		if err := rows.Scan(&c.Id, &c.TableId, &c.Name, &c.TypeId, &c.IsNullable, &c.Position, &cfg,
-			&tableName); err != nil {
+		if err := rows.Scan(&c.Id, &c.TableName, &c.Name, &c.TypeId, &c.IsNullable, &c.Position, &cfg,
+			&physicalName); err != nil {
 			return nil, "", "", err
 		}
 		if columntype.IsVirtual(c.TypeId) {
@@ -53,11 +53,11 @@ func (s *Catalog) LoadColumns(ctx context.Context, tableID string) ([]shared.Col
 	if err := rows.Err(); err != nil {
 		return nil, "", "", err
 	}
-	return cols, "", tableName, nil
+	return cols, "", physicalName, nil
 }
 
-func (s *Catalog) LoadAllColumnMeta(ctx context.Context, tableID string) ([]shared.FullColumnMeta, string, string, error) {
-	resolvedName, err := s.B.ResolveTableName(ctx, tableID)
+func (s *Catalog) LoadAllColumnMeta(ctx context.Context, tableName string) ([]shared.FullColumnMeta, string, string, error) {
+	resolvedName, err := s.B.ResolveTableName(ctx, tableName)
 	if err != nil {
 		return nil, "", "", err
 	}
@@ -79,11 +79,11 @@ func (s *Catalog) LoadAllColumnMeta(ctx context.Context, tableID string) ([]shar
 
 	meta := s.B.Tenants.MetaPool()
 	const q = `
-		SELECT c.id, c.table_id, c.name, c.type_id, c.is_nullable, c.position,
+		SELECT c.id, c.table_name, c.name, c.type_id, c.is_nullable, c.position,
 		       c.config, t.name
 		FROM lc_columns c
-		JOIN lc_tables t ON c.table_id = t.name AND c.tenant_id = t.tenant_id AND c.base_id = t.base_id
-		WHERE c.table_id = $1 AND c.tenant_id = $2 AND c.base_id = $3
+		JOIN lc_tables t ON c.table_name = t.name AND c.tenant_id = t.tenant_id AND c.base_id = t.base_id
+		WHERE c.table_name = $1 AND c.tenant_id = $2 AND c.base_id = $3
 		ORDER BY c.position
 	`
 	rows, err := meta.Query(ctx, q, resolvedName, tid, baseID)
@@ -93,11 +93,11 @@ func (s *Catalog) LoadAllColumnMeta(ctx context.Context, tableID string) ([]shar
 	defer rows.Close()
 
 	var out []shared.FullColumnMeta
-	var tableName string
+	var physicalName string
 	for rows.Next() {
 		var c shared.FullColumnMeta
-		if err := rows.Scan(&c.Id, &c.TableId, &c.Name, &c.TypeId, &c.IsNullable, &c.Position,
-			&c.Config, &tableName); err != nil {
+		if err := rows.Scan(&c.Id, &c.TableName, &c.Name, &c.TypeId, &c.IsNullable, &c.Position,
+			&c.Config, &physicalName); err != nil {
 			return nil, "", "", err
 		}
 		c.PgType = s.ColumnPgTypeSQL(ctx, tid, c.TypeId, c.Config)
@@ -110,8 +110,8 @@ func (s *Catalog) LoadAllColumnMeta(ctx context.Context, tableID string) ([]shar
 	}
 	if s.B.Cache != nil {
 		_ = s.B.Cache.Set(ctx, key, shared.CachedColumnMetaBundle{
-			Cols: out, SchemaName: "", TableName: tableName,
+			Cols: out, SchemaName: "", TableName: physicalName,
 		}, s.B.CacheTTL)
 	}
-	return out, "", tableName, nil
+	return out, "", physicalName, nil
 }

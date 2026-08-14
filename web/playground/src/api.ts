@@ -66,8 +66,8 @@ export async function deleteTable(id: string, opts: ApiOpts = {}) {
   return parseJson<Record<string, unknown>>(res)
 }
 
-export async function getTableSchema(tableId: string, opts: ApiOpts = {}) {
-  const res = await fetch(`${base(opts)}/v1/tables/${encodeURIComponent(tableId)}/schema`, {
+export async function getTableSchema(tableName: string, opts: ApiOpts = {}) {
+  const res = await fetch(`${base(opts)}/v1/tables/${encodeURIComponent(tableName)}/schema`, {
     headers: headers(opts),
   })
   return parseJson<{ table: Table; columns: Column[]; indexes: Index[] }>(res)
@@ -84,8 +84,8 @@ export async function renameTable(id: string, newName: string, opts: ApiOpts = {
 
 // -------- Columns (GET/POST /v1/columns, PATCH/DELETE /v1/columns/{id}) --------
 
-export async function listColumns(tableId: string, opts: ApiOpts = {}) {
-  const q = new URLSearchParams({ table_id: tableId })
+export async function listColumns(tableName: string, opts: ApiOpts = {}) {
+  const q = new URLSearchParams({ table_name: tableName })
   const res = await fetch(`${base(opts)}/v1/columns?${q}`, {
     headers: headers(opts),
   })
@@ -94,7 +94,7 @@ export async function listColumns(tableId: string, opts: ApiOpts = {}) {
 
 export async function createColumn(
   body: {
-    tableId: string
+    tableName: string
     name: string
     label?: string
     typeId: string
@@ -113,7 +113,7 @@ export async function createColumn(
 }
 
 export async function updateColumn(
-  tableId: string,
+  tableName: string,
   columnRef: string,
   body: {
     name?: string
@@ -125,17 +125,17 @@ export async function updateColumn(
   },
   opts: ApiOpts = {},
 ) {
-  const q = tableId ? `?table_id=${encodeURIComponent(tableId)}` : ''
+  const q = tableName ? `?table_name=${encodeURIComponent(tableName)}` : ''
   const res = await fetch(`${base(opts)}/v1/columns/${encodeURIComponent(columnRef)}${q}`, {
     method: 'PATCH',
     headers: headers(opts),
-    body: JSON.stringify({ ...body, tableId }),
+    body: JSON.stringify({ ...body, tableName }),
   })
   return parseJson<{ column: Column }>(res)
 }
 
-export async function deleteColumn(tableId: string, columnRef: string, opts: ApiOpts = {}) {
-  const q = tableId ? `?table_id=${encodeURIComponent(tableId)}` : ''
+export async function deleteColumn(tableName: string, columnRef: string, opts: ApiOpts = {}) {
+  const q = tableName ? `?table_name=${encodeURIComponent(tableName)}` : ''
   const res = await fetch(`${base(opts)}/v1/columns/${encodeURIComponent(columnRef)}${q}`, {
     method: 'DELETE',
     headers: headers(opts),
@@ -145,8 +145,8 @@ export async function deleteColumn(tableId: string, columnRef: string, opts: Api
 
 // -------- Indexes (today: PG catalog via /v1/indexes; RFC: JSONB partial / FTS on virtual_records) --------
 
-export async function listIndexes(tableId: string, opts: ApiOpts = {}) {
-  const q = new URLSearchParams({ table_id: tableId })
+export async function listIndexes(tableName: string, opts: ApiOpts = {}) {
+  const q = new URLSearchParams({ table_name: tableName })
   const res = await fetch(`${base(opts)}/v1/indexes?${q}`, {
     headers: headers(opts),
   })
@@ -154,7 +154,7 @@ export async function listIndexes(tableId: string, opts: ApiOpts = {}) {
 }
 
 export async function createIndex(
-  body: { tableId: string; name: string; columnIds: string[]; isUnique?: boolean },
+  body: { tableName: string; name: string; columnIds: string[]; isUnique?: boolean },
   opts: ApiOpts = {},
 ) {
   const res = await fetch(`${base(opts)}/v1/indexes`, {
@@ -184,16 +184,16 @@ export type Query = {
   id: string
   name?: string
   label?: string
-  tableId?: string
+  tableName?: string
   filter?: Record<string, unknown>
   sort?: SortOrder[]
   columnIds?: string[]
   config?: Record<string, unknown>
 }
 
-export async function listQueries(tableId: string | undefined, opts: ApiOpts = {}) {
+export async function listQueries(tableName: string | undefined, opts: ApiOpts = {}) {
   const q = new URLSearchParams()
-  if (tableId) q.set('table_id', tableId)
+  if (tableName) q.set('table_name', tableName)
   const suffix = q.toString() ? `?${q}` : ''
   const res = await fetch(`${base(opts)}/v1/admin/queries${suffix}`, {
     headers: headers(opts),
@@ -205,7 +205,7 @@ export async function createQuery(
   body: {
     name: string
     label?: string
-    tableId: string
+    tableName: string
     filter?: Record<string, unknown>
     sort?: SortOrder[]
     columnIds?: string[]
@@ -220,8 +220,8 @@ export async function createQuery(
   return parseJson<{ query: Query }>(res)
 }
 
-export async function deleteQuery(tableId: string, name: string, opts: ApiOpts = {}) {
-  const q = new URLSearchParams({ table_id: tableId })
+export async function deleteQuery(tableName: string, name: string, opts: ApiOpts = {}) {
+  const q = new URLSearchParams({ table_name: tableName })
   const res = await fetch(`${base(opts)}/v1/admin/queries/${encodeURIComponent(name)}?${q}`, {
     method: 'DELETE',
     headers: headers(opts),
@@ -230,7 +230,7 @@ export async function deleteQuery(tableId: string, name: string, opts: ApiOpts =
 }
 
 export async function executeQuery(
-  tableId: string,
+  tableName: string,
   name: string,
   body: {
     pageSize?: number
@@ -242,7 +242,7 @@ export async function executeQuery(
   } = {},
   opts: ApiOpts = {},
 ) {
-  const q = new URLSearchParams({ table_id: tableId })
+  const q = new URLSearchParams({ table_name: tableName })
   const res = await fetch(`${dataBase(opts)}/v1/data/queries/${encodeURIComponent(name)}?${q}`, {
     method: 'POST',
     headers: headers(opts),
@@ -260,17 +260,17 @@ export async function listTypes(opts: ApiOpts = {}) {
 
 // -------- Rows --------
 
-export async function listRows(tableId: string, pageSize: number, opts: ApiOpts = {}) {
+export async function listRows(tableName: string, pageSize: number, opts: ApiOpts = {}) {
   const q = new URLSearchParams({ pageSize: String(pageSize) })
   const res = await fetch(
-    `${base(opts)}/v1/tables/${encodeURIComponent(tableId)}/rows?${q}`,
+    `${base(opts)}/v1/tables/${encodeURIComponent(tableName)}/rows?${q}`,
     { headers: headers(opts) },
   )
   return parseJson<{ rows: Row[]; nextPageToken?: string }>(res)
 }
 
 export async function queryRows(
-  tableId: string,
+  tableName: string,
   body: {
     pageSize?: number
     pageToken?: string
@@ -281,37 +281,37 @@ export async function queryRows(
   opts: ApiOpts = {},
 ) {
   const res = await fetch(
-    `${base(opts)}/v1/tables/${encodeURIComponent(tableId)}/rows:query`,
+    `${base(opts)}/v1/tables/${encodeURIComponent(tableName)}/rows:query`,
     {
       method: 'POST',
       headers: headers(opts),
-      body: JSON.stringify({ tableId, ...body }),
+      body: JSON.stringify({ tableName, ...body }),
     },
   )
   return parseJson<{ rows: Row[]; nextPageToken?: string; count?: number }>(res)
 }
 
 export async function createRow(
-  tableId: string,
+  tableName: string,
   fields: Record<string, unknown>,
   opts: ApiOpts = {},
 ) {
-  const res = await fetch(`${base(opts)}/v1/tables/${encodeURIComponent(tableId)}/rows`, {
+  const res = await fetch(`${base(opts)}/v1/tables/${encodeURIComponent(tableName)}/rows`, {
     method: 'POST',
     headers: headers(opts),
-    body: JSON.stringify({ tableId, ...fields }),
+    body: JSON.stringify({ tableName, ...fields }),
   })
   return parseJson<{ row: Row }>(res)
 }
 
 export async function updateRow(
-  tableId: string,
+  tableName: string,
   rowId: string,
   fields: Record<string, unknown>,
   opts: ApiOpts = {},
 ) {
   const res = await fetch(
-    `${base(opts)}/v1/tables/${encodeURIComponent(tableId)}/rows/${encodeURIComponent(rowId)}`,
+    `${base(opts)}/v1/tables/${encodeURIComponent(tableName)}/rows/${encodeURIComponent(rowId)}`,
     {
       method: 'PATCH',
       headers: headers(opts),
@@ -321,32 +321,16 @@ export async function updateRow(
   return parseJson<{ row: Row }>(res)
 }
 
-export async function bulkDeleteRows(tableId: string, rowIds: string[], opts: ApiOpts = {}) {
+export async function bulkDeleteRows(tableName: string, rowIds: string[], opts: ApiOpts = {}) {
   const res = await fetch(
-    `${base(opts)}/v1/tables/${encodeURIComponent(tableId)}/rows:bulkDelete`,
+    `${base(opts)}/v1/tables/${encodeURIComponent(tableName)}/rows:bulkDelete`,
     {
       method: 'POST',
       headers: headers(opts),
-      body: JSON.stringify({ tableId, rowIds }),
+      body: JSON.stringify({ tableName, rowIds }),
     },
   )
   return parseJson<Record<string, unknown>>(res)
-}
-
-export async function importRows(
-  tableId: string,
-  rows: Record<string, unknown>[],
-  opts: ApiOpts = {},
-) {
-  const res = await fetch(
-    `${base(opts)}/v1/tables/${encodeURIComponent(tableId)}/rows:import`,
-    {
-      method: 'POST',
-      headers: headers(opts),
-      body: JSON.stringify({ tableId, format: 1, rows }),
-    },
-  )
-  return parseJson<{ rows: Row[]; insertedCount: number }>(res)
 }
 
 // -------- Platform --------
@@ -397,7 +381,7 @@ export type Table = {
   name?: string
   label?: string
   schemaName?: string
-  idType?: 'uuid' | 'int8' | string
+  idType?: 'uuid' | 'number' | string
 }
 
 export type Column = {
@@ -414,7 +398,7 @@ export type Column = {
 
 export type Index = {
   id: string
-  tableId?: string
+  tableName?: string
   name?: string
   pgIndex?: string
   columnIds?: string[]
@@ -478,18 +462,12 @@ export function formatCell(v: unknown): string {
 }
 
 function coerceArrayElements(items: unknown[], typeId: string): unknown[] {
-  const base = typeId.replace(/_array$/, '')
   return items.map((item) => {
     const s = String(item).trim()
-    switch (base) {
-      case 'bool':
+    switch (typeId) {
       case 'boolean':
         return s === 'true' || s === '1'
-      case 'int8':
-      case 'integer':
-      case 'double':
       case 'number':
-      case 'bigint':
         return Number(s)
       default:
         return s
@@ -517,8 +495,13 @@ function parseArrayInput(raw: string, typeId: string): unknown[] | undefined {
   return coerceArrayElements(items, typeId)
 }
 
-export function cellToNative(typeId: string, raw: string, allowEmpty = false): unknown {
-  const cell = cellFromString(typeId, raw, allowEmpty)
+export function cellToNative(
+  typeId: string,
+  raw: string,
+  allowEmpty = false,
+  isArray = false,
+): unknown {
+  const cell = cellFromString(typeId, raw, allowEmpty, isArray)
   if (!cell) return undefined
   if (cell.stringValue !== undefined) return cell.stringValue
   if (cell.numberValue !== undefined) return cell.numberValue
@@ -528,45 +511,29 @@ export function cellToNative(typeId: string, raw: string, allowEmpty = false): u
   return undefined
 }
 
-export function cellFromString(typeId: string, raw: string, allowEmpty = false): CellValue | undefined {
+export function cellFromString(
+  typeId: string,
+  raw: string,
+  allowEmpty = false,
+  isArray = false,
+): CellValue | undefined {
   const s = raw.trim()
   if (s === '') {
     if (!allowEmpty) return undefined
-    if (typeId.endsWith('_array')) return { jsonValue: [] }
-    switch (typeId) {
-      case 'number':
-      case 'double':
-      case 'precision':
-      case 'integer':
-      case 'int8':
-        return { stringValue: '' }
-      case 'bool':
-        return { stringValue: '' }
-      default:
-        return { stringValue: '' }
-    }
+    if (isArray) return { jsonValue: [] }
+    return { stringValue: '' }
   }
-  if (typeId.endsWith('_array')) {
+  if (isArray) {
     const arr = parseArrayInput(s, typeId)
     if (!arr) return undefined
     return { jsonValue: arr }
   }
   switch (typeId) {
     case 'number':
-    case 'double':
-    case 'precision':
-    case 'bigint':
       return { numberValue: Number(s) }
-    case 'bool':
     case 'boolean':
       return { boolValue: s === 'true' || s === '1' }
-    case 'integer':
-    case 'int8':
-      return { numberValue: Number(s) }
     case 'datetime':
-    case 'timestamptz':
-    case 'timestamp':
-    case 'date':
       return { timestampValue: s }
     default:
       return { stringValue: s }

@@ -5,8 +5,6 @@ import (
 	"net/http"
 
 	"github.com/monoposer/lowcode-database/internal/api/httputil"
-	"github.com/monoposer/lowcode-database/internal/apiv1/platform"
-	apiv1schema "github.com/monoposer/lowcode-database/internal/apiv1/schema"
 	svcplatform "github.com/monoposer/lowcode-database/internal/service/platform"
 )
 
@@ -15,12 +13,12 @@ type Platform struct {
 }
 
 func (h *Platform) GetDatabaseConnection(w http.ResponseWriter, r *http.Request) {
-	resp, err := h.Svc.GetDatabaseConnection(r.Context(), &platform.GetDatabaseConnectionRequest{})
+	resp, err := h.Svc.GetDatabaseConnection(r.Context(), &svcplatform.GetDatabaseConnectionRequest{})
 	h.WriteJSON(w, resp, err)
 }
 
 func (h *Platform) CreateTenant(w http.ResponseWriter, r *http.Request) {
-	var req platform.CreateTenantRequest
+	var req svcplatform.CreateTenantRequest
 	if !h.ReadJSON(w, r, &req) {
 		return
 	}
@@ -30,7 +28,7 @@ func (h *Platform) CreateTenant(w http.ResponseWriter, r *http.Request) {
 
 func (h *Platform) UpdateTenant(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	var req platform.UpdateTenantRequest
+	var req svcplatform.UpdateTenantRequest
 	if !h.ReadJSON(w, r, &req) {
 		return
 	}
@@ -58,12 +56,12 @@ func (h *Platform) DeleteWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Platform) ListAPIKeys(w http.ResponseWriter, r *http.Request) {
-	resp, err := h.Svc.ListAPIKeys(r.Context(), &platform.ListAPIKeysRequest{})
+	resp, err := h.Svc.ListAPIKeys(r.Context(), &svcplatform.ListAPIKeysRequest{})
 	h.WriteJSON(w, resp, err)
 }
 
 func (h *Platform) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
-	var req platform.CreateAPIKeyRequest
+	var req svcplatform.CreateAPIKeyRequest
 	if !h.ReadJSON(w, r, &req) {
 		return
 	}
@@ -77,13 +75,13 @@ func (h *Platform) DeleteAPIKey(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id required", http.StatusBadRequest)
 		return
 	}
-	resp, err := h.Svc.DeleteAPIKey(r.Context(), &platform.DeleteAPIKeyRequest{Id: id})
+	resp, err := h.Svc.DeleteAPIKey(r.Context(), &svcplatform.DeleteAPIKeyRequest{Id: id})
 	h.WriteJSON(w, resp, err)
 }
 
 func (h *Platform) ListTypes(w http.ResponseWriter, r *http.Request) {
-	resp, err := h.Svc.ListTypes(r.Context(), &platform.ListTypesRequest{})
-	h.WriteJSON(w, resp, err)
+	types, err := h.Svc.ListTypes(r.Context())
+	h.WriteJSON(w, map[string]any{"types": types}, err)
 }
 
 func (h *Platform) ListTenants(w http.ResponseWriter, r *http.Request) {
@@ -105,19 +103,8 @@ func (h *Platform) CreateBase(w http.ResponseWriter, r *http.Request) {
 	h.WriteJSON(w, resp, err)
 }
 
-type Event struct {
-	*httputil.Base
-}
-
-func (h *Event) ListSchemaAudit(w http.ResponseWriter, r *http.Request) {
-	var req platform.ListSchemaAuditRequest
-	httputil.ReadListQuery(r, &req)
-	resp, err := h.Svc.ListSchemaAudit(r.Context(), &req)
-	h.WriteJSON(w, resp, err)
-}
-
 func (h *Platform) ListPGStatStatements(w http.ResponseWriter, r *http.Request) {
-	var req platform.ListPGStatStatementsRequest
+	var req svcplatform.ListPGStatStatementsRequest
 	if v := r.URL.Query().Get("limit"); v != "" {
 		var n int
 		if _, err := fmt.Sscanf(v, "%d", &n); err == nil {
@@ -134,8 +121,8 @@ func (h *Platform) Runtime(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Platform) InspectCache(w http.ResponseWriter, r *http.Request) {
-	tableID := httputil.QueryFirst(r, "table_id", "tableId")
-	resp, err := h.Svc.InspectCache(r.Context(), tableID)
+	tableName := httputil.QueryFirst(r, "table_name", "tableName")
+	resp, err := h.Svc.InspectCache(r.Context(), tableName)
 	h.WriteJSON(w, resp, err)
 }
 
@@ -144,6 +131,6 @@ type ER struct {
 }
 
 func (h *ER) GetDiagram(w http.ResponseWriter, r *http.Request) {
-	resp, err := h.Svc.GetERDiagram(r.Context(), &apiv1schema.GetERDiagramRequest{})
-	h.WriteJSON(w, resp, err)
+	d, err := h.Svc.GetERDiagram(r.Context())
+	h.WriteJSON(w, map[string]any{"diagram": d}, err)
 }

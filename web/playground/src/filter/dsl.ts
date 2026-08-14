@@ -75,17 +75,7 @@ const ARRAY_OPS: FilterOpDef[] = [
   { op: 'NOT_EMPTY', label: 'is not empty', needsValue: false },
 ]
 
-const NUMERIC_TYPE_IDS = new Set([
-  'int8',
-  'double',
-  'number',
-  'integer',
-  'numeric',
-  'precision',
-  'bigint',
-  'float8',
-  'rollup',
-])
+const NUMERIC_TYPE_IDS = new Set(['number', 'rollup'])
 
 /** Heuristic aligned with InferFormulaResultTypeId. */
 export function inferFormulaResultTypeId(expression: string): 'number' | 'text' | 'datetime' | 'boolean' {
@@ -116,23 +106,15 @@ export function filterValueInputKind(
   listValue?: boolean,
   rawTypeId?: string,
 ): 'bool' | 'number' | 'datetime' | 'text' {
-  if (filterType.endsWith('_array')) return 'text'
-  if (filterType === 'bool' || filterType === 'boolean') return 'bool'
+  if (filterType === 'boolean') return 'bool'
   if (op === 'LIKE' || op === 'ARRAY_HAS' || listValue) return 'text'
-  if (
-    filterType === 'timestamptz' ||
-    filterType === 'date' ||
-    filterType === 'timestamp' ||
-    filterType === 'datetime'
-  ) {
-    return 'datetime'
-  }
+  if (filterType === 'datetime') return 'datetime'
   if (op === 'GT' || op === 'GTE' || op === 'LT' || op === 'LTE') return 'number'
   if (filterType === 'number') return 'number'
   return 'text'
 }
 
-const DATETIME_TYPE_IDS = new Set(['timestamp', 'timestamptz', 'date', 'datetime'])
+const DATETIME_TYPE_IDS = new Set(['datetime'])
 
 /** Prefer API resultTypeId; fall back to typeId / formula expression heuristic. */
 export function effectiveFilterTypeId(
@@ -142,7 +124,6 @@ export function effectiveFilterTypeId(
 ): string {
   const rt = resultTypeId?.trim()
   if (rt) {
-    if (rt.endsWith('_array')) return rt
     if (NUMERIC_TYPE_IDS.has(rt)) return 'number'
     if (DATETIME_TYPE_IDS.has(rt)) return 'datetime'
     return rt
@@ -165,32 +146,34 @@ export function isDateTimeFilterType(typeId: string): boolean {
 }
 
 export function dateTimeInputType(typeId: string): 'date' | 'datetime-local' {
-  return typeId === 'date' ? 'date' : 'datetime-local'
+  return 'datetime-local'
 }
 
 export function filterOpsForColumn(col: {
   typeId: string
   resultTypeId?: string
   expression?: string
+  isArray?: boolean
 }): FilterOpDef[] {
-  return filterOpsForType(col.typeId, col.expression, col.resultTypeId)
+  return filterOpsForType(col.typeId, col.expression, col.resultTypeId, col.isArray)
 }
 
 export function filterOpsForType(
   typeId: string,
   expression?: string,
   resultTypeId?: string,
+  isArray?: boolean,
 ): FilterOpDef[] {
+  if (isArray) return ARRAY_OPS
   const t = effectiveFilterTypeId(typeId, expression, resultTypeId)
-  if (t.endsWith('_array')) return ARRAY_OPS
-  if (t === 'bool') return BOOL_OPS
+  if (t === 'boolean') return BOOL_OPS
   if (t === 'number') return COMPARABLE_OPS
   if (DATETIME_TYPE_IDS.has(t)) return COMPARABLE_OPS
   return TEXT_OPS
 }
 
-export function newFilterCondition(attr = '', typeId = 'text'): FilterCondition {
-  const op = typeId.endsWith('_array') ? 'ARRAY_HAS' : 'EQ'
+export function newFilterCondition(attr = '', isArray = false): FilterCondition {
+  const op = isArray ? 'ARRAY_HAS' : 'EQ'
   return { id: crypto.randomUUID(), attr, op, val: '' }
 }
 
@@ -206,7 +189,7 @@ function coerceScalar(
 ): unknown {
   const s = val.trim()
   const t = effectiveFilterTypeId(typeId, expression, resultTypeId)
-  if (t === 'bool') return s === 'true' || s === '1'
+  if (t === 'boolean') return s === 'true' || s === '1'
   if (t === 'number') {
     const n = Number(s)
     return Number.isNaN(n) ? s : n
@@ -233,13 +216,15 @@ export function buildFilterDSL(
   columnTypes: Record<string, string>,
   columnExpressions?: Record<string, string>,
   columnResultTypes?: Record<string, string>,
+  columnIsArray?: Record<string, boolean>,
 ): Record<string, unknown> | undefined {
   const nodes: Record<string, unknown>[] = []
   for (const c of group.conditions) {
     if (!c.attr) continue
     const typeId = columnTypes[c.attr] ?? 'text'
     const resultTypeId = columnResultTypes?.[c.attr]
-    const def = filterOpsForType(typeId, columnExpressions?.[c.attr], resultTypeId).find(
+    const isArray = columnIsArray?.[c.attr] === true
+    const def = filterOpsForType(typeId, columnExpressions?.[c.attr], resultTypeId, isArray).find(
       (d) => d.op === c.op,
     )
     if (!def) continue

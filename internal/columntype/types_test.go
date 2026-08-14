@@ -7,10 +7,13 @@ import (
 )
 
 func TestResolveBuiltInTypes(t *testing.T) {
-	for _, id := range []string{"text", "int8", "formula", "link"} {
+	for _, id := range []string{"text", "number", "formula", "link"} {
 		if _, err := columntype.Resolve(id); err != nil {
 			t.Fatalf("Resolve(%q): %v", id, err)
 		}
+	}
+	if _, err := columntype.Resolve("int8"); err == nil {
+		t.Fatal("expected error for removed alias int8")
 	}
 	if _, err := columntype.Resolve("custom_foo"); err == nil {
 		t.Fatal("expected error for unknown type")

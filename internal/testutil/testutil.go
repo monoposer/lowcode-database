@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/monoposer/lowcode-database/internal/config"
-	"github.com/monoposer/lowcode-database/internal/infra/postgres"
-	"github.com/monoposer/lowcode-database/internal/migrator"
 	"github.com/monoposer/lowcode-database/internal/service"
-	"github.com/monoposer/lowcode-database/internal/tenant"
 	"github.com/monoposer/lowcode-database/migrations"
+	"github.com/monoposer/lowcode-database/pkg/config"
+	"github.com/monoposer/lowcode-database/pkg/infra/postgres"
+	"github.com/monoposer/lowcode-database/pkg/migrator"
+	"github.com/monoposer/lowcode-database/pkg/tenant"
 )
 
 const testTenant = "test"
@@ -44,6 +44,7 @@ func cleanupTenantMeta(ctx context.Context, tm *postgres.TenantManager, tenantID
 	_, _ = tm.MetaPool().Exec(ctx, `DELETE FROM lc_queries WHERE tenant_id = $1`, tenantID)
 	_, _ = tm.MetaPool().Exec(ctx, `DELETE FROM lc_columns WHERE tenant_id = $1`, tenantID)
 	_, _ = tm.MetaPool().Exec(ctx, `DELETE FROM lc_tables WHERE tenant_id = $1`, tenantID)
+	_, _ = tm.MetaPool().Exec(ctx, `DELETE FROM lc_column_types WHERE tenant_id = $1`, tenantID)
 	_, _ = tm.MetaPool().Exec(ctx, `DELETE FROM lc_bases WHERE tenant_id = $1`, tenantID)
 	_, _ = tm.MetaPool().Exec(ctx, `DELETE FROM tenants WHERE tenant_id = $1`, tenantID)
 }
@@ -71,7 +72,6 @@ func SetupIntegration(t *testing.T) (*service.LowcodeService, func()) {
 		DefaultTenantDataDSN: dataURL,
 		DefaultTenantID:      testTenant,
 		VRDefaultShardDSN:    dataURL,
-		TenantIsolationMode:  config.TenantIsolationRLSTable,
 	}
 	tm, err := postgres.NewTenantManager(ctx, cfg)
 	if err != nil {
@@ -96,10 +96,10 @@ func SetupIntegration(t *testing.T) (*service.LowcodeService, func()) {
 const sharedTenantA = "shared_a"
 const sharedTenantB = "shared_b"
 
-// SharedTenantA is tenant id for shared_db integration tests.
+// SharedTenantA is tenant id for two-tenant-on-one-DSN integration tests.
 func SharedTenantA() string { return sharedTenantA }
 
-// SharedTenantB is the second tenant id for shared_db integration tests.
+// SharedTenantB is the second tenant id for two-tenant-on-one-DSN integration tests.
 func SharedTenantB() string { return sharedTenantB }
 
 const vrTenant = "vr_test"
@@ -107,7 +107,7 @@ const vrTenant = "vr_test"
 // VRTenant is the tenant id for virtual_records integration tests.
 func VRTenant() string { return vrTenant }
 
-// SetupIntegrationVR runs tests in virtual_records (rls_table) mode.
+// SetupIntegrationVR uses a dedicated test tenant on the same record store.
 func SetupIntegrationVR(t *testing.T) (*service.LowcodeService, func()) {
 	t.Helper()
 	metaURL := os.Getenv("TEST_META_DATABASE_URL")
@@ -129,7 +129,6 @@ func SetupIntegrationVR(t *testing.T) (*service.LowcodeService, func()) {
 		DefaultTenantDataDSN: dataURL,
 		DefaultTenantID:      vrTenant,
 		VRDefaultShardDSN:    dataURL,
-		TenantIsolationMode:  config.TenantIsolationRLSTable,
 	}
 	tm, err := postgres.NewTenantManager(ctx, cfg)
 	if err != nil {
@@ -140,9 +139,7 @@ func SetupIntegrationVR(t *testing.T) (*service.LowcodeService, func()) {
 		t.Fatalf("bootstrap vr: %v", err)
 	}
 
-	svc := service.NewLowcodeService(tm, 100,
-		service.WithTenantIsolation(config.TenantIsolationRLSTable, ""),
-	)
+	svc := service.NewLowcodeService(tm, 100)
 	cleanup := func() {
 		cctx, ccancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer ccancel()
@@ -158,14 +155,52 @@ func CtxVR() context.Context {
 	return tenant.WithBaseID(ctx, testBaseID(vrTenant))
 }
 
-// SetupIntegrationSharedDB is obsolete (shared_db mode removed); skips.
+// SetupIntegrationSharedDB boots two tenants that share one data DSN.
 func SetupIntegrationSharedDB(t *testing.T) (*service.LowcodeService, func()) {
 	t.Helper()
-	t.Skip("shared_db isolation mode removed; storage is always virtual_records")
-	return nil, func() {}
+	metaURL := os.Getenv("TEST_META_DATABASE_URL")
+	dataURL := os.Getenv("TEST_DATA_DATABASE_URL")
+	if metaURL == "" {
+		t.Skip("TEST_META_DATABASE_URL not set; skipping integration test")
+	}
+	if dataURL == "" {
+		dataURL = metaURL
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+
+	applyEmbeddedMigrations(t, ctx, metaURL, dataURL)
+
+	cfg := &config.Config{
+		MetaDatabaseURL:      metaURL,
+		DefaultTenantDataDSN: dataURL,
+		DefaultTenantID:      sharedTenantA,
+		VRDefaultShardDSN:    dataURL,
+	}
+	tm, err := postgres.NewTenantManager(ctx, cfg)
+	if err != nil {
+		t.Fatalf("tenant manager: %v", err)
+	}
+	for _, tid := range []string{sharedTenantA, sharedTenantB} {
+		cleanupTenantMeta(ctx, tm, tid)
+		if err := tm.BootstrapVirtualRecordsSeeds(ctx, tid, dataURL); err != nil {
+			t.Fatalf("bootstrap tenant %s: %v", tid, err)
+		}
+	}
+
+	svc := service.NewLowcodeService(tm, 100)
+	cleanup := func() {
+		cctx, ccancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer ccancel()
+		cleanupTenantMeta(cctx, tm, sharedTenantA)
+		cleanupTenantMeta(cctx, tm, sharedTenantB)
+		tm.Close()
+	}
+	return svc, cleanup
 }
 
-// CtxTenant returns a tenant-scoped context for shared_db tests.
+// CtxTenant returns a tenant-scoped context for multi-tenant tests.
 func CtxTenant(tenantID string) context.Context {
 	ctx := tenant.WithTenantID(context.Background(), tenantID)
 	return tenant.WithBaseID(ctx, testBaseID(tenantID))

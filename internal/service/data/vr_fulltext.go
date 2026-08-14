@@ -7,11 +7,11 @@ import (
 )
 
 // applyFulltextOnWrite builds data._fulltext_text from columns with enable_fulltext.
-func (s *Data) applyFulltextOnWrite(ctx context.Context, tableID string, _ interface{}, native map[string]any) map[string]any {
+func (s *Data) applyFulltextOnWrite(ctx context.Context, tableName string, _ interface{}, native map[string]any) map[string]any {
 	if native == nil {
 		native = map[string]any{}
 	}
-	all, _, _, err := s.meta().LoadAllColumnMeta(ctx, tableID)
+	all, _, _, err := s.meta().LoadAllColumnMeta(ctx, tableName)
 	if err != nil {
 		return native
 	}

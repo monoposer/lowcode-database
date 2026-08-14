@@ -4,7 +4,7 @@
 
 - Source of truth: [`VERSION`](../VERSION) (semver without `v`, e.g. `0.1.0`)
 - Git tags: `v0.1.0`, `v1.2.3`, …
-- Injected at build via `-ldflags` into `internal/version`
+- Injected at build via `-ldflags` into `pkg/version`
 - Runtime: `./server -version` or `GET /`
 
 ## Local build

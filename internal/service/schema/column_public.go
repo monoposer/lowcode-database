@@ -2,13 +2,12 @@ package schema
 
 import (
 	"context"
-	apiv1schema "github.com/monoposer/lowcode-database/internal/apiv1/schema"
 	"github.com/monoposer/lowcode-database/internal/service/catalog"
 	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
 // PublicColumn sets Column.Id to the logical name and exposes resultTypeId from config.
-func PublicColumn(c *apiv1schema.Column) {
+func PublicColumn(c *Column) {
 	if c == nil {
 		return
 	}
@@ -20,10 +19,10 @@ func PublicColumn(c *apiv1schema.Column) {
 	}
 }
 
-func listTableIndexesViaCatalog(s *Schema, ctx context.Context, tableID, schemaName, tableName string) ([]*apiv1schema.Index, error) {
-	rows, err := catalog.New(s.B).ListPGIndexes(ctx, schemaName, tableName)
+func listTableIndexesViaCatalog(s *Schema, ctx context.Context, tableName, schemaName, physicalName string) ([]*catalog.Index, error) {
+	rows, err := catalog.New(s.B).ListPGIndexes(ctx, schemaName, physicalName)
 	if err != nil {
 		return nil, err
 	}
-	return catalog.New(s.B).PGIndexesToAPI(ctx, tableID, schemaName, tableName, rows)
+	return catalog.New(s.B).PGIndexesToAPI(ctx, tableName, schemaName, physicalName, rows)
 }

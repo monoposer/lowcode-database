@@ -7,7 +7,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/monoposer/lowcode-database/internal/apiv1"
 	"strings"
 	"time"
 )
@@ -35,42 +34,6 @@ func PhysicalColumnPgType(ctx context.Context, db pgColumnQuerier, schemaName, t
 		return udtName, nil
 	}
 	return dataType, nil
-}
-
-// RelationFKColumnPgType returns the PG type for a relation_fk column matching its target reference.
-// Under virtual_records there is no physical column; defaults to uuid for id, else text.
-func (b *Base) RelationFKColumnPgType(ctx context.Context, tenantID string, cfg map[string]any) (string, error) {
-	targetTable := CfgString(cfg, "target_table_id")
-	if targetTable == "" {
-		return "", fmt.Errorf("relation_fk config requires target_table_id")
-	}
-	resolved, err := b.ResolveTableName(ctx, targetTable)
-	if err != nil {
-		return "", err
-	}
-	targetCol := "id"
-	if ref := CfgString(cfg, "target_column_id"); ref != "" {
-		targetCol = ref
-	}
-	baseID, err := b.BaseID(ctx)
-	if err != nil {
-		return "", err
-	}
-	var typeID string
-	if err := b.Tenants.MetaPool().QueryRow(ctx, `
-		SELECT type_id FROM lc_columns
-		WHERE name = $1 AND tenant_id = $2 AND base_id = $3 AND table_id = $4`,
-		targetCol, tenantID, baseID, resolved,
-	).Scan(&typeID); err != nil {
-		if targetCol == "id" {
-			return "uuid", nil
-		}
-		return "", err
-	}
-	if typeID == "uuid" || typeID == "int8" || typeID == "text" {
-		return typeID, nil
-	}
-	return "text", nil
 }
 
 func isUUIDPgType(pgType string) bool {
@@ -189,6 +152,6 @@ func PGValueToNative(v any, pgType string) any {
 }
 
 // DBCellValue converts a scanned PG value into an API cell Value.
-func DBCellValue(v any, pgType string) *apiv1.Value {
-	return apiv1.NativeToValue(PGValueToNative(v, pgType))
+func DBCellValue(v any, pgType string) *Value {
+	return NativeToValue(PGValueToNative(v, pgType))
 }

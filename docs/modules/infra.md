@@ -2,17 +2,15 @@
 
 Database connections, tenant context, migrations, config.
 
-## internal/infra/postgres
+## pkg/infra/postgres
 
 **TenantManager** — dual-DB core.
 
 | File | Role |
 |------|------|
 | `tenant_manager.go` | Meta pool, default tenant bootstrap |
-| `scope.go` | `tenant_id` / `base_id` WHERE helpers |
-| `tenant_pool.go` | Lazy Data pools by tenant id, CreateTenant |
-| `tenant_schema.go` | shared_db schema, reserved-name checks |
-| `rls_shared.go` | rls_table: `lc_shared` + RLS session |
+| `record_store.go` | `record_store=shared` vs `{tenant_id}_record` |
+| `tenant_schema.go` | Ensure data tables on tenant DSN |
 | `pg.go` | pgxpool creation |
 
 ### Pool API
@@ -23,19 +21,19 @@ Database connections, tenant context, migrations, config.
 
 See [system.md](../architecture/system.md) (connection pools) and [tenant-isolation.md](../architecture/tenant-isolation.md).
 
-## internal/infra/redis
+## pkg/infra/redis
 
 Optional Redis; used by cache / redis metrics.
 
-## internal/tenant
+## pkg/tenant
 
 `X-Tenant-Id` → `context.Context` (written by middleware).
 
-## internal/migrator
+## pkg/migrator
 
 `cmd/migrate` reads embedded `migrations/` (or `-dir`).
 
-## internal/config
+## pkg/config
 
 `.env` + environment: `META_DATABASE_URL`, `VR_DEFAULT_SHARD_DSN`, …
 

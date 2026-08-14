@@ -4,7 +4,7 @@
 
 | Entry | Role |
 |-------|------|
-| `cmd/server` | Only runtime: `/v1/admin/*`, `/v1/data/*`, `/v1/worker/*` + in-process calc worker |
+| `cmd/server` | Only runtime: `/v1/admin/*`, `/v1/data/*` + in-process calc worker |
 | `cmd/migrate` | Apply embed `migrations/` to meta + every unique data write DSN |
 
 ## server startup

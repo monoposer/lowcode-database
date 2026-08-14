@@ -5,19 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-
-	"github.com/monoposer/lowcode-database/internal/apiv1"
-	"github.com/monoposer/lowcode-database/internal/apiv1/row"
 	"github.com/monoposer/lowcode-database/internal/event"
-	"github.com/monoposer/lowcode-database/internal/infra/postgres"
 	"github.com/monoposer/lowcode-database/internal/service/calc"
 	"github.com/monoposer/lowcode-database/internal/service/shared"
+	"github.com/monoposer/lowcode-database/pkg/infra/postgres"
 )
 
-func (s *Data) resolveVRContext(ctx context.Context, tableID string) (tid, tenantID, vtID string, err error) {
+func (s *Data) resolveVRContext(ctx context.Context, tableName string) (tid, tenantID, vtID string, err error) {
 	tid, err = s.B.TenantID(ctx)
 	if err != nil {
 		return "", "", "", err
@@ -30,19 +26,19 @@ func (s *Data) resolveVRContext(ctx context.Context, tableID string) (tid, tenan
 	if err != nil {
 		return "", "", "", err
 	}
-	vtID, err = s.B.Tenants.TableVTID(ctx, tenantID, baseID, tableID)
+	vtID, err = s.B.Tenants.TableVTID(ctx, tenantID, baseID, tableName)
 	if err != nil {
 		return "", "", "", err
 	}
 	return tid, tenantID, vtID, nil
 }
 
-func (s *Data) CreateRow(ctx context.Context, req *row.CreateRowRequest) (*row.CreateRowResponse, error) {
+func (s *Data) CreateRow(ctx context.Context, req *CreateRowRequest) (*CreateRowResponse, error) {
 	ctx, tables, err := s.B.Tenants.AttachDataTables(ctx)
 	if err != nil {
 		return nil, err
 	}
-	_, tenantID, vtID, err := s.resolveVRContext(ctx, req.TableId)
+	_, tenantID, vtID, err := s.resolveVRContext(ctx, req.TableName)
 	if err != nil {
 		return nil, err
 	}
@@ -54,8 +50,8 @@ func (s *Data) CreateRow(ctx context.Context, req *row.CreateRowRequest) (*row.C
 		return nil, err
 	}
 
-	tableID := req.TableId
-	cols, _, _, err := s.meta().LoadColumns(ctx, tableID)
+	tableName := req.TableName
+	cols, _, _, err := s.meta().LoadColumns(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +60,7 @@ func (s *Data) CreateRow(ctx context.Context, req *row.CreateRowRequest) (*row.C
 	}
 
 	native := cellsToNativeMap(req.Cells, cols)
-	allCols, _, _, _ := s.meta().LoadAllColumnMeta(ctx, tableID)
+	allCols, _, _, _ := s.meta().LoadAllColumnMeta(ctx, tableName)
 	dataMap, linkMap := splitLinkCells(req.Cells, allCols)
 	if len(dataMap) == 0 && len(native) > 0 {
 		// keep scalars from native minus links
@@ -73,7 +69,7 @@ func (s *Data) CreateRow(ctx context.Context, req *row.CreateRowRequest) (*row.C
 			delete(dataMap, k)
 		}
 	}
-	dataMap = s.applyFulltextOnWrite(ctx, tableID, cols, dataMap)
+	dataMap = s.applyFulltextOnWrite(ctx, tableName, cols, dataMap)
 
 	recordID := uuid.NewString()
 	tbl := tables.QRecord()
@@ -87,31 +83,31 @@ func (s *Data) CreateRow(ctx context.Context, req *row.CreateRowRequest) (*row.C
 		recordID, tenantID, vtID, payload); err != nil {
 		return nil, err
 	}
-	if err := s.persistLinks(ctx, pool, tenantID, tableID, recordID, allCols, linkMap); err != nil {
+	if err := s.persistLinks(ctx, pool, tenantID, tableName, recordID, allCols, linkMap); err != nil {
 		return nil, err
 	}
 	meta := s.B.Tenants.MetaPool()
-	_ = calc.EnqueueAfterUserEdit(ctx, meta, pool, tenantID, tableID, recordID, changedKeys(dataMap), len(linkMap) > 0)
+	_ = calc.EnqueueAfterUserEdit(ctx, meta, pool, tenantID, tableName, recordID, changedKeys(dataMap), len(linkMap) > 0)
 
 	pending, _ := calc.HasPending(ctx, pool, recordID)
-	resp := &row.CreateRowResponse{
-		Row: &row.Row{
+	resp := &CreateRowResponse{
+		Row: &Row{
 			Id:      recordID,
 			Version: 1,
 			Pending: pending,
 			Cells:   hydrateCells(dataMap, allCols, linkMap, pending),
 		},
 	}
-	s.B.EmitEvent(ctx, event.RecordsAfterInsert, tableID, map[string]any{"row": shared.RowToMap(resp.Row)})
+	s.B.EmitEvent(ctx, event.RecordsAfterInsert, tableName, map[string]any{"row": RowToMap(resp.Row)})
 	return resp, nil
 }
 
-func (s *Data) UpdateRow(ctx context.Context, req *row.UpdateRowRequest) (*row.UpdateRowResponse, error) {
+func (s *Data) UpdateRow(ctx context.Context, req *UpdateRowRequest) (*UpdateRowResponse, error) {
 	ctx, tables, err := s.B.Tenants.AttachDataTables(ctx)
 	if err != nil {
 		return nil, err
 	}
-	_, tenantID, vtID, err := s.resolveVRContext(ctx, req.TableId)
+	_, tenantID, vtID, err := s.resolveVRContext(ctx, req.TableName)
 	if err != nil {
 		return nil, err
 	}
@@ -119,8 +115,8 @@ func (s *Data) UpdateRow(ctx context.Context, req *row.UpdateRowRequest) (*row.U
 	if err != nil {
 		return nil, err
 	}
-	tableID := req.TableId
-	cols, _, _, err := s.meta().LoadColumns(ctx, tableID)
+	tableName := req.TableName
+	cols, _, _, err := s.meta().LoadColumns(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +125,7 @@ func (s *Data) UpdateRow(ctx context.Context, req *row.UpdateRowRequest) (*row.U
 	}
 
 	native := cellsToNativeMap(req.Cells, cols)
-	allCols, _, _, _ := s.meta().LoadAllColumnMeta(ctx, tableID)
+	allCols, _, _, _ := s.meta().LoadAllColumnMeta(ctx, tableName)
 	patch, linkMap := splitLinkCells(req.Cells, allCols)
 	if len(patch) == 0 {
 		for k, v := range native {
@@ -158,7 +154,7 @@ func (s *Data) UpdateRow(ctx context.Context, req *row.UpdateRowRequest) (*row.U
 	for k, v := range patch {
 		merged[k] = v
 	}
-	merged = s.applyFulltextOnWrite(ctx, tableID, cols, merged)
+	merged = s.applyFulltextOnWrite(ctx, tableName, cols, merged)
 
 	payload, err := json.Marshal(merged)
 	if err != nil {
@@ -174,31 +170,31 @@ func (s *Data) UpdateRow(ctx context.Context, req *row.UpdateRowRequest) (*row.U
 	if tag.RowsAffected() == 0 {
 		return nil, fmt.Errorf("row not found or version conflict")
 	}
-	if err := s.persistLinks(ctx, pool, tenantID, tableID, req.RowId, allCols, linkMap); err != nil {
+	if err := s.persistLinks(ctx, pool, tenantID, tableName, req.RowId, allCols, linkMap); err != nil {
 		return nil, err
 	}
-	_ = calc.EnqueueAfterUserEdit(ctx, s.B.Tenants.MetaPool(), pool, tenantID, tableID, req.RowId, changedKeys(patch), len(linkMap) > 0)
+	_ = calc.EnqueueAfterUserEdit(ctx, s.B.Tenants.MetaPool(), pool, tenantID, tableName, req.RowId, changedKeys(patch), len(linkMap) > 0)
 
 	pending, _ := calc.HasPending(ctx, pool, req.RowId)
 	links, _ := calc.LinksByRecords(ctx, pool, tenantID, []string{req.RowId})
-	resp := &row.UpdateRowResponse{
-		Row: &row.Row{
+	resp := &UpdateRowResponse{
+		Row: &Row{
 			Id:      req.RowId,
 			Version: version + 1,
 			Pending: pending,
 			Cells:   hydrateCells(merged, allCols, links[req.RowId], pending),
 		},
 	}
-	s.B.EmitEvent(ctx, event.RecordsAfterUpdate, tableID, map[string]any{"row": shared.RowToMap(resp.Row)})
+	s.B.EmitEvent(ctx, event.RecordsAfterUpdate, tableName, map[string]any{"row": RowToMap(resp.Row)})
 	return resp, nil
 }
 
-func (s *Data) DeleteRow(ctx context.Context, req *row.DeleteRowRequest) (*row.DeleteRowResponse, error) {
+func (s *Data) DeleteRow(ctx context.Context, req *DeleteRowRequest) (*DeleteRowResponse, error) {
 	ctx, tables, err := s.B.Tenants.AttachDataTables(ctx)
 	if err != nil {
 		return nil, err
 	}
-	_, tenantID, vtID, err := s.resolveVRContext(ctx, req.TableId)
+	_, tenantID, vtID, err := s.resolveVRContext(ctx, req.TableName)
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +202,7 @@ func (s *Data) DeleteRow(ctx context.Context, req *row.DeleteRowRequest) (*row.D
 	if err != nil {
 		return nil, err
 	}
-	tableID := req.TableId
+	tableName := req.TableName
 	incoming, _ := calc.ListIncoming(ctx, pool, tenantID, req.RowId)
 	tbl := tables.QRecord()
 	del := fmt.Sprintf(`DELETE FROM %s WHERE record_id = $1`, tbl)
@@ -225,18 +221,18 @@ func (s *Data) DeleteRow(ctx context.Context, req *row.DeleteRowRequest) (*row.D
 			continue
 		}
 		seen[e.FromRecordID] = true
-		_ = calc.Enqueue(ctx, pool, tenantID, e.FromTableID, e.FromRecordID, nil)
+		_ = calc.Enqueue(ctx, pool, tenantID, e.FromTableName, e.FromRecordID, nil)
 	}
-	s.B.EmitEvent(ctx, event.RecordsAfterDelete, tableID, map[string]any{"rowId": req.RowId})
-	return &row.DeleteRowResponse{}, nil
+	s.B.EmitEvent(ctx, event.RecordsAfterDelete, tableName, map[string]any{"rowId": req.RowId})
+	return &DeleteRowResponse{}, nil
 }
 
-func (s *Data) executeVRQuery(ctx context.Context, spec querySpec) (*row.QueryRowsResponse, error) {
+func (s *Data) executeVRQuery(ctx context.Context, spec querySpec) (*QueryRowsResponse, error) {
 	ctx, tables, err := s.B.Tenants.AttachDataTables(ctx)
 	if err != nil {
 		return nil, err
 	}
-	_, tenantID, vtID, err := s.resolveVRContext(ctx, spec.TableID)
+	_, tenantID, vtID, err := s.resolveVRContext(ctx, spec.TableName)
 	if err != nil {
 		return nil, err
 	}
@@ -245,11 +241,11 @@ func (s *Data) executeVRQuery(ctx context.Context, spec querySpec) (*row.QueryRo
 		return nil, err
 	}
 
-	physCols, _, _, err := s.meta().LoadColumns(ctx, spec.TableID)
+	physCols, _, _, err := s.meta().LoadColumns(ctx, spec.TableName)
 	if err != nil {
 		return nil, err
 	}
-	allCols, _, _, _ := s.meta().LoadAllColumnMeta(ctx, spec.TableID)
+	allCols, _, _, _ := s.meta().LoadAllColumnMeta(ctx, spec.TableName)
 
 	pageSize := spec.PageSize
 	if pageSize <= 0 {
@@ -281,7 +277,8 @@ func (s *Data) executeVRQuery(ctx context.Context, spec querySpec) (*row.QueryRo
 	}
 
 	if spec.Filter != nil {
-		preds, err := vrFilterSQL(spec.Filter, physCols, &argN, &args)
+		filterCols := vrFilterColumns(physCols, allCols)
+		preds, err := vrFilterSQL(spec.Filter, filterCols, &argN, &args)
 		if err != nil {
 			return nil, err
 		}
@@ -313,7 +310,7 @@ func (s *Data) executeVRQuery(ctx context.Context, spec querySpec) (*row.QueryRo
 	}
 	defer rows.Close()
 
-	var out row.QueryRowsResponse
+	var out QueryRowsResponse
 	var lastID string
 	var ids []string
 	type scanned struct {
@@ -345,7 +342,7 @@ func (s *Data) executeVRQuery(ctx context.Context, spec querySpec) (*row.QueryRo
 	linkMap, _ := calc.LinksByRecords(ctx, pool, tenantID, ids)
 	for _, sc := range scannedRows {
 		isPend := pending[sc.id]
-		r := &row.Row{
+		r := &Row{
 			Id:      sc.id,
 			Version: sc.version,
 			Pending: isPend,
@@ -362,94 +359,13 @@ func (s *Data) executeVRQuery(ctx context.Context, spec querySpec) (*row.QueryRo
 	return &out, nil
 }
 
-func cellsToNativeMap(cells map[string]*apiv1.Value, cols []shared.ColumnMeta) map[string]any {
+func cellsToNativeMap(cells map[string]*shared.Value, cols []shared.ColumnMeta) map[string]any {
 	normalized := shared.NormalizeInputCells(cells, cols)
 	out := make(map[string]any, len(normalized))
 	for k, v := range normalized {
 		out[k] = shared.ValueToAnyForColumn(v, "")
 	}
 	return out
-}
-
-func vrFilterSQL(filter map[string]any, cols []shared.ColumnMeta, argN *int, args *[]any) ([]string, error) {
-	if filter == nil {
-		return nil, nil
-	}
-	if op, _ := filter["op"].(string); op == "in_record_ids" {
-		ids, _ := filter["ids"].([]string)
-		if ids == nil {
-			if raw, ok := filter["ids"].([]any); ok {
-				for _, x := range raw {
-					ids = append(ids, fmt.Sprint(x))
-				}
-			}
-		}
-		pred := fmt.Sprintf(`record_id = ANY($%d::text[])`, *argN)
-		*args = append(*args, ids)
-		*argN++
-		return []string{pred}, nil
-	}
-	// Nested AND group
-	if op, _ := filter["op"].(string); strings.EqualFold(op, "and") {
-		children, _ := filter["children"].([]any)
-		var preds []string
-		for _, ch := range children {
-			m, ok := ch.(map[string]any)
-			if !ok {
-				continue
-			}
-			p, err := vrFilterSQL(m, cols, argN, args)
-			if err != nil {
-				return nil, err
-			}
-			preds = append(preds, p...)
-		}
-		return preds, nil
-	}
-	field, _ := filter["field"].(string)
-	op, _ := filter["op"].(string)
-	if field == "" {
-		return nil, nil
-	}
-	if field == "id" || field == "record_id" {
-		val := filter["value"]
-		pred := fmt.Sprintf(`record_id = $%d`, *argN)
-		*args = append(*args, fmt.Sprint(val))
-		*argN++
-		return []string{pred}, nil
-	}
-	colName := field
-	for _, c := range cols {
-		if c.Id == field || c.Name == field {
-			colName = c.Name
-			break
-		}
-	}
-	val := filter["value"]
-	switch strings.ToLower(op) {
-	case "eq", "":
-		pred := fmt.Sprintf(
-			`(CASE WHEN jsonb_typeof(data->$%d)='object' AND (data->$%d) ? 'value' THEN data->$%d->>'value' ELSE data->>$%d END) = $%d`,
-			*argN, *argN, *argN, *argN, *argN+1)
-		*args = append(*args, colName, fmt.Sprint(val))
-		*argN += 2
-		return []string{pred}, nil
-	case "fts", "fulltext", "search":
-		pred := fmt.Sprintf(
-			`to_tsvector('simple', COALESCE(data->>'_fulltext_text','')) @@ to_tsquery('simple', $%d)`,
-			*argN,
-		)
-		*args = append(*args, ftsQuery(fmt.Sprint(val)))
-		*argN++
-		return []string{pred}, nil
-	case "like", "ilike":
-		pred := fmt.Sprintf(`data->>$%d ILIKE $%d`, *argN, *argN+1)
-		*args = append(*args, colName, fmt.Sprint(val))
-		*argN += 2
-		return []string{pred}, nil
-	default:
-		return nil, fmt.Errorf("virtual_records: filter op %q not supported", op)
-	}
 }
 
 func ftsQuery(q string) string {
@@ -465,13 +381,13 @@ func ftsQuery(q string) string {
 	return strings.Join(parts, " & ")
 }
 
-func (s *Data) GetRow(ctx context.Context, req *row.GetRowRequest) (*row.GetRowResponse, error) {
+func (s *Data) GetRow(ctx context.Context, req *GetRowRequest) (*GetRowResponse, error) {
 	ctx = withReadConsistency(ctx, req.Consistency)
 	ctx, _, err := s.B.Tenants.AttachDataTables(ctx)
 	if err != nil {
 		return nil, err
 	}
-	_, tenantID, vtID, err := s.resolveVRContext(ctx, req.TableId)
+	_, tenantID, vtID, err := s.resolveVRContext(ctx, req.TableName)
 	if err != nil {
 		return nil, err
 	}
@@ -479,12 +395,12 @@ func (s *Data) GetRow(ctx context.Context, req *row.GetRowRequest) (*row.GetRowR
 	if err != nil {
 		return nil, err
 	}
-	allCols, _, _, err := s.meta().LoadAllColumnMeta(ctx, req.TableId)
+	allCols, _, _, err := s.meta().LoadAllColumnMeta(ctx, req.TableName)
 	if err != nil {
 		return nil, err
 	}
 	eng := &calc.Engine{Meta: s.B.Tenants.MetaPool(), Data: pool}
-	live, ver, err := eng.LiveCompute(ctx, tenantID, req.TableId, req.RowId)
+	live, ver, err := eng.LiveCompute(ctx, tenantID, req.TableName, req.RowId)
 	if err != nil {
 		return nil, err
 	}
@@ -496,12 +412,12 @@ func (s *Data) GetRow(ctx context.Context, req *row.GetRowRequest) (*row.GetRowR
 	if !pending && calc.CacheMismatch(rec.Data, live, fieldsFromMeta(allCols)) {
 		writePool, werr := s.B.Tenants.DataPool(ctx)
 		if werr == nil {
-			_ = calc.Enqueue(ctx, writePool, tenantID, req.TableId, req.RowId, nil)
+			_ = calc.Enqueue(ctx, writePool, tenantID, req.TableName, req.RowId, nil)
 			pending = true
 		}
 	}
 	links, _ := calc.LinksByRecords(ctx, pool, tenantID, []string{req.RowId})
-	return &row.GetRowResponse{Row: &row.Row{
+	return &GetRowResponse{Row: &Row{
 		Id:      req.RowId,
 		Version: ver,
 		Pending: pending,

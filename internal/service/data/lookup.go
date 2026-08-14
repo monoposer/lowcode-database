@@ -39,7 +39,7 @@ type resolvedLookupValue struct {
 
 func (s *Data) resolveLookupTargetValue(
 	ctx context.Context,
-	tableID, columnName, rowAlias string,
+	tableName, columnName, rowAlias string,
 	argAcc *argAccumulator,
 	visiting map[string]bool,
 	aliases *joinAliasRegistry,
@@ -47,14 +47,14 @@ func (s *Data) resolveLookupTargetValue(
 	if aliases == nil {
 		aliases = newJoinAliasRegistry()
 	}
-	key := tableID + ":" + columnName
+	key := tableName + ":" + columnName
 	if visiting[key] {
-		return resolvedLookupValue{}, fmt.Errorf("lookup target cycle at %q on table %q", columnName, tableID)
+		return resolvedLookupValue{}, fmt.Errorf("lookup target cycle at %q on table %q", columnName, tableName)
 	}
 	visiting[key] = true
 	defer delete(visiting, key)
 
-	allCols, _, _, err := s.meta().LoadAllColumnMeta(ctx, tableID)
+	allCols, _, _, err := s.meta().LoadAllColumnMeta(ctx, tableName)
 	if err != nil {
 		return resolvedLookupValue{}, err
 	}
@@ -66,14 +66,14 @@ func (s *Data) resolveLookupTargetValue(
 		}
 	}
 	if col == nil {
-		return resolvedLookupValue{}, fmt.Errorf("lookup target column %q not found on table %q", columnName, tableID)
+		return resolvedLookupValue{}, fmt.Errorf("lookup target column %q not found on table %q", columnName, tableName)
 	}
 
 	switch col.Kind {
 	case "lookup":
-		return s.resolveLookupColumnValue(ctx, tableID, col, rowAlias, argAcc, visiting, aliases)
+		return s.resolveLookupColumnValue(ctx, tableName, col, rowAlias, argAcc, visiting, aliases)
 	case "rollup":
-		return s.resolveRollupColumnValue(ctx, tableID, col, rowAlias, argAcc, allCols)
+		return s.resolveRollupColumnValue(ctx, tableName, col, rowAlias, argAcc, allCols)
 	case "formula":
 		esc := strings.ReplaceAll(col.Name, "'", "''")
 		a := quotedAlias(rowAlias)
@@ -96,7 +96,7 @@ func (s *Data) resolveLookupTargetValue(
 
 func (s *Data) resolveLookupColumnValue(
 	ctx context.Context,
-	hostTableID string,
+	hostTableName string,
 	col *shared.FullColumnMeta,
 	rowAlias string,
 	argAcc *argAccumulator,
@@ -112,21 +112,21 @@ func (s *Data) resolveLookupColumnValue(
 	if err != nil {
 		return resolvedLookupValue{}, err
 	}
-	rels, err := s.meta().LoadRelationshipColumns(ctx, hostTableID, []string{relName})
+	rels, err := s.meta().LoadRelationshipColumns(ctx, hostTableName, []string{relName})
 	if err != nil || len(rels) == 0 {
 		return resolvedLookupValue{}, fmt.Errorf("lookup %q: relationship %q not found", col.Name, relName)
 	}
 	rel := rels[0]
-	tgtSchema, tgtTable, err := s.tableSchemaName(ctx, rel.TargetTableId)
+	tgtSchema, tgtTable, err := s.tableSchemaName(ctx, rel.TargetTableName)
 	if err != nil {
 		return resolvedLookupValue{}, err
 	}
 	if rel.Cardinality == "many" && rel.LinkColumnId != "" {
-		linkPg, err := s.meta().ColumnPgColumnByRef(ctx, tid, rel.TargetTableId, rel.LinkColumnId)
+		linkPg, err := s.meta().ColumnPgColumnByRef(ctx, tid, rel.TargetTableName, rel.LinkColumnId)
 		if err != nil {
 			return resolvedLookupValue{}, err
 		}
-		inner, err := s.resolveLookupTargetValue(ctx, rel.TargetTableId, fieldName, "_r", argAcc, visiting, aliases)
+		inner, err := s.resolveLookupTargetValue(ctx, rel.TargetTableName, fieldName, "_r", argAcc, visiting, aliases)
 		if err != nil {
 			return resolvedLookupValue{}, err
 		}
@@ -142,7 +142,7 @@ func (s *Data) resolveLookupColumnValue(
 	if rel.Cardinality != "one" || rel.TargetColumnId == "" {
 		return resolvedLookupValue{}, fmt.Errorf("lookup %q: relationship must be cardinality one", col.Name)
 	}
-	baseFKPg, err := s.meta().ColumnPgColumnByRef(ctx, tid, hostTableID, rel.TargetColumnId)
+	baseFKPg, err := s.meta().ColumnPgColumnByRef(ctx, tid, hostTableName, rel.TargetColumnId)
 	if err != nil {
 		return resolvedLookupValue{}, err
 	}
@@ -157,7 +157,7 @@ func (s *Data) resolveLookupColumnValue(
 			quotedAlias(a),
 		)
 	})
-	inner, err := s.resolveLookupTargetValue(ctx, rel.TargetTableId, fieldName, joinAlias, argAcc, visiting, aliases)
+	inner, err := s.resolveLookupTargetValue(ctx, rel.TargetTableName, fieldName, joinAlias, argAcc, visiting, aliases)
 	if err != nil {
 		return resolvedLookupValue{}, err
 	}
@@ -171,13 +171,13 @@ func (s *Data) resolveLookupColumnValue(
 
 func (s *Data) resolveRollupColumnValue(
 	ctx context.Context,
-	tableID string,
+	tableName string,
 	col *shared.FullColumnMeta,
 	rowAlias string,
 	argAcc *argAccumulator,
 	allCols []shared.FullColumnMeta,
 ) (resolvedLookupValue, error) {
-	plans, err := s.buildRollupPlans(ctx, tableID, allCols)
+	plans, err := s.buildRollupPlans(ctx, tableName, allCols)
 	if err != nil {
 		return resolvedLookupValue{}, err
 	}
@@ -231,9 +231,9 @@ func collectFormulaNeededRefs(formulaName string, allCols []shared.FullColumnMet
 	return needed
 }
 
-func (s *Data) tableSchemaName(ctx context.Context, tableID string) (schemaName, tableName string, err error) {
-	_, schemaName, tableName, err = s.meta().LoadAllColumnMeta(ctx, tableID)
-	return schemaName, tableName, err
+func (s *Data) tableSchemaName(ctx context.Context, tableName string) (schemaName, physicalName string, err error) {
+	_, schemaName, physicalName, err = s.meta().LoadAllColumnMeta(ctx, tableName)
+	return schemaName, physicalName, err
 }
 
 func mapsCloneBool(m map[string]bool) map[string]bool {

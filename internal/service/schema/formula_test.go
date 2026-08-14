@@ -10,7 +10,7 @@ import (
 
 func TestKnownFormulaColumnsOmitsEditing(t *testing.T) {
 	cols := []shared.FullColumnMeta{
-		{Name: "score", Kind: "int8", TypeId: "int8"},
+		{Name: "score", Kind: "", TypeId: "number"},
 		{Name: "base", Kind: "formula", TypeId: "formula", Config: map[string]any{"expression": "{{score}} * 2"}},
 	}
 	known := knownFormulaColumns(cols, "total")

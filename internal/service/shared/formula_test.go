@@ -12,8 +12,8 @@ func TestLookupManyAggregateSQL(t *testing.T) {
 	}
 }
 
-func TestScalarResultTypeToArray(t *testing.T) {
-	if got := ScalarResultTypeToArray("text"); got != "text_array" {
+func TestLookupManyResultTypeID(t *testing.T) {
+	if got := LookupManyResultTypeID("text"); got != "text" {
 		t.Fatalf("got %q", got)
 	}
 }

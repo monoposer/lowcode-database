@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/monoposer/lowcode-database/internal/config"
-	"github.com/monoposer/lowcode-database/internal/migrator"
 	"github.com/monoposer/lowcode-database/migrations"
+	"github.com/monoposer/lowcode-database/pkg/config"
+	"github.com/monoposer/lowcode-database/pkg/migrator"
 )
 
 func main() {

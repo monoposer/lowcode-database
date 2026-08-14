@@ -7,15 +7,15 @@ alwaysApply: true
 
 - Go 1.25+ HTTP service, `net/http` + JSON, **no gRPC/protobuf**
 - **Dual DB**: `META_DATABASE_URL` (meta) + per-tenant `data_dsn` (data); header `X-Tenant-Id` required
-- API types are hand-written in `internal/apiv1/`; do not add a proto generation flow
+- API request/response types live next to their domain in `internal/service/{schema,catalog,data,platform}/` (and shared cell `Value` in `internal/service/shared`); do not add a proto generation flow or a separate `apitype` package
 - Schema SQL: `migrations/`; run `cmd/migrate` (`make migrate` / `make docker-migrate`); compose **does not** auto-apply; **business services do not auto-migrate**
 - Physical table name equals logical name; public `Table.Id` = logical name
-- **columnType** = tenant custom type (`lc_column_types` + `pkg/typespec`, PG DOMAIN)
+- **columnType** = tenant custom type (`lc_column_types` + `internal/columntype`)
 - **Index** = PG physical index + meta `lc_indexes` (logical name, tenant ownership)
 - Virtual column kinds: `formula`, `link`, `lookup`, `rollup` — no physical column; Link in `link_ref`; results cached in `record.data`
 - Row storage: shard `record` (LIST partition `vt_id`) or dedicated `{tenant_id}_record` (`tenants.record_store`); `calc_queue` worker (`internal/service/calc`, in-process in `cmd/server`)
-- Access layer: **pgx** (`MetaPool` / `DataPool`); static SQL uses `postgres.Where` / `AndWhere` with `tenant_id`/`base_id`; DSL / partition DDL / `SKIP LOCKED` also pgx
-- Routes: `internal/api/routes.go` (chi); handlers in `internal/api/admin/`, `data/`, `worker/`
+- Access layer: **pgx** (`MetaPool` / `DataPool` in `pkg/infra/postgres`); static SQL uses `postgres.Where` / `AndWhere` with `tenant_id`/`base_id`; DSL / partition DDL / `SKIP LOCKED` also pgx
+- Routes: `internal/api/routes.go` (chi); handlers in `internal/api/admin/`, `data/`
 - Query DSL: `internal/dsl` + `internal/query`; saved Query merges filter/sort
 - **Module docs**: `docs/modules/README.md`; domains in `internal/service/{schema,catalog,data,platform}/`
 - Out of scope this version: [docs/roadmap.md](../../docs/roadmap.md) (schema bundle import, plugins, graph, Choice/ENUM, RBAC) — do not add those APIs or tables

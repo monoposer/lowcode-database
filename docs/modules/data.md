@@ -1,7 +1,7 @@
 # data module
 
 **Path:** `internal/service/data`  
-**Role:** Row I/O (`record` jsonb), DSL queries, `link_ref`, calc_queue enqueue, bulk, import/export.
+**Role:** Row I/O (`record` jsonb), DSL queries, `link_ref`, calc_queue enqueue, bulk, export.
 
 ## Core files
 
@@ -11,7 +11,7 @@
 | `link_write.go` / `record_cells.go` | `link_ref` binding; cache field hydrate |
 | `query.go` / `query_exec.go` | ListRows, `:query`, SearchRows |
 | `vr_fulltext.go` / `cascade.go` | Full text |
-| `bulk.go` / `import.go` | Bulk, import |
+| `bulk.go` | Bulk upsert/delete |
 
 Calc engine: `internal/service/calc` (queue + in-process worker). Design: [record-calc.md](../architecture/record-calc.md).
 
@@ -21,7 +21,7 @@ Calc engine: `internal/service/calc` (queue + in-process worker). Design: [recor
 /v1/data/tables/{id}/rows
   → meta.LoadColumns (catalog) + TableVTID
   → SQL on record or `{tenant_id}_record` (DataReadPool for query/export; DataPool for writes)
-  → EmitEvent → EventBus (records.* / schema.*) + metadata.* → lc_schema_audit
+  → EmitEvent → EventBus (records.* / schema.*) → webhooks
 ```
 
 ## Query

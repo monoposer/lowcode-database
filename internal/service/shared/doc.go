@@ -1,8 +1,8 @@
 // Package shared holds cross-domain helpers: Base dependencies, cells, config,
-// result-type constants, cache invalidation, and schema audit on EmitEvent.
+// result-type constants, cache invalidation, and EventBus publish on EmitEvent.
 //
 //   - base.go — Base struct and NewBase
-//   - events.go — EmitEvent: lc_schema_audit + EventBus publish
+//   - events.go — EmitEvent: EventBus publish (webhooks consume the bus)
 //   - cache.go — metadata cache invalidation
 //   - helpers.go — tenant, value utilities, cell helpers
 //   - pg.go — PG type helpers

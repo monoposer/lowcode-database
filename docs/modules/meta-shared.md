@@ -21,7 +21,7 @@ Avoids schema/data import cycles. **Writes** still go through schema/catalog/dat
 | File / area | Role |
 |-------------|------|
 | `base.go` | `Base`: TenantManager, Cache, Metrics, isolation mode |
-| `events.go` | `EmitEvent`: `metadata.*` → `lc_schema_audit` (no webhook delivery) |
+| `events.go` | `EmitEvent`: publish to EventBus (`records.*` / `schema.*`) |
 | `helpers.go` | Value conversion, TenantID, ResolveDataSchema |
 | `config.go` | Virtual column config validation (link, rollup) |
 | `result_type.go` | formula/lookup/rollup result types |

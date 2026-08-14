@@ -1,6 +1,7 @@
 -- Meta database schema (single migration for fresh installs).
 -- Hierarchy: Tenant ⊃ Base ⊃ Table. Row data on the tenant data DB; LIST key = vt_id.
--- name = logical API id; label = display name. tenant_id = X-Tenant-Id.
+-- lc_tables.name = logical table key for API; table_name columns reference that name.
+-- vt_id = global UUID (partition key). label = display name. tenant_id = X-Tenant-Id.
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
@@ -39,14 +40,13 @@ CREATE TABLE IF NOT EXISTS lc_tables (
     base_id     TEXT NOT NULL REFERENCES lc_bases(base_id) ON DELETE CASCADE,
     name        TEXT NOT NULL,
     label       TEXT NOT NULL DEFAULT '',
-    vt_id       TEXT,
+    vt_id       UUID NOT NULL DEFAULT gen_random_uuid(),
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (tenant_id, base_id, name)
+    PRIMARY KEY (tenant_id, base_id, name),
+    UNIQUE (vt_id)
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS lc_tables_vt_id_uidx
-    ON lc_tables (vt_id) WHERE vt_id IS NOT NULL AND vt_id <> '';
 CREATE INDEX IF NOT EXISTS lc_tables_tenant_idx ON lc_tables (tenant_id);
 CREATE INDEX IF NOT EXISTS lc_tables_base_idx ON lc_tables (base_id);
 
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS lc_columns (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id       TEXT NOT NULL,
     base_id     TEXT NOT NULL,
-    table_id    TEXT NOT NULL,
+    table_name    TEXT NOT NULL,
     name        TEXT NOT NULL,
     label       TEXT NOT NULL DEFAULT '',
     type_id     TEXT NOT NULL,
@@ -63,31 +63,32 @@ CREATE TABLE IF NOT EXISTS lc_columns (
     config      JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (tenant_id, base_id, table_id, name),
-    FOREIGN KEY (tenant_id, base_id, table_id) REFERENCES lc_tables(tenant_id, base_id, name) ON DELETE CASCADE
+    UNIQUE (tenant_id, base_id, table_name, name),
+    FOREIGN KEY (tenant_id, base_id, table_name) REFERENCES lc_tables(tenant_id, base_id, name) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS lc_indexes (
     tenant_id           TEXT NOT NULL,
     base_id         TEXT NOT NULL,
-    table_id        TEXT NOT NULL,
+    table_name        TEXT NOT NULL,
     name            TEXT NOT NULL,
     pg_index        TEXT NOT NULL,
     column_ids      JSONB NOT NULL DEFAULT '[]'::jsonb,
     is_unique       BOOLEAN NOT NULL DEFAULT false,
-    vt_id           TEXT NOT NULL DEFAULT '',
+    vt_id           UUID NOT NULL,
     index_expr      TEXT NOT NULL DEFAULT '',
     index_type      TEXT NOT NULL DEFAULT 'btree',
     migrate_status  TEXT NOT NULL DEFAULT 'ready',
     migrate_error   TEXT NOT NULL DEFAULT '',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (tenant_id, base_id, table_id, name),
-    UNIQUE (tenant_id, vt_id, pg_index),
-    FOREIGN KEY (tenant_id, base_id, table_id) REFERENCES lc_tables(tenant_id, base_id, name) ON DELETE CASCADE
+    PRIMARY KEY (tenant_id, base_id, table_name, name),
+    UNIQUE (vt_id, pg_index),
+    FOREIGN KEY (tenant_id, base_id, table_name) REFERENCES lc_tables(tenant_id, base_id, name) ON DELETE CASCADE,
+    FOREIGN KEY (vt_id) REFERENCES lc_tables(vt_id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS lc_indexes_tenant_table_idx ON lc_indexes (tenant_id, base_id, table_id);
+CREATE INDEX IF NOT EXISTS lc_indexes_tenant_table_namex ON lc_indexes (tenant_id, base_id, table_name);
 
 CREATE TABLE IF NOT EXISTS lc_column_types (
     tenant_id        TEXT NOT NULL,
@@ -120,7 +121,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS lc_api_keys_key_hash_idx ON lc_api_keys (key_h
 CREATE TABLE IF NOT EXISTS lc_queries (
     tenant_id        TEXT NOT NULL,
     base_id      TEXT NOT NULL,
-    table_id     TEXT NOT NULL,
+    table_name     TEXT NOT NULL,
     name         TEXT NOT NULL,
     label        TEXT NOT NULL DEFAULT '',
     filter       JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -129,23 +130,9 @@ CREATE TABLE IF NOT EXISTS lc_queries (
     config       JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (tenant_id, base_id, table_id, name),
-    FOREIGN KEY (tenant_id, base_id, table_id) REFERENCES lc_tables(tenant_id, base_id, name) ON DELETE CASCADE
+    PRIMARY KEY (tenant_id, base_id, table_name, name),
+    FOREIGN KEY (tenant_id, base_id, table_name) REFERENCES lc_tables(tenant_id, base_id, name) ON DELETE CASCADE
 );
-
-CREATE TABLE IF NOT EXISTS lc_schema_audit (
-    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id         TEXT NOT NULL DEFAULT 'default',
-    action        TEXT NOT NULL,
-    resource_type TEXT NOT NULL DEFAULT '',
-    resource_id   TEXT NOT NULL DEFAULT '',
-    table_id      TEXT NOT NULL DEFAULT '',
-    detail        JSONB NOT NULL DEFAULT '{}'::jsonb,
-    occurred_at   TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS lc_schema_audit_tenant_occurred_idx
-    ON lc_schema_audit (tenant_id, occurred_at DESC);
 
 CREATE TABLE IF NOT EXISTS lc_event_webhooks (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),

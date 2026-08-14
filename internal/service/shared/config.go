@@ -92,17 +92,17 @@ func NormalizeRelationshipConfig(cfg map[string]any) (map[string]any, error) {
 		cfg = map[string]any{}
 	}
 	out := maps.Clone(cfg)
-	if CfgString(out, "target_table_id") == "" {
-		if t := CfgString(out, "to_table_id"); t != "" {
-			out["target_table_id"] = t
+	if CfgString(out, "target_table_name") == "" {
+		if t := CfgString(out, "to_table_name"); t != "" {
+			out["target_table_name"] = t
 		}
 	}
-	if CfgString(out, "to_table_id") == "" && CfgString(out, "target_table_id") != "" {
-		out["to_table_id"] = CfgString(out, "target_table_id")
+	if CfgString(out, "to_table_name") == "" && CfgString(out, "target_table_name") != "" {
+		out["to_table_name"] = CfgString(out, "target_table_name")
 	}
-	targetTable := CfgString(out, "target_table_id")
+	targetTable := CfgString(out, "target_table_name")
 	if targetTable == "" {
-		return nil, fmt.Errorf("link/relationship config requires to_table_id (or target_table_id)")
+		return nil, fmt.Errorf("link/relationship config requires to_table_name (or target_table_name)")
 	}
 	linkID := CfgString(out, "link_column_id")
 	targetColID := CfgString(out, "target_column_id")

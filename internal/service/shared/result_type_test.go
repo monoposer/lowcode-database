@@ -9,8 +9,8 @@ func TestRollupResultTypeId(t *testing.T) {
 	if RollupResultTypeId("max", "datetime") != "datetime" {
 		t.Fatal("max datetime")
 	}
-	if RollupResultTypeId("sum", "int8") != "number" {
-		t.Fatal("sum int8")
+	if RollupResultTypeId("sum", "number") != "number" {
+		t.Fatal("sum number")
 	}
 }
 

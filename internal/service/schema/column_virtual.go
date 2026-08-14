@@ -13,11 +13,11 @@ func (s *Schema) NormalizeRelationshipConfig(ctx context.Context, tenantID, sour
 	if err != nil {
 		return nil, err
 	}
-	targetTable, err := s.B.ResolveTableName(ctx, shared.CfgString(out, "target_table_id"))
+	targetTable, err := s.B.ResolveTableName(ctx, shared.CfgString(out, "target_table_name"))
 	if err != nil {
-		return nil, fmt.Errorf("relationship target_table_id: %w", err)
+		return nil, fmt.Errorf("relationship target_table_name: %w", err)
 	}
-	out["target_table_id"] = targetTable
+	out["target_table_name"] = targetTable
 	if link := shared.CfgString(out, "link_column_id"); link != "" {
 		name, err := s.ResolveColumnName(ctx, tenantID, targetTable, link)
 		if err != nil {
@@ -29,23 +29,6 @@ func (s *Schema) NormalizeRelationshipConfig(ctx context.Context, tenantID, sour
 		name, err := s.ResolveColumnName(ctx, tenantID, sourceTableKey, tgt)
 		if err != nil {
 			return nil, fmt.Errorf("relationship target_column_id: %w", err)
-		}
-		out["target_column_id"] = name
-	}
-	return out, nil
-}
-
-func (s *Schema) NormalizeRelationFKConfig(ctx context.Context, tenantID string, cfg map[string]any) (map[string]any, error) {
-	out := mapsClone(cfg)
-	targetTable, err := s.B.ResolveTableName(ctx, shared.CfgString(out, "target_table_id"))
-	if err != nil {
-		return nil, fmt.Errorf("relation_fk target_table_id: %w", err)
-	}
-	out["target_table_id"] = targetTable
-	if ref := shared.CfgString(out, "target_column_id"); ref != "" {
-		name, err := s.ResolveColumnName(ctx, tenantID, targetTable, ref)
-		if err != nil {
-			return nil, fmt.Errorf("relation_fk target_column_id: %w", err)
 		}
 		out["target_column_id"] = name
 	}
@@ -88,7 +71,7 @@ func (s *Schema) NormalizeLookupConfig(ctx context.Context, tenantID, sourceTabl
 	var relCfg map[string]any
 	err = meta.QueryRow(ctx, `
 		SELECT config FROM lc_columns
-		WHERE tenant_id = $1 AND base_id = $2 AND table_id = $3 AND name = $4 AND type_id IN ('link','relationship','relation_fk')`,
+		WHERE tenant_id = $1 AND base_id = $2 AND table_name = $3 AND name = $4 AND type_id IN ('link')`,
 		tenantID, baseID, sourceTableKey, relName,
 	).Scan(&relCfg)
 	if err == pgx.ErrNoRows {
@@ -101,7 +84,7 @@ func (s *Schema) NormalizeLookupConfig(ctx context.Context, tenantID, sourceTabl
 	if err != nil {
 		return nil, fmt.Errorf("lookup: invalid relationship config: %w", err)
 	}
-	targetTable, err := s.B.ResolveTableName(ctx, shared.CfgString(normRel, "target_table_id"))
+	targetTable, err := s.B.ResolveTableName(ctx, shared.CfgString(normRel, "target_table_name"))
 	if err != nil {
 		return nil, err
 	}
@@ -149,12 +132,12 @@ func (s *Schema) NormalizeRollupConfig(ctx context.Context, tenantID, sourceTabl
 		var relCfg map[string]any
 		if err := meta.QueryRow(ctx, `
 			SELECT config FROM lc_columns
-			WHERE tenant_id = $1 AND base_id = $2 AND table_id = $3 AND name = $4 AND type_id IN ('link','relationship','relation_fk')`,
+			WHERE tenant_id = $1 AND base_id = $2 AND table_name = $3 AND name = $4 AND type_id IN ('link')`,
 			tenantID, baseID, sourceTableKey, relName,
 		).Scan(&relCfg); err != nil {
 			return nil, fmt.Errorf("rollup relation_column_id: relationship column not found")
 		}
-		targetTable, err := s.B.ResolveTableName(ctx, shared.CfgString(relCfg, "target_table_id"))
+		targetTable, err := s.B.ResolveTableName(ctx, shared.CfgString(relCfg, "target_table_name"))
 		if err != nil {
 			return nil, err
 		}
@@ -196,7 +179,7 @@ func (s *Schema) ResolveColumnName(ctx context.Context, tenantID, tableKey, ref 
 	var name string
 	err = meta.QueryRow(ctx, `
 		SELECT name FROM lc_columns
-		WHERE tenant_id = $1 AND base_id = $2 AND table_id = $3 AND name = $4`,
+		WHERE tenant_id = $1 AND base_id = $2 AND table_name = $3 AND name = $4`,
 		tenantID, baseID, resolvedTable, ref,
 	).Scan(&name)
 	if err == nil {
@@ -210,7 +193,7 @@ func (s *Schema) ResolveColumnName(ctx context.Context, tenantID, tableKey, ref 
 	}
 	err = meta.QueryRow(ctx, `
 		SELECT name FROM lc_columns
-		WHERE tenant_id = $1 AND base_id = $2 AND table_id = $3 AND id = $4::uuid`,
+		WHERE tenant_id = $1 AND base_id = $2 AND table_name = $3 AND id = $4::uuid`,
 		tenantID, baseID, resolvedTable, ref,
 	).Scan(&name)
 	if err == pgx.ErrNoRows {
@@ -238,7 +221,7 @@ func (s *Schema) ResolveColumnUUID(ctx context.Context, tenantID, tableKey, ref 
 	var id string
 	err = s.B.Tenants.MetaPool().QueryRow(ctx, `
 		SELECT id::text FROM lc_columns
-		WHERE tenant_id = $1 AND base_id = $2 AND table_id = $3 AND name = $4`,
+		WHERE tenant_id = $1 AND base_id = $2 AND table_name = $3 AND name = $4`,
 		tenantID, baseID, resolvedTable, name,
 	).Scan(&id)
 	if err != nil {
@@ -269,7 +252,7 @@ func (s *Schema) ResolveColumnDBID(ctx context.Context, tenantID, tableKey, ref 
 		return id, err
 	}
 	if tableKey == "" {
-		return "", fmt.Errorf("table_id is required when column ref is a name")
+		return "", fmt.Errorf("table_name is required when column ref is a name")
 	}
 	return s.ResolveColumnUUID(ctx, tenantID, tableKey, ref)
 }
@@ -316,8 +299,8 @@ func ColumnRefMatches(meta shared.ColumnMeta, ref string) bool {
 }
 
 // LoadManyRelationshipColumns returns many-cardinality relationship columns keyed by column name.
-func (s *Schema) LoadManyRelationshipColumns(ctx context.Context, tableID string) (map[string]shared.RelationshipColumn, error) {
-	resolvedName, err := s.B.ResolveTableName(ctx, tableID)
+func (s *Schema) LoadManyRelationshipColumns(ctx context.Context, tableName string) (map[string]shared.RelationshipColumn, error) {
+	resolvedName, err := s.B.ResolveTableName(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -333,7 +316,7 @@ func (s *Schema) LoadManyRelationshipColumns(ctx context.Context, tableID string
 	const q = `
 		SELECT c.name, c.config
 		FROM lc_columns c
-		WHERE c.table_id = $1 AND c.tenant_id = $2 AND c.base_id = $3 AND c.type_id IN ('link','relationship','relation_fk')
+		WHERE c.table_name = $1 AND c.tenant_id = $2 AND c.base_id = $3 AND c.type_id IN ('link')
 	`
 	rows, err := meta.Query(ctx, q, resolvedName, tid, baseID)
 	if err != nil {
@@ -354,13 +337,13 @@ func (s *Schema) LoadManyRelationshipColumns(ctx context.Context, tableID string
 		if card != "many" {
 			continue
 		}
-		targetTable := shared.CfgString(cfg, "target_table_id")
+		targetTable := shared.CfgString(cfg, "target_table_name")
 		if targetTable == "" || linkID == "" {
 			continue
 		}
 		out[name] = shared.RelationshipColumn{
 			Id:            name,
-			TargetTableId: targetTable,
+			TargetTableName: targetTable,
 			LinkColumnId:  linkID,
 			Cardinality:   "many",
 		}
@@ -372,8 +355,8 @@ func (s *Schema) LoadManyRelationshipColumns(ctx context.Context, tableID string
 }
 
 // LoadOneRelationshipColumns returns one-cardinality relationship columns keyed by column name.
-func (s *Schema) LoadOneRelationshipColumns(ctx context.Context, tableID string) (map[string]shared.RelationshipColumn, error) {
-	resolvedName, err := s.B.ResolveTableName(ctx, tableID)
+func (s *Schema) LoadOneRelationshipColumns(ctx context.Context, tableName string) (map[string]shared.RelationshipColumn, error) {
+	resolvedName, err := s.B.ResolveTableName(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -389,7 +372,7 @@ func (s *Schema) LoadOneRelationshipColumns(ctx context.Context, tableID string)
 	const q = `
 		SELECT c.name, c.config
 		FROM lc_columns c
-		WHERE c.table_id = $1 AND c.tenant_id = $2 AND c.base_id = $3 AND c.type_id IN ('link','relationship','relation_fk')
+		WHERE c.table_name = $1 AND c.tenant_id = $2 AND c.base_id = $3 AND c.type_id IN ('link')
 	`
 	rows, err := meta.Query(ctx, q, resolvedName, tid, baseID)
 	if err != nil {
@@ -410,13 +393,13 @@ func (s *Schema) LoadOneRelationshipColumns(ctx context.Context, tableID string)
 		if card != "one" {
 			continue
 		}
-		targetTable := shared.CfgString(cfg, "target_table_id")
+		targetTable := shared.CfgString(cfg, "target_table_name")
 		if targetTable == "" || targetColID == "" {
 			continue
 		}
 		out[name] = shared.RelationshipColumn{
 			Id:             name,
-			TargetTableId:  targetTable,
+			TargetTableName:  targetTable,
 			TargetColumnId: targetColID,
 			Cardinality:    "one",
 		}
@@ -428,8 +411,8 @@ func (s *Schema) LoadOneRelationshipColumns(ctx context.Context, tableID string)
 }
 
 // MustFKColumnName resolves target_column_id to physical FK column name on the host table.
-func (s *Schema) MustFKColumnName(ctx context.Context, tenantID, hostTableID, fkColumnRef string) (string, error) {
-	name, err := s.ResolveColumnName(ctx, tenantID, hostTableID, fkColumnRef)
+func (s *Schema) MustFKColumnName(ctx context.Context, tenantID, hostTableName, fkColumnRef string) (string, error) {
+	name, err := s.ResolveColumnName(ctx, tenantID, hostTableName, fkColumnRef)
 	if err != nil {
 		return "", fmt.Errorf("fk column: %w", err)
 	}
@@ -437,8 +420,8 @@ func (s *Schema) MustFKColumnName(ctx context.Context, tenantID, hostTableID, fk
 }
 
 // MustLinkColumnName resolves link_column_id to physical column name on child table.
-func (s *Schema) MustLinkColumnName(ctx context.Context, tenantID, childTableID, linkColumnRef string) (string, error) {
-	name, err := s.ResolveColumnName(ctx, tenantID, childTableID, linkColumnRef)
+func (s *Schema) MustLinkColumnName(ctx context.Context, tenantID, childTableName, linkColumnRef string) (string, error) {
+	name, err := s.ResolveColumnName(ctx, tenantID, childTableName, linkColumnRef)
 	if err != nil {
 		return "", fmt.Errorf("link column: %w", err)
 	}

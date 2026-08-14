@@ -20,7 +20,7 @@ const (
 type Task struct {
 	ID             int64
 	TenantID       string
-	TableID        string // logical table name
+	TableName        string // logical table name
 	RecordID       string
 	TargetFieldIDs []string
 	Status         int16
@@ -87,7 +87,7 @@ func asMap(v any) (map[string]any, bool) {
 
 func IsLinkType(typeID string) bool {
 	switch strings.ToLower(strings.TrimSpace(typeID)) {
-	case "link", "relationship", "relation_fk":
+	case "link":
 		return true
 	default:
 		return false

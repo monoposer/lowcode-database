@@ -4,16 +4,14 @@ import (
 	"context"
 	"fmt"
 	"strings"
-
-	apiv1schema "github.com/monoposer/lowcode-database/internal/apiv1/schema"
 	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
-func (s *Schema) LoadRelationshipColumns(ctx context.Context, tableID string, columnIDs []string) ([]shared.RelationshipColumn, error) {
+func (s *Schema) LoadRelationshipColumns(ctx context.Context, tableName string, columnIDs []string) ([]shared.RelationshipColumn, error) {
 	if len(columnIDs) == 0 {
 		return nil, nil
 	}
-	resolvedName, err := s.B.ResolveTableName(ctx, tableID)
+	resolvedName, err := s.B.ResolveTableName(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +42,7 @@ func (s *Schema) LoadRelationshipColumns(ctx context.Context, tableID string, co
 	q := fmt.Sprintf(`
 		SELECT c.name, c.config
 		FROM lc_columns c
-		WHERE c.table_id = $1 AND c.tenant_id = $2 AND c.base_id = $3 AND c.type_id IN ('link','relationship','relation_fk') AND c.name IN (%s)
+		WHERE c.table_name = $1 AND c.tenant_id = $2 AND c.base_id = $3 AND c.type_id IN ('link') AND c.name IN (%s)
 	`, joinPlaceholders(placeholders))
 	rows, err := meta.Query(ctx, q, args...)
 	if err != nil {
@@ -61,12 +59,12 @@ func (s *Schema) LoadRelationshipColumns(ctx context.Context, tableID string, co
 		}
 		rc := shared.RelationshipColumn{Id: name}
 		if cfg != nil {
-			if v, _ := cfg["target_table_id"].(string); v != "" {
-				rc.TargetTableId = v
+			if v, _ := cfg["target_table_name"].(string); v != "" {
+				rc.TargetTableName = v
 			}
-			if rc.TargetTableId == "" {
-				if v, _ := cfg["to_table_id"].(string); v != "" {
-					rc.TargetTableId = v
+			if rc.TargetTableName == "" {
+				if v, _ := cfg["to_table_name"].(string); v != "" {
+					rc.TargetTableName = v
 				}
 			}
 			if v, _ := cfg["link_column_id"].(string); v != "" {
@@ -76,7 +74,7 @@ func (s *Schema) LoadRelationshipColumns(ctx context.Context, tableID string, co
 				rc.TargetColumnId = v
 			}
 		}
-		if rc.TargetTableId == "" {
+		if rc.TargetTableName == "" {
 			continue
 		}
 		rc.Cardinality = shared.EffectiveRelationshipCardinality(cfg, rc.LinkColumnId, rc.TargetColumnId)
@@ -95,7 +93,7 @@ func joinPlaceholders(parts []string) string {
 
 // -------- ER Diagram --------
 
-func (s *Schema) GetERDiagram(ctx context.Context, _ *apiv1schema.GetERDiagramRequest) (*apiv1schema.GetERDiagramResponse, error) {
+func (s *Schema) GetERDiagram(ctx context.Context) (*ERDiagram, error) {
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
@@ -113,22 +111,21 @@ func (s *Schema) GetERDiagram(ctx context.Context, _ *apiv1schema.GetERDiagramRe
 	}
 	defer tables.Close()
 
-	diagram := &apiv1schema.ERDiagram{}
+	diagram := &ERDiagram{}
 
 	for tables.Next() {
 		var name string
 		if err := tables.Scan(&name); err != nil {
 			return nil, err
 		}
-		schemaResp, err := s.GetTableSchema(ctx, &apiv1schema.GetTableSchemaRequest{TableId: name})
+		_, cols, _, err := s.GetTableSchema(ctx, name)
 		if err != nil {
 			return nil, err
 		}
-		diagram.Nodes = append(diagram.Nodes, &apiv1schema.ERNode{
-			TableId:   name,
+		diagram.Nodes = append(diagram.Nodes, &ERNode{
 			TableName: name,
 			Label:     name,
-			Columns:   schemaResp.Columns,
+			Columns:   cols,
 		})
 	}
 	if err := tables.Err(); err != nil {
@@ -136,41 +133,41 @@ func (s *Schema) GetERDiagram(ctx context.Context, _ *apiv1schema.GetERDiagramRe
 	}
 
 	colRows, err := meta.Query(ctx, `
-		SELECT c.id, c.table_id, c.name, c.type_id, c.config
+		SELECT c.id, c.table_name, c.name, c.type_id, c.config
 		FROM lc_columns c
 		WHERE c.tenant_id = $1 AND c.base_id = $2
-		  AND c.type_id IN ('link', 'relationship', 'relation_fk')`, tid, baseID)
+		  AND c.type_id IN ('link')`, tid, baseID)
 	if err != nil {
 		return nil, err
 	}
 	defer colRows.Close()
 	for colRows.Next() {
-		var colID, tableID, colName, typeID string
+		var colID, tableName, colName, typeID string
 		var cfg map[string]any
-		if err := colRows.Scan(&colID, &tableID, &colName, &typeID, &cfg); err != nil {
+		if err := colRows.Scan(&colID, &tableName, &colName, &typeID, &cfg); err != nil {
 			return nil, err
 		}
-		targetTable := shared.CfgString(cfg, "target_table_id")
+		targetTable := shared.CfgString(cfg, "target_table_name")
 		if targetTable == "" {
 			continue
 		}
 		edgeKind := "MANY_TO_ONE"
-		if (typeID == "link" || typeID == "relationship" || typeID == "relation_fk") && shared.CfgString(cfg, "link_column_id") != "" {
+		if (typeID == "link") && shared.CfgString(cfg, "link_column_id") != "" {
 			edgeKind = "ONE_TO_MANY"
 		}
 		if typeID == "link" && strings.EqualFold(shared.CfgString(cfg, "cardinality"), "many") {
 			edgeKind = "ONE_TO_MANY"
 		}
-		diagram.Edges = append(diagram.Edges, &apiv1schema.EREdge{
+		diagram.Edges = append(diagram.Edges, &EREdge{
 			Id:             colID,
 			Kind:           edgeKind,
-			SourceTableId:  tableID,
+			SourceTableName:  tableName,
 			SourceColumnId: colID,
-			TargetTableId:  targetTable,
+			TargetTableName:  targetTable,
 			TargetColumnId: shared.CfgString(cfg, "target_column_id"),
 			Label:          colName,
 		})
 	}
 
-	return &apiv1schema.GetERDiagramResponse{Diagram: diagram}, colRows.Err()
+	return diagram, colRows.Err()
 }

@@ -102,10 +102,10 @@ export function RowFilterBar({
             disabled={!columns.length}
               onClick={() => {
               const first = columns[0]?.name ?? ''
-              const firstType = columns[0]?.typeId ?? 'text'
+              const isArray = columns[0]?.isArray === true
               onChange({
                 ...value,
-                conditions: [...value.conditions, newFilterCondition(first, firstType)],
+                conditions: [...value.conditions, newFilterCondition(first, isArray)],
               })
             }}
           >

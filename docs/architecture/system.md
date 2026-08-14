@@ -1,6 +1,6 @@
 # System architecture (current)
 
-This document describes the **current code path**: processes, dual database, tenant shards, `record` storage, async calc, the query stack, and **pgx multi-tenant access**. Historical isolation modes and the old `lc_t_*` physical-table path are in [tenant-isolation.md](tenant-isolation.md) (contrast only).
+This document describes the **current code path**: processes, dual database, tenant shards, `record` storage, async calc, the query stack, and **pgx multi-tenant access**. Tenant routing and `record_store`: [tenant-isolation.md](tenant-isolation.md).
 
 Related: [analysis.md](analysis.md) · [virtual-records.md](virtual-records.md) · [record-calc.md](record-calc.md) · [tenant-isolation.md](tenant-isolation.md)
 
@@ -8,13 +8,12 @@ Related: [analysis.md](analysis.md) · [virtual-records.md](virtual-records.md) 
 
 ## 1. Product
 
-lowcode-database is a **multi-tenant low-code table service**: HTTP JSON (`/v1/*`), runtime-defined tables/columns/relations, rows stored on a PostgreSQL shard per tenant. Public contracts live in `internal/apiv1/` (no gRPC / protobuf).
+lowcode-database is a **multi-tenant low-code table service**: HTTP JSON (`/v1/*`), runtime-defined tables/columns/relations, rows stored on a PostgreSQL shard per tenant. Public contracts live in `internal/service/{schema,catalog,data,platform,shared}/` (no gRPC / protobuf).
 
 | Plane | Prefix | Role |
 |-------|--------|------|
 | Admin / Meta | `/v1/admin/*` | Tenant, Base, tables/columns, indexes, relations, Query, API Key |
 | Data | `/v1/data/*` | Row CRUD, queries, execute saved Query |
-| Worker | `/v1/worker/*` | Remote calc: `calc:drain` / `calc:claim` / `calc:ack` |
 | Observability | `/v1/admin/pg-stat-statements`, `/openapi`, `/swagger` | SQL stats, OpenAPI |
 
 | Header | Role |
@@ -29,7 +28,7 @@ lowcode-database is a **multi-tenant low-code table service**: HTTP JSON (`/v1/*
 
 ```
 ┌──────────────── cmd/server (single instance) ─────────┐
-│  CORS → log → authn → /v1/admin + /v1/data + /v1/worker │
+│  CORS → log → authn → /v1/admin + /v1/data               │
 │  calc worker polls calc_queue                            │
 │  EventBus + webhook dispatcher                           │
 │  background: IndexMigrate                                │
@@ -51,7 +50,7 @@ Local: `make run` (`:8080`).
 ## 3. Layers
 
 ```
-HTTP JSON  (internal/api + apiv1)
+HTTP JSON  (internal/api + service domain types)
         │
 LowcodeService facade
   schema │ catalog │ data │ platform │ calc
@@ -66,7 +65,7 @@ shared.Base  (TenantManager · Cache · Metrics)
  Meta DB (shared)          Data DB (per-tenant tenants.data_dsn)
 ```
 
-Handlers do JSON and validation only. Domain logic lives in `internal/service/{domain}`. Connection routing lives in `internal/infra/postgres`.
+Handlers do JSON and validation only. Domain logic lives in `internal/service/{domain}`. Connection routing lives in `pkg/infra/postgres`.
 
 ```go
 type LowcodeService struct {
@@ -123,7 +122,7 @@ TenantManager
 | **DataPool(ctx)** | `TenantManager.DataPool(ctx)` | Write DSN (`data_dsn` / `data_dsn_write`) |
 | **DataReadPool(ctx)** | `TenantManager.DataReadPool(ctx)` | Replica list, or primary if `consistency=strong` |
 
-Implementation: `internal/infra/postgres` (`tenant_manager.go`, `shard_pool.go`, `tenant_pool.go`, `scope.go`).
+Implementation: `pkg/infra/postgres` (`tenant_manager.go`, `shard_pool.go`, `tenant_pool.go`, `scope.go`).
 
 ```
 HTTP + X-Tenant-Id
@@ -170,7 +169,7 @@ Authoritative detail: [virtual-records.md](virtual-records.md), [record-calc.md]
 
 List reads the cache; detail may compute the DAG live. **No cross-row strong consistency.**
 
-`internal/service/calc.Worker` always runs in-process inside `cmd/server`. `POST /v1/worker/calc:*` remains for optional remote claim.
+`internal/service/calc.Worker` always runs in-process inside `cmd/server`. Calc is not exposed over HTTP.
 
 ---
 
@@ -185,7 +184,7 @@ QueryRows / ExecuteQuery
 
 Dynamic WHERE / sort / paging use **pgx-assembled SQL** (column sets are known only at runtime). Table/column/single-row CRUD also uses pgx with `postgres.Where` / `AndWhere`.
 
-Index = PG physical index + `lc_indexes`. columnType = `lc_column_types` + `pkg/typespec` (DOMAIN).
+Index = PG physical index + `lc_indexes`. columnType = `lc_column_types` + `internal/columntype`.
 
 Virtual column kinds: `formula`, `link`, `lookup`, `rollup` — no standalone physical columns.
 
@@ -217,7 +216,7 @@ HTTP puts `tenant_id` / `base_id` on context. Static SQL **must** include tenant
 
 | Capability | Status |
 |------------|--------|
-| Events | EventBus + webhooks; schema-audit on Meta |
+| Events | EventBus + webhooks |
 | Cache | Redis: Query / column spec |
 | Metrics | `PG_STAT_STATEMENTS=true` → `GET /v1/admin/pg-stat-statements` |
 | Authn | Optional API Key |
@@ -230,7 +229,7 @@ Plugins, graph expand, Choice/ENUM, RBAC, schema-bundle import: [roadmap](../roa
 | SQL stats | `PG_STAT_STATEMENTS=true` | Postgres `pg_stat_statements` |
 | Slow query | `SLOW_QUERY_THRESHOLD_MS` | query / SQL warn logs |
 | SQL log | `LOG_SQL=true` | Emit SQL |
-| Tracing | `internal/telemetry` | Default noop |
+| Tracing | `pkg/telemetry` | OpenTelemetry; OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set |
 
 ---
 
@@ -249,15 +248,15 @@ Routes: `internal/api/routes.go` (chi). Tests and `cmd/server` mount all prefixe
 | Relation | `GET/POST/DELETE /v1/admin/relations` |
 | Query | `GET/POST/PATCH/DELETE /v1/admin/queries` |
 | ER | `GET /v1/admin/schema/er` |
-| Platform | API keys, types, schema-audit, `pg-stat-statements` |
+| Platform | API keys, types, webhooks, `pg-stat-statements` |
 
 ### Data
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET/POST/PATCH/DELETE | `/v1/data/tables/{tableId}/rows[/{rowId}]` | Row CRUD |
+| GET/POST/PATCH/DELETE | `/v1/data/tables/{tableName}/rows[/{rowId}]` | Row CRUD |
 | POST | `.../rows:query` | DSL filter query |
-| POST | `.../rows:bulkUpsert` / `:bulkDelete` / `:import` / `:export` / `:search` | Bulk and I/O |
+| POST | `.../rows:bulkUpsert` / `:bulkDelete` / `:export` / `:search` | Bulk and I/O |
 | POST | `/v1/data/queries/{name}` | Execute a saved Query |
 
 ### Write path
@@ -267,8 +266,7 @@ Routes: `internal/api/routes.go` (chi). Tests and `cmd/server` mount all prefixe
 | CreateRow | `POST .../rows` | records.after.insert | data pool tx |
 | UpdateRow | `PATCH .../rows/{id}` | records.after.update | same |
 | BulkUpsert | `POST .../rows:bulkUpsert` | per row | single-table tx |
-| Import | `POST .../rows:import` | per row | batched |
-| Schema change | Admin API | schema.* → `lc_schema_audit` | meta + data DDL |
+| Schema change | Admin API | schema.* (EventBus / webhooks) | meta + data DDL |
 
 ---
 
@@ -278,11 +276,12 @@ Routes: `internal/api/routes.go` (chi). Tests and `cmd/server` mount all prefixe
 |------|------|
 | `cmd/server` `cmd/migrate` | Runtime + migration CLI |
 | `internal/api` | chi routes and handlers |
-| `internal/apiv1` | JSON types |
+| `internal/service/*` types | JSON resource / request types |
 | `internal/service/*` | Domain logic |
-| `internal/infra/postgres` | Pools, shard routing, partition DDL, `Where` helpers |
+| `pkg/infra/postgres` | Pools, shard routing, partition DDL, `Where` helpers |
+| `pkg/config` `pkg/logger` `pkg/tenant` | Env, logs, tenant context |
 | `internal/service/calc` | Queue engine + in-process `calc_queue` worker |
-| `pkg/typespec` | pgType / columnType DOMAIN helpers |
+| `internal/columntype` | pgType registry and columnType spec |
 | `web/playground` | Debug UI |
 | `migrations/` | Meta/Data SQL |
 

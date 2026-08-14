@@ -25,7 +25,7 @@ func TestUnwrapCache(t *testing.T) {
 }
 
 func TestIsLinkAndCalcType(t *testing.T) {
-	if !IsLinkType("link") || !IsLinkType("relationship") || !IsLinkType("relation_fk") {
+	if !IsLinkType("link") {
 		t.Fatal("link types")
 	}
 	if !IsCalcType("formula") || !IsCalcType("lookup") || !IsCalcType("rollup") {

@@ -3,14 +3,12 @@ package httputil
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
 
-	"github.com/monoposer/lowcode-database/internal/apiv1/platform"
 	"github.com/monoposer/lowcode-database/internal/service"
-	"github.com/monoposer/lowcode-database/internal/tenant"
+	"github.com/monoposer/lowcode-database/pkg/tenant"
 )
 
 // Base holds shared HTTP helpers for JSON API handlers.
@@ -115,21 +113,4 @@ func QueryFirst(r *http.Request, keys ...string) string {
 		}
 	}
 	return ""
-}
-
-func ReadListQuery(r *http.Request, dst any) {
-	q := r.URL.Query()
-	switch d := dst.(type) {
-	case *platform.ListSchemaAuditRequest:
-		if v := q.Get("limit"); v != "" {
-			var n int
-			if _, err := fmt.Sscanf(v, "%d", &n); err == nil {
-				d.Limit = n
-			}
-		}
-		d.TableId = strings.TrimSpace(q.Get("table_id"))
-		if d.TableId == "" {
-			d.TableId = strings.TrimSpace(q.Get("tableId"))
-		}
-	}
 }

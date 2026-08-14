@@ -4,13 +4,11 @@ import (
 	"context"
 	"fmt"
 	"strings"
-
-	"github.com/monoposer/lowcode-database/internal/apiv1/platform"
-	"github.com/monoposer/lowcode-database/internal/infra/postgres"
+	"github.com/monoposer/lowcode-database/pkg/infra/postgres"
 )
 
 // CreateTenant registers a tenant and provisions data storage per isolation mode.
-func (s *Platform) CreateTenant(ctx context.Context, req *platform.CreateTenantRequest) (*platform.CreateTenantResponse, error) {
+func (s *Platform) CreateTenant(ctx context.Context, req *CreateTenantRequest) (*CreateTenantResponse, error) {
 	id := strings.TrimSpace(req.Id)
 	if id == "" {
 		return nil, fmt.Errorf("id is required")
@@ -26,10 +24,10 @@ func (s *Platform) CreateTenant(ctx context.Context, req *platform.CreateTenantR
 	if err := s.B.Tenants.CreateTenantFull(ctx, id, req.DisplayName, writeDSN, req.DataDsnReads, req.PoolMaxConns, store); err != nil {
 		return nil, fmt.Errorf("create tenant %s: %w", id, err)
 	}
-	return &platform.CreateTenantResponse{Id: id, RecordStore: store}, nil
+	return &CreateTenantResponse{Id: id, RecordStore: store}, nil
 }
 
-func (s *Platform) UpdateTenant(ctx context.Context, id string, req *platform.UpdateTenantRequest) (*platform.UpdateTenantResponse, error) {
+func (s *Platform) UpdateTenant(ctx context.Context, id string, req *UpdateTenantRequest) (*UpdateTenantResponse, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return nil, fmt.Errorf("id is required")
@@ -45,5 +43,36 @@ func (s *Platform) UpdateTenant(ctx context.Context, id string, req *platform.Up
 	if err := s.B.Tenants.UpdateTenantDSNs(ctx, id, writeDSN, req.DataDsnReads, updateReads); err != nil {
 		return nil, err
 	}
-	return &platform.UpdateTenantResponse{Id: id}, nil
+	return &UpdateTenantResponse{Id: id}, nil
+}
+
+type TenantDTO struct {
+	TenantID         string `json:"tenantId"`
+	Name             string `json:"name"`
+	Status           string `json:"status"`
+	ReadReplicaCount int    `json:"readReplicaCount,omitempty"`
+	RecordStore      string `json:"recordStore,omitempty"`
+}
+
+type ListTenantsResponse struct {
+	Tenants []TenantDTO `json:"tenants"`
+}
+
+func (s *Platform) ListTenants(ctx context.Context) (*ListTenantsResponse, error) {
+	list, err := s.B.Tenants.ListTenants(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]TenantDTO, 0, len(list))
+	for _, t := range list {
+		out = append(out, tenantDTO(t))
+	}
+	return &ListTenantsResponse{Tenants: out}, nil
+}
+
+func tenantDTO(t postgres.TenantInfo) TenantDTO {
+	return TenantDTO{
+		TenantID: t.TenantID, Name: t.Name, Status: t.Status, ReadReplicaCount: t.ReadReplicaCount,
+		RecordStore: t.RecordStore,
+	}
 }

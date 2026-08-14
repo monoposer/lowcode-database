@@ -19,18 +19,20 @@ Postgres-backed low-code table service: HTTP JSON API (`/v1/*`), dynamic tables/
 | `cmd/migrate/` | Schema migration CLI |
 | `web/playground/` | Vite + AG Grid debug UI (hash pages `#/editor`, etc.) |
 | `internal/api/` | Routes and handlers (`/v1/admin/*`, `/v1/data/*`) |
-| `internal/apiv1/` | JSON request/response types (hand-written, no proto) |
-| `internal/service/` | Domain modules: `schema`, `catalog`, `data`, `platform`, `calc` (see [docs/modules/](docs/modules/README.md)) |
-| `pkg/typespec/` | Column types (pgType / DOMAIN) |
+| `internal/service/` | Domain modules + JSON types: `schema`, `catalog`, `data`, `platform`, `calc`, `shared` (see [docs/modules/](docs/modules/README.md)) |
+| `internal/columntype/` | Built-in pgTypes and tenant columnType specs |
 | `internal/service/shared/` | Cross-domain helpers (result type, cells, config) |
 | `internal/dsl/`, `internal/query/` | Filter DSL → SQL |
 | `internal/event/` | Event types + EventBus (memory / Redis Stream) + webhooks |
-| `internal/infra/postgres/` | Dual-DB TenantManager, pools |
-| `internal/infra/redis/` | Redis client (optional) |
-| `internal/platform/cache/` | Redis metadata cache (query / column spec) |
-| `internal/platform/metrics/` | `pg_stat_statements` list (`PG_STAT_STATEMENTS`) |
-| `internal/platform/authn/` | API Key validation (authentication) |
-| `internal/logger/` | JSON structured logs |
+| `pkg/infra/postgres/` | Dual-DB TenantManager, pools |
+| `pkg/infra/redis/` | Redis client (optional) |
+| `pkg/platform/cache/` | Redis metadata cache (query / column spec) |
+| `pkg/platform/metrics/` | `pg_stat_statements` list (`PG_STAT_STATEMENTS`) |
+| `pkg/platform/authn/` | API Key validation (authentication) |
+| `pkg/logger/` | JSON structured logs |
+| `pkg/config/` | Env / `.env` |
+| `pkg/tenant/` | `X-Tenant-Id` on context |
+| `pkg/migrator/` | Schema migration runner (`cmd/migrate`) |
 | `migrations/` | Meta/Data SQL (embedded by `cmd/migrate`) |
 | `docs/` | Architecture docs ([docs/README.md](docs/README.md)) |
 

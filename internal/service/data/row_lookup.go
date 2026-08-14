@@ -6,7 +6,7 @@ import (
 	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
-func (s *Data) buildLookupJoinSpecs(ctx context.Context, tableID string, argAcc *argAccumulator) ([]lookupJoinSpec, error) {
+func (s *Data) buildLookupJoinSpecs(ctx context.Context, tableName string, argAcc *argAccumulator) ([]lookupJoinSpec, error) {
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
@@ -15,7 +15,7 @@ func (s *Data) buildLookupJoinSpecs(ctx context.Context, tableID string, argAcc 
 	if err != nil {
 		return nil, err
 	}
-	resolvedName, err := s.B.ResolveTableName(ctx, tableID)
+	resolvedName, err := s.B.ResolveTableName(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -23,7 +23,7 @@ func (s *Data) buildLookupJoinSpecs(ctx context.Context, tableID string, argAcc 
 	const q = `
 		SELECT c.name, c.config
 		FROM lc_columns c
-		WHERE c.table_id = $1 AND c.tenant_id = $2 AND c.base_id = $3 AND c.type_id = 'lookup'
+		WHERE c.table_name = $1 AND c.tenant_id = $2 AND c.base_id = $3 AND c.type_id = 'lookup'
 	`
 	rows, err := meta.Query(ctx, q, resolvedName, tid, baseID)
 	if err != nil {
@@ -39,7 +39,7 @@ func (s *Data) buildLookupJoinSpecs(ctx context.Context, tableID string, argAcc 
 		if err := rows.Scan(&colName, &cfg); err != nil {
 			return nil, err
 		}
-		spec, ok, err := s.lookupJoinSpecForColumn(ctx, tid, tableID, colName, cfg, argAcc, aliases)
+		spec, ok, err := s.lookupJoinSpecForColumn(ctx, tid, tableName, colName, cfg, argAcc, aliases)
 		if err != nil {
 			return nil, err
 		}
@@ -52,7 +52,7 @@ func (s *Data) buildLookupJoinSpecs(ctx context.Context, tableID string, argAcc 
 
 func (s *Data) lookupJoinSpecForColumn(
 	ctx context.Context,
-	tid, tableID, colName string,
+	tid, tableName, colName string,
 	cfg map[string]any,
 	argAcc *argAccumulator,
 	aliases *joinAliasRegistry,
@@ -62,12 +62,12 @@ func (s *Data) lookupJoinSpecForColumn(
 	if relID == "" || fieldID == "" {
 		return lookupJoinSpec{}, false, nil
 	}
-	rels, err := s.meta().LoadRelationshipColumns(ctx, tableID, []string{relID})
+	rels, err := s.meta().LoadRelationshipColumns(ctx, tableName, []string{relID})
 	if err != nil || len(rels) == 0 {
 		return lookupJoinSpec{}, false, nil
 	}
 	rel := rels[0]
-	tgtSchema, tgtTable, err := s.tableSchemaName(ctx, rel.TargetTableId)
+	tgtSchema, tgtTable, err := s.tableSchemaName(ctx, rel.TargetTableName)
 	if err != nil {
 		return lookupJoinSpec{}, false, nil
 	}
@@ -75,7 +75,7 @@ func (s *Data) lookupJoinSpecForColumn(
 	if raw, ok := cfg["filter"].(map[string]any); ok && len(raw) > 0 {
 		filter = raw
 	}
-	targetCols, _, _, err := s.meta().LoadColumns(ctx, rel.TargetTableId)
+	targetCols, _, _, err := s.meta().LoadColumns(ctx, rel.TargetTableName)
 	if err != nil {
 		return lookupJoinSpec{}, false, nil
 	}
@@ -90,7 +90,7 @@ func (s *Data) lookupJoinSpecForColumn(
 	if rel.Cardinality != "one" || rel.TargetColumnId == "" {
 		return lookupJoinSpec{}, false, nil
 	}
-	spec, err := s.buildOneLookupJoinSpec(ctx, tid, tableID, colName, rel, fieldID, tgtSchema, tgtTable, filter, targetCols, argAcc, aliases)
+	spec, err := s.buildOneLookupJoinSpec(ctx, tid, tableName, colName, rel, fieldID, tgtSchema, tgtTable, filter, targetCols, argAcc, aliases)
 	if err != nil {
 		return lookupJoinSpec{}, false, err
 	}
@@ -121,12 +121,12 @@ func (s *Data) buildManyLookupJoinSpec(
 	targetCols []shared.ColumnMeta,
 	argAcc *argAccumulator,
 ) (lookupJoinSpec, error) {
-	linkPg, err := s.meta().ColumnPgColumnByRef(ctx, tid, rel.TargetTableId, rel.LinkColumnId)
+	linkPg, err := s.meta().ColumnPgColumnByRef(ctx, tid, rel.TargetTableName, rel.LinkColumnId)
 	if err != nil {
 		return lookupJoinSpec{}, err
 	}
 	aliases := newJoinAliasRegistry()
-	resolved, err := s.resolveLookupTargetValue(ctx, rel.TargetTableId, fieldID, "_r", argAcc, map[string]bool{}, aliases)
+	resolved, err := s.resolveLookupTargetValue(ctx, rel.TargetTableName, fieldID, "_r", argAcc, map[string]bool{}, aliases)
 	if err != nil {
 		return lookupJoinSpec{}, fmt.Errorf("lookup %q: %w", colName, err)
 	}
@@ -160,7 +160,7 @@ func (s *Data) buildManyLookupJoinSpec(
 
 func (s *Data) buildOneLookupJoinSpec(
 	ctx context.Context,
-	tid, tableID, colName string,
+	tid, tableName, colName string,
 	rel shared.RelationshipColumn,
 	fieldID, tgtSchema, tgtTable string,
 	filter map[string]any,
@@ -168,12 +168,12 @@ func (s *Data) buildOneLookupJoinSpec(
 	argAcc *argAccumulator,
 	aliases *joinAliasRegistry,
 ) (lookupJoinSpec, error) {
-	baseFKPg, err := s.meta().ColumnPgColumnByRef(ctx, tid, tableID, rel.TargetColumnId)
+	baseFKPg, err := s.meta().ColumnPgColumnByRef(ctx, tid, tableName, rel.TargetColumnId)
 	if err != nil {
 		return lookupJoinSpec{}, err
 	}
 	alias := aliases.sharedRelRowAlias(rel.Id)
-	resolved, err := s.resolveLookupTargetValue(ctx, rel.TargetTableId, fieldID, alias, argAcc, map[string]bool{}, aliases)
+	resolved, err := s.resolveLookupTargetValue(ctx, rel.TargetTableName, fieldID, alias, argAcc, map[string]bool{}, aliases)
 	if err != nil {
 		return lookupJoinSpec{}, fmt.Errorf("lookup %q: %w", colName, err)
 	}
@@ -186,7 +186,7 @@ func (s *Data) buildOneLookupJoinSpec(
 			}
 		}
 	}
-	allTarget, _, _, _ := s.meta().LoadAllColumnMeta(ctx, rel.TargetTableId)
+	allTarget, _, _, _ := s.meta().LoadAllColumnMeta(ctx, rel.TargetTableName)
 	for _, tc := range allTarget {
 		if tc.Name == fieldID && tc.PgType != "" {
 			tgtValuePgType = tc.PgType

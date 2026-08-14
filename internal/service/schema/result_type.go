@@ -4,14 +4,12 @@ import (
 	"context"
 	"fmt"
 	"github.com/jackc/pgx/v5"
-	apiv1schema "github.com/monoposer/lowcode-database/internal/apiv1/schema"
 	"github.com/monoposer/lowcode-database/internal/columntype"
 	"github.com/monoposer/lowcode-database/internal/service/shared"
-	"github.com/monoposer/lowcode-database/pkg/typespec"
 )
 
 // EnsureColumnResultType fills config.result_type_id and Column.ResultTypeId for API responses.
-func (s *Schema) EnsureColumnResultType(ctx context.Context, tenantID, tableKey string, c *apiv1schema.Column) error {
+func (s *Schema) EnsureColumnResultType(ctx context.Context, tenantID, tableKey string, c *Column) error {
 	if c == nil {
 		return nil
 	}
@@ -53,7 +51,7 @@ func (s *Schema) ApplyColumnResultType(ctx context.Context, tenantID, tableKey, 
 func (s *Schema) ResolveColumnResultTypeID(ctx context.Context, tenantID, tableKey, colName, typeID string, cfg map[string]any) (string, error) {
 	kind := columntype.Kind(typeID)
 	if kind == "" && columntype.IsBuiltIn(typeID) {
-		return typespec.CanonicalID(typeID), nil
+		return columntype.CanonicalID(typeID), nil
 	}
 	if override := shared.ConfigResultTypeID(cfg); override != "" && kind != "lookup" {
 		return override, nil
@@ -92,11 +90,11 @@ func (s *Schema) resolveColumnResultTypeID(
 	case "link":
 		return "jsonb", nil
 	default:
-		if t, ok := typespec.GetPgType(typeID); ok && t.Kind == "" {
-			return typespec.CanonicalID(typeID), nil
+		if t, ok := columntype.GetPgType(typeID); ok && t.Kind == "" {
+			return columntype.CanonicalID(typeID), nil
 		}
 		if columntype.IsBuiltIn(typeID) {
-			return typespec.CanonicalID(typeID), nil
+			return columntype.CanonicalID(typeID), nil
 		}
 		// PG ENUM / choice columns use type_id = choice name; treat as text for filters.
 		return "text", nil
@@ -110,7 +108,7 @@ func (s *Schema) loadColumnMeta(ctx context.Context, tenantID, tableKey, colName
 	}
 	err = s.B.Tenants.MetaPool().QueryRow(ctx, `
 		SELECT type_id, config FROM lc_columns
-		WHERE tenant_id = $1 AND base_id = $2 AND table_id = $3 AND name = $4`,
+		WHERE tenant_id = $1 AND base_id = $2 AND table_name = $3 AND name = $4`,
 		tenantID, baseID, tableKey, colName,
 	).Scan(&typeID, &cfg)
 	return typeID, cfg, err
@@ -130,7 +128,7 @@ func (s *Schema) lookupResultTypeID(ctx context.Context, tenantID, hostTable str
 	var relCfg map[string]any
 	err = meta.QueryRow(ctx, `
 		SELECT config FROM lc_columns
-		WHERE tenant_id = $1 AND base_id = $2 AND table_id = $3 AND name = $4 AND type_id IN ('link','relationship','relation_fk')`,
+		WHERE tenant_id = $1 AND base_id = $2 AND table_name = $3 AND name = $4 AND type_id IN ('link')`,
 		tenantID, baseID, hostTable, relName,
 	).Scan(&relCfg)
 	if err != nil {
@@ -144,7 +142,7 @@ func (s *Schema) lookupResultTypeID(ctx context.Context, tenantID, hostTable str
 		return "text", nil
 	}
 	card := shared.EffectiveRelationshipCardinality(normRel, shared.CfgString(normRel, "link_column_id"), shared.CfgString(normRel, "target_column_id"))
-	targetTable, err := s.B.ResolveTableName(ctx, shared.CfgString(normRel, "target_table_id"))
+	targetTable, err := s.B.ResolveTableName(ctx, shared.CfgString(normRel, "target_table_name"))
 	if err != nil {
 		return "", err
 	}
@@ -157,7 +155,7 @@ func (s *Schema) lookupResultTypeID(ctx context.Context, tenantID, hostTable str
 		return "", err
 	}
 	if card == "many" {
-		return shared.ScalarResultTypeToArray(targetRT), nil
+		return shared.LookupManyResultTypeID(targetRT), nil
 	}
 	return targetRT, nil
 }
@@ -180,12 +178,12 @@ func (s *Schema) rollupResultTypeID(ctx context.Context, tenantID, hostTable str
 	var relCfg map[string]any
 	if err := meta.QueryRow(ctx, `
 		SELECT config FROM lc_columns
-		WHERE tenant_id = $1 AND base_id = $2 AND table_id = $3 AND name = $4 AND type_id IN ('link','relationship','relation_fk')`,
+		WHERE tenant_id = $1 AND base_id = $2 AND table_name = $3 AND name = $4 AND type_id IN ('link')`,
 		tenantID, baseID, hostTable, relName,
 	).Scan(&relCfg); err != nil {
 		return shared.RollupResultTypeId(agg, "number"), nil
 	}
-	targetTable, err := s.B.ResolveTableName(ctx, shared.CfgString(relCfg, "target_table_id"))
+	targetTable, err := s.B.ResolveTableName(ctx, shared.CfgString(relCfg, "target_table_name"))
 	if err != nil {
 		return "", err
 	}

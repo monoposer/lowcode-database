@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/monoposer/lowcode-database/internal/infra/postgres"
+	"github.com/monoposer/lowcode-database/pkg/infra/postgres"
 )
 
 func qTbl(ctx context.Context) string   { return postgres.TablesFromContext(ctx).QCalcQueue() }
@@ -15,7 +15,7 @@ func dlqTbl(ctx context.Context) string { return postgres.TablesFromContext(ctx)
 
 // Enqueue inserts a pending calc_queue row unless one already exists for (tenant, record) with status=pending.
 // Does not modify record / version.
-func Enqueue(ctx context.Context, pool *pgxpool.Pool, tenantID, tableID, recordID string, targetFieldIDs []string) error {
+func Enqueue(ctx context.Context, pool *pgxpool.Pool, tenantID, tableName, recordID string, targetFieldIDs []string) error {
 	if pool == nil || tenantID == "" || recordID == "" {
 		return nil
 	}
@@ -24,19 +24,19 @@ func Enqueue(ctx context.Context, pool *pgxpool.Pool, tenantID, tableID, recordI
 		ids = targetFieldIDs
 	}
 	_, err := pool.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s (tenant_id, table_id, record_id, target_field_ids, status, next_run_at)
+		INSERT INTO %s (tenant_id, table_name, record_id, target_field_ids, status, next_run_at)
 		SELECT $1, $2, $3, $4, 0, now()
 		WHERE NOT EXISTS (
 			SELECT 1 FROM %s
 			WHERE tenant_id = $1 AND record_id = $3 AND status = 0
-		)`, qTbl(ctx), qTbl(ctx)), tenantID, tableID, recordID, ids)
+		)`, qTbl(ctx), qTbl(ctx)), tenantID, tableName, recordID, ids)
 	return err
 }
 
 // EnqueueMany fans out with per-record dedup.
 func EnqueueMany(ctx context.Context, pool *pgxpool.Pool, jobs []Task) error {
 	for _, j := range jobs {
-		if err := Enqueue(ctx, pool, j.TenantID, j.TableID, j.RecordID, j.TargetFieldIDs); err != nil {
+		if err := Enqueue(ctx, pool, j.TenantID, j.TableName, j.RecordID, j.TargetFieldIDs); err != nil {
 			return err
 		}
 	}
@@ -64,7 +64,7 @@ func ClaimFair(ctx context.Context, pool *pgxpool.Pool, batch, perTenant int) ([
 
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		WITH due AS (
-			SELECT id, tenant_id, table_id, record_id, target_field_ids, status, retry_count, max_retry
+			SELECT id, tenant_id, table_name, record_id, target_field_ids, status, retry_count, max_retry
 			FROM %s
 			WHERE status = 0 AND next_run_at <= now()
 			ORDER BY id ASC
@@ -75,7 +75,7 @@ func ClaimFair(ctx context.Context, pool *pgxpool.Pool, batch, perTenant int) ([
 			SELECT *, ROW_NUMBER() OVER (PARTITION BY tenant_id ORDER BY id) AS rn
 			FROM due
 		)
-		SELECT id, tenant_id, table_id, record_id, target_field_ids, status, retry_count, max_retry
+		SELECT id, tenant_id, table_name, record_id, target_field_ids, status, retry_count, max_retry
 		FROM ranked
 		WHERE rn <= $2
 		ORDER BY id ASC
@@ -87,7 +87,7 @@ func ClaimFair(ctx context.Context, pool *pgxpool.Pool, batch, perTenant int) ([
 	for rows.Next() {
 		var t Task
 		var fields []string
-		if err := rows.Scan(&t.ID, &t.TenantID, &t.TableID, &t.RecordID, &fields, &t.Status, &t.RetryCount, &t.MaxRetry); err != nil {
+		if err := rows.Scan(&t.ID, &t.TenantID, &t.TableName, &t.RecordID, &fields, &t.Status, &t.RetryCount, &t.MaxRetry); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -131,8 +131,8 @@ func MarkRetry(ctx context.Context, pool *pgxpool.Pool, t Task, cause error) err
 	}
 	if next >= t.MaxRetry && t.MaxRetry > 0 {
 		_, err := pool.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s (queue_id, tenant_id, table_id, record_id, target_field_ids, retry_count, last_error)
-			SELECT id, tenant_id, table_id, record_id, target_field_ids, $2, $3
+			INSERT INTO %s (queue_id, tenant_id, table_name, record_id, target_field_ids, retry_count, last_error)
+			SELECT id, tenant_id, table_name, record_id, target_field_ids, $2, $3
 			FROM %s WHERE id = $1`, dlqTbl(ctx), qTbl(ctx)), t.ID, next, msg)
 		if err != nil {
 			return err
@@ -189,7 +189,7 @@ func ReplayDeadLetters(ctx context.Context, pool *pgxpool.Pool, tenantID string,
 		limit = 100
 	}
 	rows, err := pool.Query(ctx, fmt.Sprintf(`
-		SELECT id, tenant_id, table_id, record_id, target_field_ids
+		SELECT id, tenant_id, table_name, record_id, target_field_ids
 		FROM %s
 		WHERE ($1 = '' OR tenant_id = $1)
 		ORDER BY failed_at ASC
@@ -201,14 +201,14 @@ func ReplayDeadLetters(ctx context.Context, pool *pgxpool.Pool, tenantID string,
 	type row struct {
 		id       int64
 		tenantID string
-		tableID  string
+		tableName  string
 		recordID string
 		fields   []string
 	}
 	var list []row
 	for rows.Next() {
 		var r row
-		if err := rows.Scan(&r.id, &r.tenantID, &r.tableID, &r.recordID, &r.fields); err != nil {
+		if err := rows.Scan(&r.id, &r.tenantID, &r.tableName, &r.recordID, &r.fields); err != nil {
 			return 0, err
 		}
 		list = append(list, r)
@@ -218,7 +218,7 @@ func ReplayDeadLetters(ctx context.Context, pool *pgxpool.Pool, tenantID string,
 	}
 	n := 0
 	for _, r := range list {
-		if err := Enqueue(ctx, pool, r.tenantID, r.tableID, r.recordID, r.fields); err != nil {
+		if err := Enqueue(ctx, pool, r.tenantID, r.tableName, r.recordID, r.fields); err != nil {
 			return n, err
 		}
 		if _, err := pool.Exec(ctx, fmt.Sprintf(`DELETE FROM %s WHERE id = $1`, dlqTbl(ctx)), r.id); err != nil {

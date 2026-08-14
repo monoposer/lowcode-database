@@ -65,7 +65,6 @@ Each tenant is a `tenants` row with **`data_dsn`**. Create via `POST /v1/admin/t
 |--------|---------|---------|
 | `/v1/admin/*` | `cmd/server` | Schema & platform (Meta) |
 | `/v1/data/*` | `cmd/server` | Row reads/writes, execute saved queries |
-| `/v1/worker/*` | `cmd/server` | Calc: `calc:drain` / `calc:claim` / `calc:ack` |
 
 OpenAPI: [`internal/api/openapi/openapi.yaml`](internal/api/openapi/openapi.yaml)
 
@@ -90,7 +89,7 @@ Lookup / formula / rollup results are cached in `record.data` (`{value, _cache_s
 
 ### link (virtual)
 
-No standalone PG column. `config` needs `target_table_id` (or `to_table_id`). Optional:
+No standalone PG column. `config` needs `target_table_name` (or `to_table_name`). Optional:
 
 - **many** — `cardinality=many` and/or `link_column_id` on the related table
 - **one** — `cardinality=one` and/or `target_column_id`
@@ -124,14 +123,14 @@ Create, update, and list responses use **flat rows**: column names alongside `id
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/v1/data/tables/{tableId}/rows` | Paginated list |
-| GET | `/v1/data/tables/{tableId}/rows/{rowId}` | Detail (live formula/lookup/rollup) |
-| POST | `/v1/data/tables/{tableId}/rows` | Create row |
-| PATCH | `/v1/data/tables/{tableId}/rows/{rowId}` | Update row |
-| DELETE | `/v1/data/tables/{tableId}/rows/{rowId}` | Delete row |
-| POST | `/v1/data/tables/{tableId}/rows:query` | DSL filter query |
-| POST | `/v1/data/tables/{tableId}/rows:bulkUpsert` | Bulk upsert (single table, transactional) |
-| POST | `/v1/data/tables/{tableId}/rows:bulkDelete` | Bulk delete by ids |
+| GET | `/v1/data/tables/{tableName}/rows` | Paginated list |
+| GET | `/v1/data/tables/{tableName}/rows/{rowId}` | Detail (live formula/lookup/rollup) |
+| POST | `/v1/data/tables/{tableName}/rows` | Create row |
+| PATCH | `/v1/data/tables/{tableName}/rows/{rowId}` | Update row |
+| DELETE | `/v1/data/tables/{tableName}/rows/{rowId}` | Delete row |
+| POST | `/v1/data/tables/{tableName}/rows:query` | DSL filter query |
+| POST | `/v1/data/tables/{tableName}/rows:bulkUpsert` | Bulk upsert (single table, transactional) |
+| POST | `/v1/data/tables/{tableName}/rows:bulkDelete` | Bulk delete by ids |
 | POST | `/v1/data/queries/{name}` | Execute a saved query |
 
 ## Commands
@@ -161,7 +160,7 @@ make docker-up-stack  # full stack including app (deploy/docker-compose.yml)
 | `cmd/migrate/` | Schema migration CLI |
 | `web/playground/` | Debug UI |
 | `internal/api/` | Routes & handlers |
-| `internal/apiv1/` | Hand-written JSON types |
+| `internal/service/{schema,catalog,data,platform,shared}/` | Hand-written JSON types (no proto) |
 | `internal/service/` | Business logic |
 | `migrations/` | SQL migrations |
 

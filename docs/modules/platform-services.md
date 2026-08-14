@@ -2,21 +2,21 @@
 
 Cross-cutting: authn, cache, metrics, logging, tracing.
 
-## internal/platform/authn
+## pkg/platform/authn
 
 API Key validation (`lc_api_keys`). Enabled when `API_KEY_REQUIRED=true`.
 
-## internal/platform/authz
+## pkg/platform/authz
 
 **Not implemented.** See [roadmap](../roadmap.md#authorization-rbac).
 
-## internal/platform/cache
+## pkg/platform/cache
 
 Redis metadata cache: query, column spec, etc.; invalidated on writes.
 
 `CACHE_ENABLED` + `REDIS_URL`
 
-## internal/platform/metrics
+## pkg/platform/metrics
 
 The app no longer records rolling Query timings. SQL stats accumulate in Postgres **`pg_stat_statements`**.
 
@@ -26,13 +26,15 @@ When on: `GET /v1/admin/pg-stat-statements?limit=100` lists statements on the cu
 
 Postgres needs `shared_preload_libraries=pg_stat_statements` (already in `deploy/docker-compose.yml`) + data migration `000002_pg_stat_statements.up.sql`.
 
-## internal/logger
+## pkg/logger
 
 JSON stdout; SQL / slow-query logs.
 
-## internal/telemetry
+## pkg/telemetry
 
-Tracing interface (default `Noop`).
+OpenTelemetry traces and metrics. Default is the OTel no-op providers.
+
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` (or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` / `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`) to export over OTLP HTTP. Standard `OTEL_*` env vars apply (`OTEL_SERVICE_NAME`, headers, etc.).
 
 ## Startup wiring
 

@@ -19,6 +19,8 @@ export type FilterColumn = {
   resultTypeId?: string
   /** formula expression fallback when resultTypeId missing */
   expression?: string
+  /** True when column's type has spec.array / pgType[]. */
+  isArray?: boolean
 }
 
 type Props = {
@@ -52,9 +54,17 @@ export function FilterBuilder({ columns, value, onChange, valueTestId }: Props) 
     return m
   }, [columns])
 
+  const columnIsArray = useMemo(() => {
+    const m: Record<string, boolean> = {}
+    for (const c of columns) {
+      if (c.isArray) m[c.name] = true
+    }
+    return m
+  }, [columns])
+
   const preview = useMemo(
-    () => buildFilterDSL(value, columnTypes, columnExpressions, columnResultTypes),
-    [value, columnTypes, columnExpressions, columnResultTypes],
+    () => buildFilterDSL(value, columnTypes, columnExpressions, columnResultTypes, columnIsArray),
+    [value, columnTypes, columnExpressions, columnResultTypes, columnIsArray],
   )
 
   const updateCondition = (id: string, patch: Partial<FilterGroup['conditions'][0]>) => {
@@ -234,10 +244,10 @@ export function FilterBuilder({ columns, value, onChange, valueTestId }: Props) 
         className="filter-add-btn"
         onClick={() => {
           const first = columns[0]?.name ?? ''
-          const firstType = columns[0]?.typeId ?? 'text'
+          const isArray = columns[0]?.isArray === true
           onChange({
             ...value,
-            conditions: [...value.conditions, newFilterCondition(first, firstType)],
+            conditions: [...value.conditions, newFilterCondition(first, isArray)],
           })
         }}
         disabled={!columns.length}

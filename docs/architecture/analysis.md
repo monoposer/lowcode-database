@@ -16,7 +16,6 @@ A self-hostable **Postgres low-code table engine**: HTTP JSON (`/v1/*`), metadat
 |---------|--------|------|
 | Admin / Meta | `/v1/admin/*` | Tenants, bases, tables/columns, indexes, saved Query, API keys, webhooks |
 | Data | `/v1/data/*` | Row CRUD, DSL query, export, execute saved Query |
-| Calc HTTP | `/v1/worker/*` | Optional remote calc drain/claim/ack (same process also polls `calc_queue`) |
 
 ---
 
@@ -24,11 +23,11 @@ A self-hostable **Postgres low-code table engine**: HTTP JSON (`/v1/*`), metadat
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  cmd/server   /v1/admin + /v1/data + /v1/worker         │
+│  cmd/server   /v1/admin + /v1/data                      │
 │               + calc poll + EventBus + IndexMigrate     │
 │  cmd/migrate  one-shot SQL (not a service)              │
 ├─────────────────────────────────────────────────────────┤
-│  Contract     internal/apiv1 (hand-written JSON)        │
+│  Contract     service domain types (hand-written JSON)   │
 ├─────────────────────────────────────────────────────────┤
 │  Application  schema / catalog / data / platform        │
 ├─────────────────────────────────────────────────────────┤
@@ -61,7 +60,7 @@ HTTP: CORS → request log → optional API-key authn → chi `NewHandler`.
 
 - Writes and DDL use `DataPool` (write DSN).
 - Row query / export / saved-query use `DataReadPool` (round-robin replicas). `X-Read-Consistency: strong` or `consistency=strong` forces primary.
-- `EmitEvent` writes `metadata.*` to `lc_schema_audit` and publishes `records.*` / `schema.*` on EventBus (`memory` or Redis Stream). Webhooks consume the bus.
+- `EmitEvent` publishes `records.*` / `schema.*` on EventBus (`memory` or Redis Stream). Webhooks consume the bus; this service does not persist an audit log.
 
 ```bash
 make run    # :8080  admin + data + calc
@@ -86,9 +85,9 @@ Authz/RBAC, graph query, plugins, schema-bundle import: [roadmap.md](../roadmap.
 | Split | What it is | Isolation you get |
 |-------|------------|-------------------|
 | **Meta vs Data** | Two Postgres databases (or two DSNs) | Credentials, backup, scaling of catalog vs rows |
-| **Admin vs Data vs Calc URLs** | Prefixes on **one** HTTP server | None. Same process, same pools, same crash domain |
+| **Admin vs Data URLs** | Prefixes on **one** HTTP server | None. Same process, same pools, same crash domain |
 
-The product used to look like “control plane vs data plane processes”. After the merge, **only the database split is architectural**. `/v1/admin` vs `/v1/data` is module layout and API taste, not an operational boundary.
+The product used to look like “control plane vs data plane processes”. After the merge, **only the database split is architectural**. `/v1/admin` vs `/v1/data` is module layout and API taste, not an operational boundary. Calc is in-process (`calc_queue` poll), not an HTTP plane.
 
 ---
 
@@ -102,8 +101,7 @@ X-Tenant-Id [+ X-Api-Key] [+ X-Read-Consistency]
         │
         ├─ /v1/admin/*     MetaPool (+ DataPool for DDL / ENUM-less catalog)
         ├─ /v1/data write  Meta (vt_id, columns) → DataPool → calc_queue → EmitEvent
-        ├─ /v1/data read   Meta (columns / saved query) → DataReadPool → record jsonb
-        └─ /v1/worker/*    DataPool calc claim/ack (optional; cmd/server also polls)
+        └─ /v1/data read   Meta (columns / saved query) → DataReadPool → record jsonb
 ```
 
 Every row request still **reads Meta** (table → `vt_id`, column spec). Redis can cache column/query JSON; it cannot skip Meta on a cold process. The server therefore always holds Meta credentials **and** every tenant write/read DSN.
@@ -132,7 +130,7 @@ tenant_id  →  tenants.data_dsn     (which Postgres)
 table      →  lc_tables.vt_id      (LIST partition)
 ```
 
-Two tenants may share one DSN (shared_db style). Isolation is then **predicates** (`tenant_id` / `base_id` / `vt_id`), not a separate cluster. Dedicated isolation is a DSN convention, not a different code path. Static SQL is supposed to go through `postgres.Where` / `AndWhere`; DSL SQL is assembled at runtime and must not drop those keys.
+Two tenants may share one DSN. Isolation is then **predicates** (`tenant_id` / `base_id` / `vt_id`), not a separate cluster. A private Postgres is a DSN convention (`tenants.data_dsn`), not a different code path. Static SQL is supposed to go through `postgres.Where` / `AndWhere`; DSL SQL is assembled at runtime and must not drop those keys.
 
 ---
 
@@ -166,9 +164,9 @@ This is a **BFF-backed engine**, not a tenant-facing SaaS edge by itself.
 2. **Postgres-native model.** Indexes are real PG indexes; virtual columns have no extra physical column; rows are `record` LIST partitions by `vt_id`.
 3. **Clear tenancy.** `X-Tenant-Id` → Meta `tenants.data_dsn` → pooled connections keyed by DSN (shared across tenants on the same shard).
 4. **Read/write split without a second process.** Replica routing lives in `TenantManager`; strong reads opt into the primary.
-5. **Events are actually deliverable.** Memory bus for single instance; Redis Stream for multiple replicas of the same binary; webhooks replace polling `lc_schema_audit`.
+5. **Events are actually deliverable.** Memory bus for single instance; Redis Stream for multiple replicas of the same binary; webhooks for external consumers.
 6. **Query path is cheaper on repeats.** Process-local `dsl.ParseCached` and `BuildWhereWithTypesCached`; saved-query spec still Redis-cached.
-7. **No gRPC/protobuf tax.** `apiv1` is the contract.
+7. **No gRPC/protobuf tax.** Domain types in `internal/service/*` are the contract.
 
 ---
 
@@ -176,7 +174,7 @@ This is a **BFF-backed engine**, not a tenant-facing SaaS edge by itself.
 
 1. **Single process is a blast radius.** Admin DDL, heavy export, and calc polling share CPU, memory, and the HTTP server. A stuck `calc_queue` or a large import can delay schema APIs. Horizontal scale means running **N identical all-in-one replicas**, which duplicates calc pollers unless you later add a leader lock.
 2. **Calc fan-out on replicas.** Every instance polls every shard’s `calc_queue` (`SKIP LOCKED` makes this safe but wastes connections and wakeups). There is no elected calc owner.
-3. **Memory EventBus does not cross instances.** Default `EVENT_BUS=memory` is local only. Multi-replica deploys must set `EVENT_BUS=redis` or webhooks will miss events from other processes. Redis Stream webhook consumer group delivers each event once — good — but schema audit is still per-writer to Meta.
+3. **Memory EventBus does not cross instances.** Default `EVENT_BUS=memory` is local only. Multi-replica deploys must set `EVENT_BUS=redis` or webhooks will miss events from other processes. Redis Stream webhook consumer group delivers each event once.
 4. **Replica lag is the caller’s problem.** Strong read is opt-in. A read-after-write without `consistency=strong` can miss the row on a lagging replica.
 5. **Runtime DDL vs versioned SQL.** Data tables/partitions/indexes are created by the app; `migrations/data` only covers extensions (`cmd/migrate`). That does not version every tenant’s logical schema.
 6. **Authz is external.** Any valid API key for the tenant can hit admin and data. Fine if a BFF enforces RBAC; see [roadmap](../roadmap.md#authorization-rbac).

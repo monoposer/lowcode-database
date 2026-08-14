@@ -6,7 +6,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/monoposer/lowcode-database/internal/config"
+	"github.com/monoposer/lowcode-database/pkg/config"
 )
 
 // Open returns a Redis Stream bus when EVENT_BUS=redis and a client is present,

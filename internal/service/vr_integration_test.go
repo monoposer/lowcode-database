@@ -3,9 +3,11 @@ package service_test
 import (
 	"testing"
 
-	"github.com/monoposer/lowcode-database/internal/apiv1"
-	"github.com/monoposer/lowcode-database/internal/apiv1/row"
-	apiv1schema "github.com/monoposer/lowcode-database/internal/apiv1/schema"
+	"github.com/monoposer/lowcode-database/internal/columntype"
+	"github.com/monoposer/lowcode-database/internal/service/catalog"
+	"github.com/monoposer/lowcode-database/internal/service/data"
+	"github.com/monoposer/lowcode-database/internal/service/schema"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
 	"github.com/monoposer/lowcode-database/internal/testutil"
 )
 
@@ -15,11 +17,11 @@ func TestVirtualRecordsCRUD(t *testing.T) {
 	ctx := testutil.CtxVR()
 
 	table := testutil.UniqueName("vr_orders")
-	if _, err := svc.CreateTable(ctx, &apiv1schema.CreateTableRequest{Name: table}); err != nil {
+	if _, err := svc.CreateTable(ctx, &schema.Table{Name: table}); err != nil {
 		t.Fatalf("create table: %v", err)
 	}
-	titleCol, err := svc.AddColumn(ctx, &apiv1schema.AddColumnRequest{
-		TableId: table, Name: "title", TypeId: "text", Position: 2,
+	titleCol, err := svc.AddColumn(ctx, &schema.Column{
+		TableName: table, Name: "title", TypeId: "text", Position: 2,
 		Config: map[string]any{"enable_fulltext": true, "need_index": true},
 	})
 	if err != nil {
@@ -28,9 +30,9 @@ func TestVirtualRecordsCRUD(t *testing.T) {
 	_ = titleCol
 
 	str := "hello virtual records"
-	created, err := svc.CreateRow(ctx, &row.CreateRowRequest{
-		TableId: table,
-		Cells:   map[string]*apiv1.Value{"title": {StringValue: &str}},
+	created, err := svc.CreateRow(ctx, &data.CreateRowRequest{
+		TableName: table,
+		Cells:   map[string]*shared.Value{"title": {StringValue: &str}},
 	})
 	if err != nil {
 		t.Fatalf("create row: %v", err)
@@ -39,8 +41,8 @@ func TestVirtualRecordsCRUD(t *testing.T) {
 		t.Fatalf("missing row id")
 	}
 
-	q, err := svc.QueryRows(ctx, &row.QueryRowsRequest{
-		TableId: table,
+	q, err := svc.QueryRows(ctx, &data.QueryRowsRequest{
+		TableName: table,
 		Filter:  map[string]any{"field": "title", "op": "eq", "value": str},
 	})
 	if err != nil {
@@ -50,7 +52,7 @@ func TestVirtualRecordsCRUD(t *testing.T) {
 		t.Fatalf("want 1 row, got %d", len(q.Rows))
 	}
 
-	search, err := svc.SearchRows(ctx, &row.SearchRowsRequest{TableId: table, Query: "virtual"})
+	search, err := svc.SearchRows(ctx, &data.SearchRowsRequest{TableName: table, Query: "virtual"})
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
@@ -58,13 +60,13 @@ func TestVirtualRecordsCRUD(t *testing.T) {
 		t.Fatalf("fts search expected hits, got %d", len(search.Rows))
 	}
 
-	idx, err := svc.CreateIndex(ctx, &apiv1schema.CreateIndexRequest{
-		TableId: table, Name: "by_title", ColumnIds: []string{titleCol.Column.Id},
+	idx, err := svc.CreateIndex(ctx, &catalog.Index{
+		TableName: table, Name: "by_title", ColumnIds: []string{titleCol.Id},
 	})
 	if err != nil {
 		t.Fatalf("create index meta: %v", err)
 	}
-	if idx.Index == nil || idx.Index.Name == "" {
+	if idx == nil || idx.Name == "" {
 		t.Fatalf("missing index")
 	}
 
@@ -74,5 +76,68 @@ func TestVirtualRecordsCRUD(t *testing.T) {
 	}
 	if len(tenants.Tenants) < 1 {
 		t.Fatalf("expected default tenant")
+	}
+}
+
+func TestVirtualRecordsMultiSelectArrayFilter(t *testing.T) {
+	svc, cleanup := testutil.SetupIntegrationVR(t)
+	defer cleanup()
+	ctx := testutil.CtxVR()
+
+	multiName := testutil.UniqueName("multi_select")
+	if _, err := svc.CreateColumnType(ctx, &catalog.ColumnTypeDef{
+		Name:  multiName,
+		Label: "Multi Select",
+		Spec:  &columntype.ColumnTypeSpec{PgType: "text", Array: true},
+	}); err != nil {
+		t.Fatalf("create columnType: %v", err)
+	}
+
+	table := testutil.UniqueName("vr_tags")
+	if _, err := svc.CreateTable(ctx, &schema.Table{Name: table}); err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+	if _, err := svc.AddColumn(ctx, &schema.Column{
+		TableName: table, Name: "tags", TypeId: multiName, Position: 1,
+	}); err != nil {
+		t.Fatalf("add column: %v", err)
+	}
+
+	tags := []any{"urgent", "ops"}
+	if _, err := svc.CreateRow(ctx, &data.CreateRowRequest{
+		TableName: table,
+		Cells:     map[string]*shared.Value{"tags": shared.JsonValue(tags)},
+	}); err != nil {
+		t.Fatalf("create row: %v", err)
+	}
+
+	q, err := svc.QueryRows(ctx, &data.QueryRowsRequest{
+		TableName: table,
+		Filter: map[string]any{
+			"type": "ARRAY_HAS",
+			"attr": "tags",
+			"val":  "urgent",
+		},
+	})
+	if err != nil {
+		t.Fatalf("ARRAY_HAS query: %v", err)
+	}
+	if len(q.Rows) != 1 {
+		t.Fatalf("want 1 row, got %d", len(q.Rows))
+	}
+
+	miss, err := svc.QueryRows(ctx, &data.QueryRowsRequest{
+		TableName: table,
+		Filter: map[string]any{
+			"type": "ARRAY_HAS",
+			"attr": "tags",
+			"val":  "missing",
+		},
+	})
+	if err != nil {
+		t.Fatalf("ARRAY_HAS miss: %v", err)
+	}
+	if len(miss.Rows) != 0 {
+		t.Fatalf("want 0 rows, got %d", len(miss.Rows))
 	}
 }

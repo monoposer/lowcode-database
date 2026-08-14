@@ -6,16 +6,13 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
 	"github.com/jackc/pgx/v5"
-	apiv1schema "github.com/monoposer/lowcode-database/internal/apiv1/schema"
 	"github.com/monoposer/lowcode-database/internal/columntype"
-	"github.com/monoposer/lowcode-database/pkg/typespec"
 )
 
 const lcColumnTypesTable = "lc_column_types"
 
-func (s *Catalog) ListColumnTypes(ctx context.Context, _ *apiv1schema.ListColumnTypesRequest) (*apiv1schema.ListColumnTypesResponse, error) {
+func (s *Catalog) ListColumnTypes(ctx context.Context) ([]*ColumnTypeDef, error) {
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
@@ -32,33 +29,30 @@ func (s *Catalog) ListColumnTypes(ctx context.Context, _ *apiv1schema.ListColumn
 		return nil, err
 	}
 	defer rows.Close()
-	var out apiv1schema.ListColumnTypesResponse
+	var out []*ColumnTypeDef
 	for rows.Next() {
 		ct, err := scanColumnTypeRow(rows, baseID)
 		if err != nil {
 			return nil, err
 		}
-		out.ColumnTypes = append(out.ColumnTypes, ct)
+		out = append(out, ct)
 	}
-	return &out, rows.Err()
+	return out, rows.Err()
 }
 
-func (s *Catalog) GetColumnType(ctx context.Context, req *apiv1schema.GetColumnTypeRequest) (*apiv1schema.GetColumnTypeResponse, error) {
+func (s *Catalog) GetColumnType(ctx context.Context, id string) (*ColumnTypeDef, error) {
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	ct, err := s.loadColumnType(ctx, tid, req.Id)
+	ct, err := s.loadColumnType(ctx, tid, id)
 	if err != nil {
 		return nil, err
 	}
-	return &apiv1schema.GetColumnTypeResponse{ColumnType: ct}, nil
+	return ct, nil
 }
 
-func (s *Catalog) CreateColumnType(ctx context.Context, req *apiv1schema.CreateColumnTypeRequest) (*apiv1schema.CreateColumnTypeResponse, error) {
-	if s.B.IsRLSTableMode() {
-		return nil, fmt.Errorf("columnTypes require dedicated_db or shared_db mode")
-	}
+func (s *Catalog) CreateColumnType(ctx context.Context, req *ColumnTypeDef) (*ColumnTypeDef, error) {
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
@@ -77,11 +71,11 @@ func (s *Catalog) CreateColumnType(ctx context.Context, req *apiv1schema.CreateC
 	if req.Spec == nil {
 		return nil, fmt.Errorf("spec is required")
 	}
-	ct := typespec.NormalizeColumnType(typespec.ColumnType{
-		Metadata: typespec.ColumnTypeMetadata{Name: name, Label: req.Label},
+	ct := columntype.NormalizeColumnType(columntype.ColumnType{
+		Metadata: columntype.ColumnTypeMetadata{Name: name, Label: req.Label},
 		Spec:     *req.Spec,
 	})
-	if err := typespec.ValidateColumnType(&ct); err != nil {
+	if err := columntype.ValidateColumnType(&ct); err != nil {
 		return nil, err
 	}
 	specJSON, err := json.Marshal(ct.Spec)
@@ -103,17 +97,14 @@ func (s *Catalog) CreateColumnType(ctx context.Context, req *apiv1schema.CreateC
 		}
 		return nil, fmt.Errorf("insert lc_column_types: %w", err)
 	}
-	out := &apiv1schema.ColumnTypeDef{
+	out := &ColumnTypeDef{
 		Id: name, Name: name, Label: ct.Metadata.Label, BaseId: baseID,
-		Spec: &ct.Spec, RefKind: typespec.RefKindColumnType, CreatedAt: createdAt, UpdatedAt: updatedAt,
+		Spec: &ct.Spec, RefKind: columntype.RefKindColumnType, CreatedAt: createdAt, UpdatedAt: updatedAt,
 	}
-	return &apiv1schema.CreateColumnTypeResponse{ColumnType: out}, nil
+	return out, nil
 }
 
-func (s *Catalog) UpdateColumnType(ctx context.Context, req *apiv1schema.UpdateColumnTypeRequest) (*apiv1schema.UpdateColumnTypeResponse, error) {
-	if s.B.IsRLSTableMode() {
-		return nil, fmt.Errorf("columnTypes require dedicated_db or shared_db mode")
-	}
+func (s *Catalog) UpdateColumnType(ctx context.Context, req *ColumnTypeDef) (*ColumnTypeDef, error) {
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
@@ -130,11 +121,11 @@ func (s *Catalog) UpdateColumnType(ctx context.Context, req *apiv1schema.UpdateC
 		cur.Label = req.Label
 	}
 	if req.Spec != nil {
-		ct := typespec.NormalizeColumnType(typespec.ColumnType{
-			Metadata: typespec.ColumnTypeMetadata{Name: cur.Name, Label: cur.Label},
+		ct := columntype.NormalizeColumnType(columntype.ColumnType{
+			Metadata: columntype.ColumnTypeMetadata{Name: cur.Name, Label: cur.Label},
 			Spec:     *req.Spec,
 		})
-		if err := typespec.ValidateColumnType(&ct); err != nil {
+		if err := columntype.ValidateColumnType(&ct); err != nil {
 			return nil, err
 		}
 		cur.Spec = &ct.Spec
@@ -155,63 +146,60 @@ func (s *Catalog) UpdateColumnType(ctx context.Context, req *apiv1schema.UpdateC
 	if err != nil {
 		return nil, err
 	}
-	return &apiv1schema.UpdateColumnTypeResponse{ColumnType: ct}, nil
+	return ct, nil
 }
 
-func (s *Catalog) DeleteColumnType(ctx context.Context, req *apiv1schema.DeleteColumnTypeRequest) (*apiv1schema.DeleteColumnTypeResponse, error) {
-	if s.B.IsRLSTableMode() {
-		return nil, fmt.Errorf("columnTypes require dedicated_db or shared_db mode")
-	}
+func (s *Catalog) DeleteColumnType(ctx context.Context, id string) error {
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	baseID, err := s.B.BaseID(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	cur, err := s.loadColumnType(ctx, tid, req.Id)
+	cur, err := s.loadColumnType(ctx, tid, id)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	meta := s.B.Tenants.MetaPool()
 	var colCount int
 	if err := meta.QueryRow(ctx, `
 		SELECT COUNT(*) FROM lc_columns WHERE tenant_id = $1 AND base_id = $2 AND type_id = $3`,
 		tid, baseID, cur.Name).Scan(&colCount); err != nil {
-		return nil, err
+		return err
 	}
 	if colCount > 0 {
-		return nil, fmt.Errorf("columnType %q is used by %d column(s)", cur.Name, colCount)
+		return fmt.Errorf("columnType %q is used by %d column(s)", cur.Name, colCount)
 	}
 	if _, err := meta.Exec(ctx, `
 		DELETE FROM lc_column_types WHERE tenant_id = $1 AND base_id = $2 AND name = $3`,
 		tid, baseID, cur.Name); err != nil {
-		return nil, err
+		return err
 	}
-	return &apiv1schema.DeleteColumnTypeResponse{}, nil
+	return nil
 }
 
-func (s *Catalog) ImportTypeCatalog(ctx context.Context, req *apiv1schema.ImportTypeCatalogRequest) (*apiv1schema.ImportTypeCatalogResponse, error) {
-	if req.Catalog == nil {
-		return nil, fmt.Errorf("catalog is required")
+func (s *Catalog) ImportTypeCatalog(ctx context.Context, cat *columntype.TypeCatalog) (int, error) {
+	if cat == nil {
+		return 0, fmt.Errorf("catalog is required")
 	}
-	if err := typespec.ValidateTypeCatalog(req.Catalog); err != nil {
-		return nil, err
+	if err := columntype.ValidateTypeCatalog(cat); err != nil {
+		return 0, err
 	}
-	var resp apiv1schema.ImportTypeCatalogResponse
-	for _, ct := range req.Catalog.ColumnTypes {
-		ct = typespec.NormalizeColumnType(ct)
-		_, err := s.CreateColumnType(ctx, &apiv1schema.CreateColumnTypeRequest{
+	n := 0
+	for _, ct := range cat.ColumnTypes {
+		ct = columntype.NormalizeColumnType(ct)
+		_, err := s.CreateColumnType(ctx, &ColumnTypeDef{
 			Name: ct.Metadata.Name, Label: ct.Metadata.Label,
 			SchemaName: ct.Metadata.SchemaName, Spec: &ct.Spec,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("columnType %q: %w", ct.Metadata.Name, err)
+			return 0, fmt.Errorf("columnType %q: %w", ct.Metadata.Name, err)
 		}
-		resp.ColumnTypesCreated++
+		n++
 	}
-	return &resp, nil
+	return n, nil
 }
 
 // ResolveColumnTypeRef reports whether typeID is a tenant columnType name.
@@ -241,7 +229,7 @@ func (s *Catalog) ColumnTypeDDL(ctx context.Context, tid, typeName string) (stri
 	return typeName, nil
 }
 
-func (s *Catalog) loadColumnType(ctx context.Context, tid, name string) (*apiv1schema.ColumnTypeDef, error) {
+func (s *Catalog) loadColumnType(ctx context.Context, tid, name string) (*ColumnTypeDef, error) {
 	baseID, err := s.B.BaseID(ctx)
 	if err != nil {
 		return nil, err
@@ -261,22 +249,22 @@ type columnTypeScanner interface {
 	Scan(dest ...any) error
 }
 
-func scanColumnTypeRow(row columnTypeScanner, baseID string) (*apiv1schema.ColumnTypeDef, error) {
+func scanColumnTypeRow(row columnTypeScanner, baseID string) (*ColumnTypeDef, error) {
 	var name, label string
 	var specRaw []byte
 	var createdAt, updatedAt time.Time
 	if err := row.Scan(&name, &label, &specRaw, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
-	var spec typespec.ColumnTypeSpec
+	var spec columntype.ColumnTypeSpec
 	if len(specRaw) > 0 {
 		if err := json.Unmarshal(specRaw, &spec); err != nil {
 			return nil, err
 		}
 	}
-	return &apiv1schema.ColumnTypeDef{
+	return &ColumnTypeDef{
 		Id: name, Name: name, Label: label, BaseId: baseID,
-		Spec: &spec, RefKind: typespec.RefKindColumnType,
+		Spec: &spec, RefKind: columntype.RefKindColumnType,
 		CreatedAt: createdAt, UpdatedAt: updatedAt,
 	}, nil
 }

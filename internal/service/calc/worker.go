@@ -6,8 +6,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/monoposer/lowcode-database/internal/infra/postgres"
-	"github.com/monoposer/lowcode-database/internal/logger"
+	"github.com/monoposer/lowcode-database/pkg/infra/postgres"
+	"github.com/monoposer/lowcode-database/pkg/logger"
+	"github.com/monoposer/lowcode-database/pkg/telemetry"
 )
 
 // WorkerConfig configures in-process calc_queue polling (cmd/server).
@@ -18,10 +19,6 @@ type WorkerConfig struct {
 	Log           *logger.Logger
 	PerTenant     int
 	AlertQueueLen int
-	Telemetry     interface {
-		RecordHistogram(name string, value float64, labels map[string]string)
-		IncCounter(name string, labels map[string]string)
-	}
 }
 
 // Worker polls every active shard's calc_queue and writes record.data caches.
@@ -86,15 +83,11 @@ func (w *Worker) Drain(ctx context.Context, meta, data *pgxpool.Pool) error {
 	for _, t := range tasks {
 		start := time.Now()
 		err := eng.ProcessOrRetry(ctx, t)
-		if w.cfg.Telemetry != nil {
-			w.cfg.Telemetry.RecordHistogram("calc.task.duration_ms", float64(time.Since(start).Milliseconds()), map[string]string{
-				"tenant_id": t.TenantID, "table_id": t.TableID, "api_operation": "calc.process",
-			})
-			if err != nil {
-				w.cfg.Telemetry.IncCounter("calc.task.failures", map[string]string{"tenant_id": t.TenantID})
-			}
-		}
+		telemetry.RecordHistogram("calc.task.duration_ms", float64(time.Since(start).Milliseconds()), map[string]string{
+			"tenant_id": t.TenantID, "table_name": t.TableName, "api_operation": "calc.process",
+		})
 		if err != nil {
+			telemetry.IncCounter("calc.task.failures", map[string]string{"tenant_id": t.TenantID})
 			w.log("task", "id", t.ID, "record", t.RecordID, "err", err)
 		}
 	}

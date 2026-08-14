@@ -65,7 +65,6 @@ make playground-dev    # :5173  调试 UI（web/playground）
 |------|------|------|
 | `/v1/admin/*` | `cmd/server` | Schema 与平台（Meta） |
 | `/v1/data/*` | `cmd/server` | 行读写、执行保存的 Query |
-| `/v1/worker/*` | `cmd/server` | 计算：`calc:drain` / `calc:claim` / `calc:ack` |
 
 OpenAPI：[`internal/api/openapi/openapi.yaml`](internal/api/openapi/openapi.yaml)
 
@@ -90,7 +89,7 @@ lookup / formula / rollup 结果缓存在 `record.data`（`{value, _cache_status
 
 ### link（虚拟列）
 
-无独立 PG 列。`config` 需要 `target_table_id`（或 `to_table_id`）。可选：
+无独立 PG 列。`config` 需要 `target_table_name`（或 `to_table_name`）。可选：
 
 - **many** — `cardinality=many` 和/或对端 `link_column_id`
 - **one** — `cardinality=one` 和/或 `target_column_id`
@@ -124,14 +123,14 @@ lookup / formula / rollup 结果缓存在 `record.data`（`{value, _cache_status
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/v1/data/tables/{tableId}/rows` | 分页列表 |
-| GET | `/v1/data/tables/{tableId}/rows/{rowId}` | 详情（可现场算 formula/lookup/rollup） |
-| POST | `/v1/data/tables/{tableId}/rows` | 创建单行 |
-| PATCH | `/v1/data/tables/{tableId}/rows/{rowId}` | 更新单行 |
-| DELETE | `/v1/data/tables/{tableId}/rows/{rowId}` | 删除 |
-| POST | `/v1/data/tables/{tableId}/rows:query` | DSL 过滤查询 |
-| POST | `/v1/data/tables/{tableId}/rows:bulkUpsert` | 批量 upsert（单表、事务内） |
-| POST | `/v1/data/tables/{tableId}/rows:bulkDelete` | 按 id 批量删除 |
+| GET | `/v1/data/tables/{tableName}/rows` | 分页列表 |
+| GET | `/v1/data/tables/{tableName}/rows/{rowId}` | 详情（可现场算 formula/lookup/rollup） |
+| POST | `/v1/data/tables/{tableName}/rows` | 创建单行 |
+| PATCH | `/v1/data/tables/{tableName}/rows/{rowId}` | 更新单行 |
+| DELETE | `/v1/data/tables/{tableName}/rows/{rowId}` | 删除 |
+| POST | `/v1/data/tables/{tableName}/rows:query` | DSL 过滤查询 |
+| POST | `/v1/data/tables/{tableName}/rows:bulkUpsert` | 批量 upsert（单表、事务内） |
+| POST | `/v1/data/tables/{tableName}/rows:bulkDelete` | 按 id 批量删除 |
 | POST | `/v1/data/queries/{name}` | 执行保存的查询 |
 
 ## 常用命令
@@ -161,7 +160,7 @@ make docker-up-stack  # 含应用的完整栈（deploy/docker-compose.yml）
 | `cmd/migrate/` | Schema 迁移 CLI |
 | `web/playground/` | 调试 UI |
 | `internal/api/` | 路由与 handler |
-| `internal/apiv1/` | 手写 JSON 类型 |
+| `internal/service/{schema,catalog,data,platform,shared}/` | 手写 JSON 类型（无 proto） |
 | `internal/service/` | 业务逻辑 |
 | `migrations/` | SQL 迁移文件 |
 

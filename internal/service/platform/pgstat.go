@@ -2,14 +2,12 @@ package platform
 
 import (
 	"context"
-
-	apiv1platform "github.com/monoposer/lowcode-database/internal/apiv1/platform"
-	"github.com/monoposer/lowcode-database/internal/platform/metrics"
+	"github.com/monoposer/lowcode-database/pkg/platform/metrics"
 )
 
-func (s *Platform) ListPGStatStatements(ctx context.Context, req *apiv1platform.ListPGStatStatementsRequest) (*apiv1platform.ListPGStatStatementsResponse, error) {
+func (s *Platform) ListPGStatStatements(ctx context.Context, req *ListPGStatStatementsRequest) (*ListPGStatStatementsResponse, error) {
 	if s.B == nil || !s.B.PGStatStatements {
-		return &apiv1platform.ListPGStatStatementsResponse{Enabled: false, Statements: []apiv1platform.PGStatStatement{}}, nil
+		return &ListPGStatStatementsResponse{Enabled: false, Statements: []PGStatStatement{}}, nil
 	}
 	pool, err := s.B.Tenants.DataPool(ctx)
 	if err != nil {
@@ -23,9 +21,9 @@ func (s *Platform) ListPGStatStatements(ctx context.Context, req *apiv1platform.
 	if err != nil {
 		return nil, err
 	}
-	out := make([]apiv1platform.PGStatStatement, 0, len(rows))
+	out := make([]PGStatStatement, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, apiv1platform.PGStatStatement{
+		out = append(out, PGStatStatement{
 			QueryID:        r.QueryID,
 			Query:          r.Query,
 			Calls:          r.Calls,
@@ -38,5 +36,5 @@ func (s *Platform) ListPGStatStatements(ctx context.Context, req *apiv1platform.
 			SharedBlksRead: r.SharedBlksRead,
 		})
 	}
-	return &apiv1platform.ListPGStatStatementsResponse{Enabled: true, Statements: out}, nil
+	return &ListPGStatStatementsResponse{Enabled: true, Statements: out}, nil
 }

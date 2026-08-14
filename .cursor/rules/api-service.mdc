@@ -2,7 +2,6 @@
 description: API routing and service-layer conventions
 globs:
   - internal/api/**
-  - internal/apiv1/**
   - internal/service/**
   - internal/dsl/**
   - internal/query/**
@@ -15,7 +14,7 @@ globs:
 - Unified prefix `/v1/`; handlers under `internal/api/`
 - Table-scoped routes: `/v1/tables/{tableId}/...` (`tableId` = logical table name)
 - Action suffixes: `POST ...:rename`, `POST ...:query`, `POST ...:bulkUpsert`
-- JSON is camelCase; column cells use the `apiv1.Value` union
+- JSON is camelCase; column cells use the `shared.Value` union
 
 ## Service layering
 

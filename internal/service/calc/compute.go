@@ -123,10 +123,10 @@ func computeLookup(ctx context.Context, pool *pgxpool.Pool, rec *Rec, f Field, _
 	if len(toIDs) == 0 {
 		return nil, nil
 	}
-	toTable := firstCfg(f.Config, "to_table_id", "target_table_id")
+	toTable := firstCfg(f.Config, "to_table_name", "target_table_name")
 	vtID := vtByTable[toTable]
 	if vtID == "" {
-		// try using stored to_table_id as vt
+		// try using stored to_table_name as vt
 		vtID = toTable
 	}
 	recs, err := ReadRecords(ctx, pool, rec.WSID, vtID, toIDs)
@@ -164,7 +164,7 @@ func computeRollup(ctx context.Context, pool *pgxpool.Pool, rec *Rec, f Field, v
 	if agg == "count" {
 		return float64(len(childIDs)), nil
 	}
-	toTable := firstCfg(f.Config, "to_table_id", "target_table_id")
+	toTable := firstCfg(f.Config, "to_table_name", "target_table_name")
 	vtID := vtByTable[toTable]
 	if vtID == "" {
 		vtID = toTable

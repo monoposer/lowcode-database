@@ -5,14 +5,13 @@ import (
 	"fmt"
 	"strings"
 
-	apiv1schema "github.com/monoposer/lowcode-database/internal/apiv1/schema"
 )
 
-func (s *Catalog) ListIndexes(ctx context.Context, req *apiv1schema.ListIndexesRequest) (*apiv1schema.ListIndexesResponse, error) {
-	if req.TableId == "" {
-		return nil, fmt.Errorf("table_id is required")
+func (s *Catalog) ListIndexes(ctx context.Context, tableName string) ([]*Index, error) {
+	if tableName == "" {
+		return nil, fmt.Errorf("table_name is required")
 	}
-	tableID, err := s.B.ResolveTableName(ctx, req.TableId)
+	tableName, err := s.B.ResolveTableName(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -24,19 +23,19 @@ func (s *Catalog) ListIndexes(ctx context.Context, req *apiv1schema.ListIndexesR
 	if err != nil {
 		return nil, err
 	}
-	metaRows, err := s.listIndexMeta(ctx, tid, baseID, tableID)
+	metaRows, err := s.listIndexMeta(ctx, tid, baseID, tableName)
 	if err != nil {
 		return nil, err
 	}
-	var indexes []*apiv1schema.Index
+	var indexes []*Index
 	for _, r := range metaRows {
 		indexes = append(indexes, s.indexMetaToAPI(r))
 	}
-	return &apiv1schema.ListIndexesResponse{Indexes: indexes}, nil
+	return indexes, nil
 }
 
-func (s *Catalog) GetIndex(ctx context.Context, req *apiv1schema.GetIndexRequest) (*apiv1schema.GetIndexResponse, error) {
-	if req.Id == "" {
+func (s *Catalog) GetIndex(ctx context.Context, tableName, id string) (*Index, error) {
+	if id == "" {
 		return nil, fmt.Errorf("id is required")
 	}
 	tid, err := s.B.TenantID(ctx)
@@ -47,16 +46,16 @@ func (s *Catalog) GetIndex(ctx context.Context, req *apiv1schema.GetIndexRequest
 	if err != nil {
 		return nil, err
 	}
-	meta, err := s.findIndexMeta(ctx, tid, baseID, req.TableId, req.Id)
+	meta, err := s.findIndexMeta(ctx, tid, baseID, tableName, id)
 	if err != nil {
 		return nil, fmt.Errorf("index not found")
 	}
-	return &apiv1schema.GetIndexResponse{Index: s.indexMetaToAPI(*meta)}, nil
+	return s.indexMetaToAPI(*meta), nil
 }
 
-func (s *Catalog) CreateIndex(ctx context.Context, req *apiv1schema.CreateIndexRequest) (*apiv1schema.CreateIndexResponse, error) {
-	if req.TableId == "" {
-		return nil, fmt.Errorf("table_id is required")
+func (s *Catalog) CreateIndex(ctx context.Context, req *Index) (*Index, error) {
+	if req.TableName == "" {
+		return nil, fmt.Errorf("table_name is required")
 	}
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
@@ -69,11 +68,11 @@ func (s *Catalog) CreateIndex(ctx context.Context, req *apiv1schema.CreateIndexR
 	if err != nil {
 		return nil, err
 	}
-	cols, _, tableName, err := s.LoadColumns(ctx, req.TableId)
+	cols, _, tableName, err := s.LoadColumns(ctx, req.TableName)
 	if err != nil {
 		return nil, err
 	}
-	resolvedTable, err := s.B.ResolveTableName(ctx, req.TableId)
+	resolvedTable, err := s.B.ResolveTableName(ctx, req.TableName)
 	if err != nil {
 		return nil, err
 	}
@@ -125,37 +124,37 @@ func (s *Catalog) CreateIndex(ctx context.Context, req *apiv1schema.CreateIndexR
 	for _, n := range colNames {
 		_, _ = s.B.Tenants.MetaPool().Exec(ctx, `
 			UPDATE lc_columns SET config = COALESCE(config,'{}'::jsonb) || '{"need_index":true}'::jsonb
-			WHERE tenant_id = $1 AND base_id = $2 AND table_id = $3 AND name = $4`, tid, baseID, resolvedTable, n)
+			WHERE tenant_id = $1 AND base_id = $2 AND table_name = $3 AND name = $4`, tid, baseID, resolvedTable, n)
 	}
 	meta, err := s.getIndexMeta(ctx, tid, baseID, resolvedTable, logicalName)
 	if err != nil {
-		return &apiv1schema.CreateIndexResponse{Index: &apiv1schema.Index{
-			Id: logicalName, TableId: resolvedTable, Name: logicalName, PgIndex: pgIndex,
+		return &Index{
+			Id: logicalName, TableName: resolvedTable, Name: logicalName, PgIndex: pgIndex,
 			ColumnIds: columnIDs, IsUnique: req.IsUnique,
-		}}, nil
+		}, nil
 	}
-	return &apiv1schema.CreateIndexResponse{Index: s.indexMetaToAPI(*meta)}, nil
+	return s.indexMetaToAPI(*meta), nil
 }
 
-func (s *Catalog) DeleteIndex(ctx context.Context, req *apiv1schema.DeleteIndexRequest) (*apiv1schema.DeleteIndexResponse, error) {
-	if req.Id == "" {
-		return nil, fmt.Errorf("id is required")
+func (s *Catalog) DeleteIndex(ctx context.Context, tableName, id string) error {
+	if id == "" {
+		return fmt.Errorf("id is required")
 	}
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	baseID, err := s.B.BaseID(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	meta, err := s.findIndexMeta(ctx, tid, baseID, req.TableId, req.Id)
+	meta, err := s.findIndexMeta(ctx, tid, baseID, tableName, id)
 	if err != nil {
-		return nil, fmt.Errorf("index not found")
+		return fmt.Errorf("index not found")
 	}
 	_, _ = s.B.Tenants.MetaPool().Exec(ctx, `
 		UPDATE lc_indexes SET migrate_status = 'drop_pending', updated_at = now()
-		WHERE tenant_id = $1 AND base_id = $2 AND table_id = $3 AND name = $4`,
-		tid, baseID, meta.TableID, meta.Name)
-	return &apiv1schema.DeleteIndexResponse{}, nil
+		WHERE tenant_id = $1 AND base_id = $2 AND table_name = $3 AND name = $4`,
+		tid, baseID, meta.TableName, meta.Name)
+	return nil
 }

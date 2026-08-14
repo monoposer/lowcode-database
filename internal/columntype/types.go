@@ -4,11 +4,9 @@ import (
 	"fmt"
 	"maps"
 	"sort"
-
-	"github.com/monoposer/lowcode-database/pkg/typespec"
 )
 
-// Type is a column type (built-in pgType or legacy alias). Tenant columnTypes live in lc_column_types.
+// Type is a built-in column type. Tenant columnTypes live in lc_column_types.
 type Type struct {
 	ID     string
 	Name   string
@@ -20,13 +18,12 @@ type Type struct {
 var registry = map[string]Type{}
 
 func init() {
-	for _, pt := range typespec.ListPgTypes() {
+	for _, pt := range ListPgTypes() {
 		register(fromPgTypeEntry(pt))
 	}
-	// Legacy aliases resolve via typespec.GetPgType but are not listed in List().
 }
 
-func fromPgTypeEntry(pt typespec.PgTypeEntry) Type {
+func fromPgTypeEntry(pt PgTypeEntry) Type {
 	t := Type{
 		ID:     pt.ID,
 		Name:   pt.Name,
@@ -38,9 +35,6 @@ func fromPgTypeEntry(pt typespec.PgTypeEntry) Type {
 		t.Config["kind"] = pt.Kind
 	}
 	for _, m := range pt.Modifiers {
-		if m.Name == "array" {
-			t.Config["allowsArray"] = true
-		}
 		if m.Name == "precision" && m.Default != nil {
 			t.Config["precision"] = m.Default
 		}
@@ -48,10 +42,7 @@ func fromPgTypeEntry(pt typespec.PgTypeEntry) Type {
 			t.Config["scale"] = m.Default
 		}
 	}
-	if pt.Category == typespec.CategoryArray {
-		t.Config["array"] = true
-	}
-	if pt.ID == "point" || pt.AliasOf == "point" {
+	if pt.ID == "point" {
 		t.Config["postgis"] = true
 	}
 	return t
@@ -70,18 +61,13 @@ func register(t Type) {
 	registry[t.ID] = t
 }
 
-// Get returns a built-in pgType by id (includes legacy aliases).
+// Get returns a built-in pgType by id.
 func Get(id string) (Type, bool) {
-	if t, ok := registry[id]; ok {
-		return t, true
-	}
-	if pt, ok := typespec.GetPgType(id); ok && pt.Deprecated {
-		return fromPgTypeEntry(pt), true
-	}
-	return Type{}, false
+	t, ok := registry[id]
+	return t, ok
 }
 
-// Resolve validates type id and returns type metadata for built-in/legacy types only.
+// Resolve validates type id and returns built-in type metadata.
 func Resolve(id string) (Type, error) {
 	t, ok := Get(id)
 	if !ok {
@@ -141,5 +127,10 @@ func IsVirtual(id string) bool {
 
 // IsVirtualKind reports whether a column kind string denotes a virtual column.
 func IsVirtualKind(kind string) bool {
-	return typespec.IsVirtualKind(kind)
+	switch kind {
+	case "formula", "link", "lookup", "rollup":
+		return true
+	default:
+		return false
+	}
 }

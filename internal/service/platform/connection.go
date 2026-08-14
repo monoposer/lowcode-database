@@ -3,15 +3,13 @@ package platform
 import (
 	"context"
 	"fmt"
-	"github.com/monoposer/lowcode-database/internal/apiv1/platform"
-
 	"net/url"
 	"strconv"
 	"strings"
 )
 
 // GetDatabaseConnection returns host/user/db and a passwordless URL plus psql hints for the active tenant database.
-func (s *Platform) GetDatabaseConnection(ctx context.Context, _ *platform.GetDatabaseConnectionRequest) (*platform.GetDatabaseConnectionResponse, error) {
+func (s *Platform) GetDatabaseConnection(ctx context.Context, _ *GetDatabaseConnectionRequest) (*GetDatabaseConnectionResponse, error) {
 	dsn, err := s.B.Tenants.EffectiveDataDSN(ctx)
 	if err != nil {
 		return nil, err
@@ -21,7 +19,7 @@ func (s *Platform) GetDatabaseConnection(ctx context.Context, _ *platform.GetDat
 		return nil, fmt.Errorf("parse database url: %w", err)
 	}
 	hint := passwordHint()
-	return &platform.GetDatabaseConnectionResponse{
+	return &GetDatabaseConnectionResponse{
 		Host:               host,
 		Port:               int32(port),
 		Database:           database,

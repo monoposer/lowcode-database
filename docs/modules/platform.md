@@ -7,11 +7,11 @@
 
 | File | Role |
 |------|------|
-| `tenant.go` | `CreateTenant` |
+| `tenant.go` | `CreateTenant` / `ListTenants` |
+| `base.go` | `ListBases` / `CreateBase` |
 | `connection.go` | `GET /database/connection` |
 | `apikey.go` | API Key CRUD |
 | `query.go` | `lc_queries` admin |
-| `admin_observability.go` | schema audit |
 
 ## Not in this module
 

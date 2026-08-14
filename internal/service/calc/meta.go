@@ -19,15 +19,15 @@ type tableMeta struct {
 func loadTableMeta(ctx context.Context, meta *pgxpool.Pool, tenantID, tableRef string) (*tableMeta, error) {
 	var name, vtID, baseID string
 	err := meta.QueryRow(ctx, `
-		SELECT name, COALESCE(vt_id,''), base_id FROM lc_tables
-		WHERE tenant_id = $1 AND (name = $2 OR vt_id = $2)
+		SELECT name, vt_id::text, base_id FROM lc_tables
+		WHERE tenant_id = $1 AND (name = $2 OR vt_id::text = $2)
 		ORDER BY created_at ASC LIMIT 1`, tenantID, tableRef).Scan(&name, &vtID, &baseID)
 	if err != nil {
 		return nil, fmt.Errorf("load table %q: %w", tableRef, err)
 	}
 	rows, err := meta.Query(ctx, `
 		SELECT id::text, name, type_id, config FROM lc_columns
-		WHERE tenant_id = $1 AND base_id = $2 AND table_id = $3
+		WHERE tenant_id = $1 AND base_id = $2 AND table_name = $3
 		ORDER BY position, name`, tenantID, baseID, name)
 	if err != nil {
 		return nil, err
@@ -51,7 +51,7 @@ func loadTableMeta(ctx context.Context, meta *pgxpool.Pool, tenantID, tableRef s
 
 func loadVTMap(ctx context.Context, meta *pgxpool.Pool, tenantID string) (map[string]string, error) {
 	rows, err := meta.Query(ctx, `
-		SELECT name, COALESCE(vt_id,'') FROM lc_tables WHERE tenant_id = $1 AND COALESCE(vt_id,'') <> ''`, tenantID)
+		SELECT name, vt_id::text FROM lc_tables WHERE tenant_id = $1`, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -68,13 +68,13 @@ func loadVTMap(ctx context.Context, meta *pgxpool.Pool, tenantID string) (map[st
 }
 
 func lookupTargetTable(f Field, linkFields []Field) string {
-	if t := firstCfg(f.Config, "to_table_id", "target_table_id"); t != "" {
+	if t := firstCfg(f.Config, "to_table_name", "target_table_name"); t != "" {
 		return t
 	}
 	linkName := firstCfg(f.Config, "link_field_id", "relation_column_id")
 	for _, lf := range linkFields {
 		if lf.Name == linkName || lf.ID == linkName {
-			return firstCfg(lf.Config, "to_table_id", "target_table_id")
+			return firstCfg(lf.Config, "to_table_name", "target_table_name")
 		}
 	}
 	return ""
@@ -93,12 +93,12 @@ func enrichLookupRollupTargets(fields []Field) []Field {
 		if f.TypeID != "lookup" && f.TypeID != "rollup" {
 			continue
 		}
-		if firstCfg(f.Config, "to_table_id", "target_table_id") == "" {
+		if firstCfg(f.Config, "to_table_name", "target_table_name") == "" {
 			if t := lookupTargetTable(f, links); t != "" {
 				if f.Config == nil {
 					f.Config = map[string]any{}
 				}
-				f.Config["to_table_id"] = t
+				f.Config["to_table_name"] = t
 				out[i] = f
 			}
 		}

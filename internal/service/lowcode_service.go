@@ -4,17 +4,16 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/monoposer/lowcode-database/internal/config"
 	"github.com/monoposer/lowcode-database/internal/event"
-	"github.com/monoposer/lowcode-database/internal/infra/postgres"
-	"github.com/monoposer/lowcode-database/internal/logger"
-	"github.com/monoposer/lowcode-database/internal/platform/cache"
 	"github.com/monoposer/lowcode-database/internal/service/catalog"
 	"github.com/monoposer/lowcode-database/internal/service/data"
 	"github.com/monoposer/lowcode-database/internal/service/platform"
 	"github.com/monoposer/lowcode-database/internal/service/schema"
 	"github.com/monoposer/lowcode-database/internal/service/shared"
-	"github.com/monoposer/lowcode-database/internal/telemetry"
+	"github.com/monoposer/lowcode-database/pkg/config"
+	"github.com/monoposer/lowcode-database/pkg/infra/postgres"
+	"github.com/monoposer/lowcode-database/pkg/logger"
+	"github.com/monoposer/lowcode-database/pkg/platform/cache"
 )
 
 // LowcodeService is the root facade; domain logic lives in subpackages.
@@ -61,14 +60,6 @@ func WithLogSQL(enabled bool) Option {
 	}
 }
 
-func WithTelemetry(p telemetry.Provider) Option {
-	return func(b *shared.Base) {
-		if p != nil {
-			b.Telemetry = p
-		}
-	}
-}
-
 func WithLimits(cfg *config.Config) Option {
 	return func(b *shared.Base) {
 		if cfg == nil {
@@ -111,20 +102,8 @@ func WithEventBus(bus event.Bus) Option {
 	}
 }
 
-// WithTenantIsolation is a no-op; storage is always virtual_records.
-func WithTenantIsolation(mode config.TenantIsolationMode, schemaPrefix string) Option {
-	return func(b *shared.Base) {
-		b.TenantIsolationMode = config.TenantIsolationRLSTable
-		b.TenantDataSchemaPrefix = schemaPrefix
-	}
-}
-
 func NewLowcodeService(tenants *postgres.TenantManager, maxRow int, opts ...Option) *LowcodeService {
 	base := shared.NewBase(tenants, maxRow)
-	if tenants != nil {
-		base.TenantIsolationMode = tenants.TenantIsolationMode()
-		base.TenantDataSchemaPrefix = tenants.TenantDataSchemaPrefix()
-	}
 	for _, opt := range opts {
 		opt(base)
 	}

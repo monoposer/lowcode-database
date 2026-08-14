@@ -26,7 +26,6 @@ import {
   formatCell,
   getDatabaseConnection,
   getTableSchema,
-  importRows,
   listQueries,
   listRows,
   listTables,
@@ -71,9 +70,8 @@ import {
   isPhysicalColumn,
   isRelationshipColumn,
   isVirtualKind,
-  isArrayColumnType,
+  isArrayColumn,
   isWritableColumn,
-  valueTypeId,
   relationshipCardinality,
   relationshipTargetTable,
   resolveColumnRef,
@@ -88,17 +86,17 @@ function isScalarType(t: ColType) {
   return !virtual.includes(t.id)
 }
 
-function isTableIDType(t: ColType) {
+function isTableIdType(t: ColType) {
   return t.id === 'text' || t.id === 'number'
 }
 
-async function loadPhysicalColumns(tableId: string, opts: ApiOpts): Promise<Column[]> {
-  const schema = await getTableSchema(tableId, opts)
+async function loadPhysicalColumns(tableName: string, opts: ApiOpts): Promise<Column[]> {
+  const schema = await getTableSchema(tableName, opts)
   return (schema.columns || []).filter((c) => !isVirtualKind(c))
 }
 
-async function loadLookupTargetColumns(tableId: string, opts: ApiOpts): Promise<Column[]> {
-  const schema = await getTableSchema(tableId, opts)
+async function loadLookupTargetColumns(tableName: string, opts: ApiOpts): Promise<Column[]> {
+  const schema = await getTableSchema(tableName, opts)
   return (schema.columns || []).filter(isLookupTargetColumn)
 }
 
@@ -131,7 +129,6 @@ export default function App() {
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [conn, setConn] = useState<string | null>(null)
-  const [importText, setImportText] = useState('[\n  { "column_name": "value" }\n]')
   const [renameTo, setRenameTo] = useState('')
   const [newTableName, setNewTableName] = useState('')
   const [newTableLabel, setNewTableLabel] = useState('')
@@ -140,7 +137,6 @@ export default function App() {
   const [newColLabel, setNewColLabel] = useState('')
   const [newColType, setNewColType] = useState('text')
   const [newColNullable, setNewColNullable] = useState(true)
-  const [newColArray, setNewColArray] = useState(false)
   const [newIdxName, setNewIdxName] = useState('')
   const [newIdxCols, setNewIdxCols] = useState<string[]>([])
   const [newIdxUnique, setNewIdxUnique] = useState(false)
@@ -217,7 +213,7 @@ export default function App() {
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
 
-  const tableIDTypes = useMemo(() => types.filter(isTableIDType), [types])
+  const tableIDTypes = useMemo(() => types.filter(isTableIdType), [types])
 
   const lookupRelColumns = useMemo(
     () => columns.filter((c) => isRelationshipColumn(c)),
@@ -326,7 +322,7 @@ export default function App() {
         if (list.length) {
           setNewColType((cur) => (list.some((t) => t.id === cur) ? cur : list[0].id))
           setNewTableIdType((cur) =>
-            list.some((t) => t.id === cur && isTableIDType(t)) ? cur : 'uuid',
+            list.some((t) => t.id === cur && isTableIdType(t)) ? cur : 'uuid',
           )
         }
       })
@@ -425,16 +421,19 @@ export default function App() {
           c.resultTypeId ||
           (typeof c.config?.result_type_id === 'string' ? c.config.result_type_id : undefined),
         expression: c.typeId === 'formula' ? columnExpression(c) : undefined,
+        isArray: isArrayColumn(c, types),
       })),
-    [columns],
+    [columns, types],
   )
 
   const buildColumnFilterMeta = useCallback((cols: Column[]) => {
     const colTypes: Record<string, string> = {}
     const colExprs: Record<string, string> = {}
     const colResultTypes: Record<string, string> = {}
+    const colIsArray: Record<string, boolean> = {}
     for (const c of cols) {
       colTypes[c.name] = c.typeId
+      colIsArray[c.name] = isArrayColumn(c, types)
       const rt = c.resultTypeId || (c.config?.result_type_id as string | undefined)
       if (rt) colResultTypes[c.name] = rt
       if (c.typeId === 'formula') {
@@ -442,8 +441,8 @@ export default function App() {
         if (ex) colExprs[c.name] = ex
       }
     }
-    return { colTypes, colExprs, colResultTypes }
-  }, [])
+    return { colTypes, colExprs, colResultTypes, colIsArray }
+  }, [types])
 
   const fetchGridRows = useCallback(
     async (filterGroup: FilterGroup | null, silent = false) => {
@@ -453,10 +452,10 @@ export default function App() {
       try {
         const schema = await loadSchema()
         const cols = (schema?.columns || []).filter(isGridColumn)
-        const { colTypes, colExprs, colResultTypes } = buildColumnFilterMeta(cols)
+        const { colTypes, colExprs, colResultTypes, colIsArray } = buildColumnFilterMeta(cols)
         const filter =
           filterGroup && filterGroup.conditions.length
-            ? buildFilterDSL(filterGroup, colTypes, colExprs, colResultTypes)
+            ? buildFilterDSL(filterGroup, colTypes, colExprs, colResultTypes, colIsArray)
             : undefined
 
         const lr = filter
@@ -534,8 +533,6 @@ export default function App() {
         .filter(
           (c) =>
             c.typeId !== 'link' &&
-            c.typeId !== 'relationship' &&
-            c.typeId !== 'relation_fk' &&
             (isPhysicalColumn(c) ||
               c.typeId === 'lookup' ||
               c.typeId === 'rollup' ||
@@ -618,7 +615,7 @@ export default function App() {
     void run(async () => {
       const body: Parameters<typeof createQuery>[0] = {
         name,
-        tableId: selectedTable,
+        tableName: selectedTable,
       }
       if (newDsColumnIds.length) body.columnIds = newDsColumnIds
       const label = newDsLabel.trim()
@@ -626,8 +623,10 @@ export default function App() {
       const colTypes: Record<string, string> = {}
       const colExprs: Record<string, string> = {}
       const colResultTypes: Record<string, string> = {}
+      const colIsArray: Record<string, boolean> = {}
       for (const c of columns) {
         colTypes[c.name] = c.typeId
+        colIsArray[c.name] = isArrayColumn(c, types)
         const rt = c.resultTypeId || (c.config?.result_type_id as string | undefined)
         if (rt) colResultTypes[c.name] = rt
         if (c.typeId === 'formula') {
@@ -635,7 +634,7 @@ export default function App() {
           if (ex) colExprs[c.name] = ex
         }
       }
-      const filter = buildFilterDSL(newDsFilter, colTypes, colExprs, colResultTypes)
+      const filter = buildFilterDSL(newDsFilter, colTypes, colExprs, colResultTypes, colIsArray)
       if (filter) body.filter = filter
       if (newDsSortCol) {
         body.sort = [{ attribute: newDsSortCol, sortOrder: newDsSortOrder }]
@@ -759,7 +758,7 @@ export default function App() {
     }
     void run(async () => {
       const body: Parameters<typeof createColumn>[0] = {
-        tableId: selectedTable,
+        tableName: selectedTable,
         name: newColName.trim(),
         typeId: newColType,
         isNullable: newColNullable,
@@ -771,7 +770,7 @@ export default function App() {
         body.config = { expression: newFormulaExpr.trim() }
       }
       if (newColType === 'link') {
-        body.config = { target_table_id: newRelTargetTable.trim() }
+        body.config = { target_table_name: newRelTargetTable.trim() }
         if (newRelCardinality === 'many') {
           body.config.link_column_id = newRelLinkColumn
         } else {
@@ -809,13 +808,9 @@ export default function App() {
           }
         }
       }
-      if (newColArray) {
-        body.config = { ...(body.config || {}), array: true }
-      }
       await createColumn(body, opts)
       setNewColName('')
       setNewColLabel('')
-      setNewColArray(false)
       setNewFormulaExpr('')
       setNewLookupRelColumn('')
       setNewLookupTargetColumn('')
@@ -891,7 +886,7 @@ export default function App() {
     void run(async () => {
       await createIndex(
         {
-          tableId: selectedTable,
+          tableName: selectedTable,
           name: newIdxName.trim(),
           columnIds: newIdxCols,
           isUnique: newIdxUnique,
@@ -918,7 +913,7 @@ export default function App() {
     const writable = columns.filter(isWritableColumn)
     const fields: Record<string, unknown> = {}
     for (const c of writable) {
-      const v = cellToNative(valueTypeId(c.typeId, c.config), newRowCells[c.name] ?? '')
+      const v = cellToNative(c.typeId, newRowCells[c.name] ?? '', false, isArrayColumn(c, types))
       if (v !== undefined) fields[c.name] = v
     }
     void run(async () => {
@@ -943,7 +938,7 @@ export default function App() {
     const oldVal = event.oldValue == null ? '' : String(event.oldValue)
     if (newVal === oldVal) return
 
-    const cell = cellToNative(valueTypeId(col.typeId, col.config), newVal, true)
+    const cell = cellToNative(col.typeId, newVal, true, isArrayColumn(col, types))
     if (cell === undefined) return
 
     void (async () => {
@@ -971,22 +966,6 @@ export default function App() {
     }
     void run(async () => {
       await bulkDeleteRows(selectedTable, ids, opts)
-      await loadGrid()
-    })
-  }
-
-  const onImport = async () => {
-    if (!selectedTable) return
-    let rows: Record<string, unknown>[]
-    try {
-      rows = JSON.parse(importText) as Record<string, unknown>[]
-      if (!Array.isArray(rows)) throw new Error('JSON must be an array of objects')
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e))
-      return
-    }
-    void run(async () => {
-      await importRows(selectedTable, rows, opts)
       await loadGrid()
     })
   }
@@ -1615,16 +1594,6 @@ export default function App() {
                   />
                   nullable
                 </label>
-                {types.find((t) => t.id === newColType)?.config?.allowsArray === true && (
-                  <label className="inline">
-                    <input
-                      type="checkbox"
-                      checked={newColArray}
-                      onChange={(e) => setNewColArray(e.target.checked)}
-                    />
-                    array
-                  </label>
-                )}
                 <button type="button" data-testid="add-column-btn" onClick={() => void onAddColumn()}>
                   Add column
                 </button>
@@ -1643,7 +1612,7 @@ export default function App() {
                 <div className="relationship-panel column-edit-panel">
                   <h3>link config</h3>
                   <p className="muted">
-                    Virtual column linking to another table. Requires <code>target_table_id</code>{' '}
+                    Virtual column linking to another table. Requires <code>target_table_name</code>{' '}
                     and either <code>link_column_id</code> (one-to-many) or{' '}
                     <code>target_column_id</code> (many-to-one on this table). Related IDs live in{' '}
                     <code>link_ref</code>.
@@ -1961,8 +1930,6 @@ export default function App() {
               <button type="button" className="btn btn-sm" onClick={() => void onDeleteSelected()}>
                 <IconTrash size={14} /> Delete selected
               </button>
-              <div className="toolbar-divider" />
-              <button type="button" className="btn btn-sm" onClick={() => void onImport()}>Import JSON</button>
               <span className="toolbar-hint">Click cell to edit · computed columns are read-only</span>
             </div>
             <RowFilterBar
@@ -1974,13 +1941,6 @@ export default function App() {
               rowCount={rowCount}
               active={rowFilterActive}
             />
-            <div className="import-panel" style={{ display: 'none' }}>
-              <textarea
-                value={importText}
-                onChange={(e) => setImportText(e.target.value)}
-                rows={3}
-              />
-            </div>
             <div className="new-row-panel">
               <span className="toolbar-hint" style={{ margin: 0 }}>New row</span>
               <div className="new-row-fields">
@@ -1994,7 +1954,7 @@ export default function App() {
                     <span className="cell-input-id">{c.name}</span>
                     {showLabel && <span className="cell-input-label">{label}</span>}
                   </span>
-                  {isArrayColumnType(c.typeId, c.config) ? (
+                  {isArrayColumn(c, types) ? (
                     <ArrayInput
                       aria-label={aria}
                       value={newRowCells[c.name] ?? ''}

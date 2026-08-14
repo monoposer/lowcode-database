@@ -12,7 +12,7 @@ func TestLookupTargetAllowed(t *testing.T) {
 			t.Fatalf("%s should be allowed", kind)
 		}
 	}
-	if shared.LookupTargetAllowed("link") || shared.LookupTargetAllowed("relationship") {
+	if shared.LookupTargetAllowed("link") {
 		t.Fatal("link should not be a lookup target")
 	}
 }

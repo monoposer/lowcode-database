@@ -1,4 +1,4 @@
-// Package data implements row CRUD, DSL query execution, bulk operations, and import/export.
+// Package data implements row CRUD, DSL query execution, bulk operations, and export.
 //
 //   - service.go — Data service constructor
 //   - row.go — ListRows + insert helper
@@ -7,5 +7,5 @@
 //   - query_exec.go — query run, plan, virtual columns
 //   - lookup.go — lookup joins + linked filter
 //   - columns_select.go — column selection for queries
-//   - bulk.go, import.go
+//   - bulk.go — bulk upsert/delete
 package data

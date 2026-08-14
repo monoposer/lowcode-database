@@ -3,13 +3,11 @@ package platform
 import (
 	"context"
 	"fmt"
-	"github.com/monoposer/lowcode-database/internal/apiv1/platform"
-
-	"github.com/monoposer/lowcode-database/internal/platform/authn"
+	"github.com/monoposer/lowcode-database/pkg/platform/authn"
 	"time"
 )
 
-func (s *Platform) CreateAPIKey(ctx context.Context, req *platform.CreateAPIKeyRequest) (*platform.CreateAPIKeyResponse, error) {
+func (s *Platform) CreateAPIKey(ctx context.Context, req *CreateAPIKeyRequest) (*CreateAPIKeyResponse, error) {
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
@@ -22,7 +20,7 @@ func (s *Platform) CreateAPIKey(ctx context.Context, req *platform.CreateAPIKeyR
 		return nil, err
 	}
 	meta := s.B.Tenants.MetaPool()
-	var ak platform.APIKey
+	var ak APIKey
 	var createdAt, updatedAt time.Time
 	err = meta.QueryRow(ctx, `
 		INSERT INTO lc_api_keys (tenant_id, name, key_hash, key_prefix, rate_limit_rps)
@@ -36,10 +34,10 @@ func (s *Platform) CreateAPIKey(ctx context.Context, req *platform.CreateAPIKeyR
 	}
 	ak.CreatedAt = createdAt
 	ak.UpdatedAt = updatedAt
-	return &platform.CreateAPIKeyResponse{ApiKey: &ak, Key: plain}, nil
+	return &CreateAPIKeyResponse{ApiKey: &ak, Key: plain}, nil
 }
 
-func (s *Platform) ListAPIKeys(ctx context.Context, _ *platform.ListAPIKeysRequest) (*platform.ListAPIKeysResponse, error) {
+func (s *Platform) ListAPIKeys(ctx context.Context, _ *ListAPIKeysRequest) (*ListAPIKeysResponse, error) {
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
@@ -52,9 +50,9 @@ func (s *Platform) ListAPIKeys(ctx context.Context, _ *platform.ListAPIKeysReque
 		return nil, err
 	}
 	defer rows.Close()
-	var out platform.ListAPIKeysResponse
+	var out ListAPIKeysResponse
 	for rows.Next() {
-		var ak platform.APIKey
+		var ak APIKey
 		var createdAt, updatedAt time.Time
 		if err := rows.Scan(&ak.Id, &ak.Name, &ak.KeyPrefix, &ak.Enabled, &ak.RateLimitRps, &createdAt, &updatedAt); err != nil {
 			return nil, err
@@ -66,7 +64,7 @@ func (s *Platform) ListAPIKeys(ctx context.Context, _ *platform.ListAPIKeysReque
 	return &out, rows.Err()
 }
 
-func (s *Platform) DeleteAPIKey(ctx context.Context, req *platform.DeleteAPIKeyRequest) (*platform.DeleteAPIKeyResponse, error) {
+func (s *Platform) DeleteAPIKey(ctx context.Context, req *DeleteAPIKeyRequest) (*DeleteAPIKeyResponse, error) {
 	tid, err := s.B.TenantID(ctx)
 	if err != nil {
 		return nil, err
@@ -81,5 +79,5 @@ func (s *Platform) DeleteAPIKey(ctx context.Context, req *platform.DeleteAPIKeyR
 	if tag.RowsAffected() == 0 {
 		return nil, fmt.Errorf("api key not found")
 	}
-	return &platform.DeleteAPIKeyResponse{}, nil
+	return &DeleteAPIKeyResponse{}, nil
 }

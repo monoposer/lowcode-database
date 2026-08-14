@@ -126,7 +126,7 @@ Prefix `/v1/`, JSON camelCase, **`X-Tenant-Id`** required.
 
 ## When changing code
 
-1. **API types:** `internal/apiv1/<domain>/`
+1. **API types:** next to the domain in `internal/service/<module>/` (`shared.Value` for cells)
 2. **Business:** `internal/service/<module>/` (schema · catalog · data · platform) — [docs/modules/README.md](../docs/modules/README.md)
 3. **Routes:** `internal/api/routes.go` (chi); handlers in `admin/`, `data/`
 4. **Tests:** unit tests in-package; integration `internal/service/integration_test.go` + `internal/testutil`

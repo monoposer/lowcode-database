@@ -1,7 +1,7 @@
-import type { Column } from '../api'
+import type { Column, ColType } from '../api'
 
 function isLinkTypeId(typeId: string) {
-  return typeId === 'link' || typeId === 'relationship' || typeId === 'relation_fk'
+  return typeId === 'link'
 }
 
 export function isWritableColumn(c: Column) {
@@ -13,17 +13,15 @@ export function isWritableColumn(c: Column) {
   )
 }
 
-export function isArrayColumnType(typeId: string, config?: Record<string, unknown>) {
-  if (typeId.endsWith('_array')) return true
-  return config?.array === true
+/** Array-ness lives on the type (columnType.spec.array), exposed as Type.config.array / pgType[]. */
+export function isArrayType(t: ColType | undefined): boolean {
+  if (!t) return false
+  if (t.config?.array === true) return true
+  return typeof t.pgType === 'string' && t.pgType.endsWith('[]')
 }
 
-/** typeId used for cell parse/format (legacy *_array suffix when config.array is set). */
-export function valueTypeId(typeId: string, config?: Record<string, unknown>) {
-  if (isArrayColumnType(typeId, config) && !typeId.endsWith('_array')) {
-    return `${typeId}_array`
-  }
-  return typeId
+export function isArrayColumn(c: Column, types: ColType[]): boolean {
+  return isArrayType(types.find((t) => t.id === c.typeId))
 }
 
 export function isGridColumn(c: Column) {
@@ -58,7 +56,7 @@ export function columnExpression(c: Column): string {
   return typeof expr === 'string' ? expr : ''
 }
 
-/** Stored column under current API (typed PG column or rls_table cell). RFC: fields live in virtual_records.data JSONB. */
+/** Scalar/link fields stored in record.data (not formula/lookup/rollup). */
 export function isPhysicalColumn(c: Column) {
   return !isVirtualKind(c)
 }
@@ -92,7 +90,7 @@ export function relationshipCardinality(c: Column): 'one' | 'many' | undefined {
 }
 
 export function relationshipTargetTable(c: Column): string {
-  return cfgString(c.config, 'target_table_id')
+  return cfgString(c.config, 'target_table_name')
 }
 
 export function isLookupTargetColumn(c: Column) {
@@ -109,14 +107,13 @@ export function resolveColumnRef(columns: Column[], ref: string): Column | undef
 }
 
 export function typeBadgeColor(typeId: string): string {
-  if (typeId === 'uuid' || typeId === 'int8' || typeId === 'number') return 'type-id'
-  if (typeId === 'text' || typeId === 'varchar') return 'type-text'
-  if (typeId === 'bool' || typeId === 'boolean') return 'type-bool'
-  if (typeId === 'number' || typeId === 'double' || typeId === 'integer') return 'type-num'
+  if (typeId === 'number') return 'type-num'
+  if (typeId === 'text') return 'type-text'
+  if (typeId === 'boolean') return 'type-bool'
   if (typeId === 'formula') return 'type-formula'
   if (isLinkTypeId(typeId)) return 'type-fk'
   if (typeId === 'lookup' || typeId === 'rollup') return 'type-virtual'
-  if (typeId.includes('timestamp') || typeId === 'date' || typeId === 'datetime') return 'type-date'
-  if (typeId === 'json' || typeId === 'jsonb') return 'type-json'
+  if (typeId === 'datetime') return 'type-date'
+  if (typeId === 'jsonb') return 'type-json'
   return 'type-default'
 }

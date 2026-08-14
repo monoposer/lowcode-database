@@ -2,7 +2,7 @@
 
 Items **not in this version**. Do not add product APIs, meta tables, or docs for them until they ship. Current behavior stays in [architecture/](architecture/system.md) and [modules/](modules/README.md).
 
-Schema and types today: Admin CRUD (`/v1/admin/tables`, `/columns`, `/indexes`, `/column-types`) and `pkg/typespec` for pgType / DOMAIN. There is **no** portable schema bundle import.
+Schema and types today: Admin CRUD (`/v1/admin/tables`, `/columns`, `/indexes`, `/column-types`) and `internal/columntype` for pgType / columnType. There is **no** portable schema bundle import.
 
 ---
 
@@ -20,7 +20,7 @@ A later version may add a declarative pack (tables + columns + indexes + relatio
 
 **Not in this version.** No WASM host, plugin Admin CRUD, `/v1/data/rpc`, write-path triggers, or `plugin.{name}.{type}` columns.
 
-Custom validation today: `POST /v1/admin/column-types` (`pkg/typespec` / PG DOMAIN). React to writes in the application after Admin/Data APIs succeed (or use webhooks).
+Custom validation today: `POST /v1/admin/column-types` (`internal/columntype`). React to writes in the application after Admin/Data APIs succeed (or use webhooks).
 
 A later version may add a four-tier model: subscriptions, before/after row triggers, RPC, custom plugin types.
 

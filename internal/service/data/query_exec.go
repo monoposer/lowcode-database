@@ -6,29 +6,27 @@ import (
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/monoposer/lowcode-database/internal/apiv1"
-	"github.com/monoposer/lowcode-database/internal/apiv1/row"
 	"github.com/monoposer/lowcode-database/internal/dsl"
 	formulacompile "github.com/monoposer/lowcode-database/internal/formula"
-	"github.com/monoposer/lowcode-database/internal/logger"
 	"github.com/monoposer/lowcode-database/internal/query"
 	"github.com/monoposer/lowcode-database/internal/service/schema"
 	"github.com/monoposer/lowcode-database/internal/service/shared"
+	"github.com/monoposer/lowcode-database/pkg/logger"
 	"strings"
 	"time"
 )
 
-func (s *Data) executeQuery(ctx context.Context, spec querySpec) (resp *row.QueryRowsResponse, execErr error) {
+func (s *Data) executeQuery(ctx context.Context, spec querySpec) (resp *QueryRowsResponse, execErr error) {
 	if err := s.rewriteVRLookupFilters(ctx, &spec); err != nil {
 		return nil, err
 	}
 	return s.executeVRQuery(ctx, spec)
 }
 
-func (s *Data) scanQueryRows(ctx context.Context, plan *queryExecPlan, spec querySpec, data *pgxpool.Pool, pageSize int32, start time.Time) (*row.QueryRowsResponse, error) {
+func (s *Data) scanQueryRows(ctx context.Context, plan *queryExecPlan, spec querySpec, data *pgxpool.Pool, pageSize int32, start time.Time) (*QueryRowsResponse, error) {
 	countSQL := fmt.Sprintf(`SELECT COUNT(*) FROM %s%s`, plan.fromSQL, plan.whereSQL)
 	var total int32
-	s.logSQL("count", plan.tableID, countSQL, plan.args)
+	s.logSQL("count", plan.tableName, countSQL, plan.args)
 	if err := data.QueryRow(ctx, countSQL, plan.args...).Scan(&total); err != nil {
 		return nil, err
 	}
@@ -39,14 +37,14 @@ func (s *Data) scanQueryRows(ctx context.Context, plan *queryExecPlan, spec quer
 	querySQL := fmt.Sprintf(`SELECT %s FROM %s%s%s LIMIT $%d`,
 		plan.columnSQL, plan.fromSQL, plan.whereSQL, plan.orderClause, limitArg,
 	)
-	s.logSQL("select", plan.tableID, querySQL, queryArgs)
+	s.logSQL("select", plan.tableName, querySQL, queryArgs)
 	rows, err := data.Query(ctx, querySQL, queryArgs...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var out row.QueryRowsResponse
+	var out QueryRowsResponse
 	var lastID string
 	for rows.Next() {
 		nScan := 1 + len(plan.selCols) + len(plan.rollupComputedSpecs) + len(plan.lookupSpecs)
@@ -75,7 +73,7 @@ func (s *Data) scanQueryRows(ctx context.Context, plan *queryExecPlan, spec quer
 		}
 		lastID = id
 
-		row := &row.Row{Id: id, Cells: make(map[string]*apiv1.Value)}
+		row := &Row{Id: id, Cells: make(map[string]*shared.Value)}
 		for i, c := range plan.selCols {
 			vPtr := values[i].(*any)
 			if *vPtr != nil {
@@ -86,7 +84,7 @@ func (s *Data) scanQueryRows(ctx context.Context, plan *queryExecPlan, spec quer
 			if lkVals[i] != nil && *lkVals[i] != nil {
 				row.Cells[lk.LookupColumnName] = shared.DBCellValue(*lkVals[i], lk.TargetValuePgType)
 			} else {
-				row.Cells[lk.LookupColumnName] = &apiv1.Value{JsonValue: json.RawMessage("null")}
+				row.Cells[lk.LookupColumnName] = &shared.Value{JsonValue: json.RawMessage("null")}
 			}
 		}
 		for i, r := range plan.rollupComputedSpecs {
@@ -96,7 +94,7 @@ func (s *Data) scanQueryRows(ctx context.Context, plan *queryExecPlan, spec quer
 		}
 
 		if plan.colAllow != nil {
-			filtered := make(map[string]*apiv1.Value, len(row.Cells))
+			filtered := make(map[string]*shared.Value, len(row.Cells))
 			for k, v := range row.Cells {
 				if columnAllowed(k, plan.colAllow) {
 					filtered[k] = v
@@ -116,15 +114,15 @@ func (s *Data) scanQueryRows(ctx context.Context, plan *queryExecPlan, spec quer
 		out.Rows = out.Rows[:pageSize]
 		out.NextPageToken = lastID
 	}
-	s.logQueryExecution(plan.tableID, start, len(out.Rows), total, nil)
+	s.logQueryExecution(plan.tableName, start, len(out.Rows), total, nil)
 	return &out, nil
 }
 
 // querySpec holds merged query parameters from saved query / request.
 type querySpec struct {
-	TableID        string
+	TableName        string
 	Filter         map[string]any
-	Sort           []*apiv1.SortOrder
+	Sort           []*shared.SortOrder
 	ColumnIds      []string
 	ColumnRestrict bool // when true, ColumnIds limits output (empty = id only)
 	PageSize       int32
@@ -132,9 +130,9 @@ type querySpec struct {
 }
 
 type loadedQuery struct {
-	TableId   string
+	TableName   string
 	Filter    map[string]any
-	Sort      []*apiv1.SortOrder
+	Sort      []*shared.SortOrder
 	ColumnIds []string
 }
 
@@ -182,14 +180,14 @@ func filterPhysicalCols(all []shared.FullColumnMeta) []shared.ColumnMeta {
 	var out []shared.ColumnMeta
 	for _, c := range all {
 		if !c.IsVirtual {
-			out = append(out, shared.ColumnMeta{Id: c.Id, TableId: c.TableId, Name: c.Name, TypeId: c.TypeId, PgType: c.PgType, IsNullable: c.IsNullable, Position: c.Position})
+			out = append(out, shared.ColumnMeta{Id: c.Id, TableName: c.TableName, Name: c.Name, TypeId: c.TypeId, PgType: c.PgType, IsNullable: c.IsNullable, Position: c.Position})
 		}
 	}
 	return out
 }
 
-func (s *Data) recordSavedQuery(_ context.Context, tenantID, tableID, queryName string, start time.Time, err error, rowCount int32, queryTableID string) {
-	if tenantID == "" || tableID == "" || queryName == "" {
+func (s *Data) recordSavedQuery(_ context.Context, tenantID, tableName, queryName string, start time.Time, err error, rowCount int32, queryTableName string) {
+	if tenantID == "" || tableName == "" || queryName == "" {
 		return
 	}
 	duration := time.Since(start)
@@ -199,14 +197,14 @@ func (s *Data) recordSavedQuery(_ context.Context, tenantID, tableID, queryName 
 	}
 	attrs := []any{
 		"tenant_id", tenantID,
-		"table_id", tableID,
+		"table_name", tableName,
 		"query_name", queryName,
 		"db", "meta",
 		"duration_ms", duration.Milliseconds(),
 		"row_count", rowCount,
 	}
-	if queryTableID != "" && queryTableID != tableID {
-		attrs = append(attrs, "query_table_id", queryTableID)
+	if queryTableName != "" && queryTableName != tableName {
+		attrs = append(attrs, "query_table_name", queryTableName)
 	}
 	if err != nil {
 		attrs = append(attrs, "error", err.Error())
@@ -220,27 +218,27 @@ func (s *Data) recordSavedQuery(_ context.Context, tenantID, tableID, queryName 
 	}
 }
 
-func (s *Data) logSQL(op, tableID, sql string, args []any) {
+func (s *Data) logSQL(op, tableName, sql string, args []any) {
 	if s.B.Log == nil || !s.B.LogSQL {
 		return
 	}
 	s.B.Log.Info("sql query",
 		"db", "data-shard",
 		"op", op,
-		"table_id", tableID,
+		"table_name", tableName,
 		"sql", sql,
 		"args", logger.FormatSQLArgs(args),
 	)
 }
 
-func (s *Data) logQueryExecution(tableID string, start time.Time, rowCount int, total int32, err error) {
+func (s *Data) logQueryExecution(tableName string, start time.Time, rowCount int, total int32, err error) {
 	if s.B.Log == nil {
 		return
 	}
 	duration := time.Since(start)
 	attrs := []any{
 		"db", "data-shard",
-		"table_id", tableID,
+		"table_name", tableName,
 		"duration_ms", duration.Milliseconds(),
 		"row_count", rowCount,
 		"total_count", total,
@@ -260,12 +258,12 @@ func (s *Data) logQueryExecution(tableID string, start time.Time, rowCount int, 
 }
 
 func (s *Data) buildQueryExecPlan(ctx context.Context, spec querySpec) (*queryExecPlan, error) {
-	tableID := spec.TableID
-	if tableID == "" {
-		return nil, fmt.Errorf("table_id is required")
+	tableName := spec.TableName
+	if tableName == "" {
+		return nil, fmt.Errorf("table_name is required")
 	}
 
-	allCols, schemaName, tableName, err := s.meta().LoadAllColumnMeta(ctx, tableID)
+	allCols, schemaName, tableName, err := s.meta().LoadAllColumnMeta(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -283,7 +281,7 @@ func (s *Data) buildQueryExecPlan(ctx context.Context, spec querySpec) (*queryEx
 
 	pageSize := normalizePageSize(spec.PageSize, s.B.MaxRow)
 
-	rollupPlans, err := s.buildRollupPlans(ctx, tableID, allCols)
+	rollupPlans, err := s.buildRollupPlans(ctx, tableName, allCols)
 	if err != nil {
 		return nil, err
 	}
@@ -313,7 +311,7 @@ func (s *Data) buildQueryExecPlan(ctx context.Context, spec querySpec) (*queryEx
 	}
 
 	argAcc := &argAccumulator{args: &args}
-	lookupSpecs, err := s.buildLookupJoinSpecs(ctx, tableID, argAcc)
+	lookupSpecs, err := s.buildLookupJoinSpecs(ctx, tableName, argAcc)
 	if err != nil {
 		return nil, err
 	}
@@ -350,7 +348,7 @@ func (s *Data) buildQueryExecPlan(ctx context.Context, spec querySpec) (*queryEx
 	orderClause := buildExecOrderClause(spec, attrMap)
 
 	return &queryExecPlan{
-		tableID:             tableID,
+		tableName:             tableName,
 		selCols:             selCols,
 		lookupSpecs:         lookupSpecs,
 		rollupComputedSpecs: rollupComputedSpecs,
@@ -370,7 +368,7 @@ type rollupComputed struct {
 }
 
 type queryExecPlan struct {
-	tableID             string
+	tableName             string
 	selCols             []shared.ColumnMeta
 	lookupSpecs         []lookupJoinSpec
 	rollupComputedSpecs []rollupComputed
@@ -553,7 +551,7 @@ func (s *Data) buildRollupSQL(plan rollupPlan, baseAlias string, argStart int) (
 	return sql, args, nil
 }
 
-func (s *Data) buildRollupPlans(ctx context.Context, tableID string, allCols []shared.FullColumnMeta) ([]rollupPlan, error) {
+func (s *Data) buildRollupPlans(ctx context.Context, tableName string, allCols []shared.FullColumnMeta) ([]rollupPlan, error) {
 	var rollups []rollupPlan
 	for _, c := range allCols {
 		switch c.Kind {
@@ -564,19 +562,19 @@ func (s *Data) buildRollupPlans(ctx context.Context, tableID string, allCols []s
 			if relID == "" {
 				continue
 			}
-			rels, err := s.meta().LoadRelationshipColumns(ctx, tableID, []string{relID})
+			rels, err := s.meta().LoadRelationshipColumns(ctx, tableName, []string{relID})
 			if err != nil || len(rels) == 0 {
 				continue
 			}
 			rel := rels[0]
-			tgtCols, tgtSchema, tgtTable, err := s.meta().LoadColumns(ctx, rel.TargetTableId)
+			tgtCols, tgtSchema, tgtTable, err := s.meta().LoadColumns(ctx, rel.TargetTableName)
 			if err != nil {
 				continue
 			}
 			var linkPg, targetPg string
 			tid, _ := s.B.TenantID(ctx)
 			if rel.LinkColumnId != "" {
-				linkPg, _ = s.meta().ColumnPgColumnByRef(ctx, tid, rel.TargetTableId, rel.LinkColumnId)
+				linkPg, _ = s.meta().ColumnPgColumnByRef(ctx, tid, rel.TargetTableName, rel.LinkColumnId)
 			}
 			for _, tc := range tgtCols {
 				if schema.ColumnRefMatches(tc, fieldID) {

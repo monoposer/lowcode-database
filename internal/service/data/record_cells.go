@@ -1,12 +1,11 @@
 package data
 
 import (
-	"github.com/monoposer/lowcode-database/internal/apiv1"
 	"github.com/monoposer/lowcode-database/internal/service/calc"
 	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
-func splitLinkCells(cells map[string]*apiv1.Value, cols []shared.FullColumnMeta) (data map[string]any, links map[string][]string) {
+func splitLinkCells(cells map[string]*shared.Value, cols []shared.FullColumnMeta) (data map[string]any, links map[string][]string) {
 	linkCols := map[string]bool{}
 	calcCols := map[string]bool{}
 	for _, c := range cols {
@@ -37,7 +36,7 @@ func splitLinkCells(cells map[string]*apiv1.Value, cols []shared.FullColumnMeta)
 	return data, links
 }
 
-func cellToIDs(v *apiv1.Value) []string {
+func cellToIDs(v *shared.Value) []string {
 	if v == nil {
 		return nil
 	}
@@ -47,7 +46,7 @@ func cellToIDs(v *apiv1.Value) []string {
 		}
 		return []string{*v.StringValue}
 	}
-	native := apiv1.ValueToNative(v)
+	native := shared.ValueToNative(v)
 	return asStringSlice(native)
 }
 
@@ -63,8 +62,8 @@ func linkFieldMeta(cols []shared.FullColumnMeta, ref string) (shared.FullColumnM
 	return shared.FullColumnMeta{}, false
 }
 
-func hydrateCells(native map[string]any, cols []shared.FullColumnMeta, links map[string][]string, pending bool) map[string]*apiv1.Value {
-	out := map[string]*apiv1.Value{}
+func hydrateCells(native map[string]any, cols []shared.FullColumnMeta, links map[string][]string, pending bool) map[string]*shared.Value {
+	out := map[string]*shared.Value{}
 	for _, c := range cols {
 		if c.Name == "id" || c.Name == "updated_at" || c.Name == "created_at" {
 			continue
@@ -77,7 +76,7 @@ func hydrateCells(native map[string]any, cols []shared.FullColumnMeta, links map
 			if ids == nil {
 				ids = []string{}
 			}
-			out[c.Name] = apiv1.JsonValue(ids)
+			out[c.Name] = shared.JsonValue(ids)
 			continue
 		}
 		if calc.IsCalcType(c.TypeId) || calc.IsCalcType(c.Kind) {

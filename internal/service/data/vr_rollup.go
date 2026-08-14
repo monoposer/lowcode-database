@@ -8,14 +8,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/monoposer/lowcode-database/internal/infra/postgres"
+	"github.com/monoposer/lowcode-database/pkg/infra/postgres"
 )
 
 // refreshRollupsAfterChildWrite updates parent rows' data._rollup_* when a child row changes.
-func (s *Data) refreshRollupsAfterChildWrite(ctx context.Context, childTableID, _ string, childData map[string]any) error {
-	if !s.B.IsVirtualRecordsMode() {
-		return nil
-	}
+func (s *Data) refreshRollupsAfterChildWrite(ctx context.Context, childTableName, _ string, childData map[string]any) error {
 	ctx, tables, err := s.B.Tenants.AttachDataTables(ctx)
 	if err != nil {
 		return err
@@ -37,15 +34,15 @@ func (s *Data) refreshRollupsAfterChildWrite(ctx context.Context, childTableID, 
 	if err != nil {
 		return err
 	}
-	childVT, err := s.B.Tenants.TableVTID(ctx, tenantID, baseID, childTableID)
+	childVT, err := s.B.Tenants.TableVTID(ctx, tenantID, baseID, childTableName)
 	if err != nil {
 		return err
 	}
 
 	rows, err := meta.Query(ctx, `
-		SELECT c.table_id, c.name, c.config, COALESCE(t.vt_id, '')
+		SELECT c.table_name, c.name, c.config, t.vt_id::text
 		FROM lc_columns c
-		JOIN lc_tables t ON t.tenant_id = c.tenant_id AND t.base_id = c.base_id AND t.name = c.table_id
+		JOIN lc_tables t ON t.tenant_id = c.tenant_id AND t.base_id = c.base_id AND t.name = c.table_name
 		WHERE c.tenant_id = $1 AND c.base_id = $2 AND c.type_id = 'rollup'
 	`, tid, baseID)
 	if err != nil {
@@ -71,15 +68,15 @@ func (s *Data) refreshRollupsAfterChildWrite(ctx context.Context, childTableID, 
 		var relCfgRaw []byte
 		err := meta.QueryRow(ctx, `
 			SELECT config FROM lc_columns
-			WHERE tenant_id = $1 AND base_id = $2 AND table_id = $3 AND (name = $4 OR id::text = $4) AND type_id IN ('link','relationship','relation_fk')
+			WHERE tenant_id = $1 AND base_id = $2 AND table_name = $3 AND (name = $4 OR id::text = $4) AND type_id IN ('link')
 		`, tid, baseID, parentTable, relCol).Scan(&relCfgRaw)
 		if err != nil {
 			continue
 		}
 		relCfg := map[string]any{}
 		_ = json.Unmarshal(relCfgRaw, &relCfg)
-		target := configString(relCfg, "target_table_id")
-		if target != childTableID {
+		target := configString(relCfg, "target_table_name")
+		if target != childTableName {
 			continue
 		}
 		childLink := configString(relCfg, "link_column_id")
