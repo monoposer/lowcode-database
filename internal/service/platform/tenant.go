@@ -4,10 +4,19 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
+
 	"github.com/monoposer/lowcode-database/pkg/infra/postgres"
+	"github.com/monoposer/lowcode-database/pkg/platform/authn"
 )
 
-// CreateTenant registers a tenant and provisions data storage per isolation mode.
+const (
+	defaultPublicBaseName  = "public"
+	defaultPublicBaseLabel = "Public"
+	defaultAPIKeyName      = "default"
+)
+
+// CreateTenant registers a tenant, provisions data tables, then seeds a public base and default API key.
 func (s *Platform) CreateTenant(ctx context.Context, req *CreateTenantRequest) (*CreateTenantResponse, error) {
 	id := strings.TrimSpace(req.Id)
 	if id == "" {
@@ -21,10 +30,44 @@ func (s *Platform) CreateTenant(ctx context.Context, req *CreateTenantRequest) (
 	if err != nil {
 		return nil, err
 	}
-	if err := s.B.Tenants.CreateTenantFull(ctx, id, req.DisplayName, writeDSN, req.DataDsnReads, req.PoolMaxConns, store); err != nil {
+	created, err := s.B.Tenants.CreateTenantFull(ctx, id, req.DisplayName, writeDSN, req.DataDsnReads, req.PoolMaxConns, store)
+	if err != nil {
 		return nil, fmt.Errorf("create tenant %s: %w", id, err)
 	}
-	return &CreateTenantResponse{Id: id, RecordStore: store}, nil
+	out := &CreateTenantResponse{Id: id, RecordStore: store}
+	if !created {
+		return out, nil
+	}
+
+	baseID := "base_" + id
+	if _, err := s.B.Tenants.CreateBase(ctx, id, baseID, defaultPublicBaseName, defaultPublicBaseLabel); err != nil {
+		return nil, fmt.Errorf("create public base for tenant %s: %w", id, err)
+	}
+	out.Base = &BaseDTO{
+		BaseID: baseID, TenantID: id, Name: defaultPublicBaseName, Label: defaultPublicBaseLabel, Status: "active",
+	}
+
+	plain, hash, prefix, err := authn.GenerateKey()
+	if err != nil {
+		return nil, fmt.Errorf("generate api key for tenant %s: %w", id, err)
+	}
+	var ak APIKey
+	var createdAt, updatedAt time.Time
+	err = s.B.Tenants.MetaPool().QueryRow(ctx, `
+		INSERT INTO lc_api_keys (tenant_id, name, key_hash, key_prefix, rate_limit_rps)
+		VALUES ($1, $2, $3, $4, 0)
+		RETURNING id, name, key_prefix, enabled, rate_limit_rps, created_at, updated_at
+	`, id, defaultAPIKeyName, hash, prefix).Scan(
+		&ak.Id, &ak.Name, &ak.KeyPrefix, &ak.Enabled, &ak.RateLimitRps, &createdAt, &updatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create api key for tenant %s: %w", id, err)
+	}
+	ak.CreatedAt = createdAt
+	ak.UpdatedAt = updatedAt
+	out.ApiKey = &ak
+	out.Key = plain
+	return out, nil
 }
 
 func (s *Platform) UpdateTenant(ctx context.Context, id string, req *UpdateTenantRequest) (*UpdateTenantResponse, error) {

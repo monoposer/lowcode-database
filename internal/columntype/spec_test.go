@@ -40,28 +40,32 @@ func TestValidateColumnTypeSpec_Array(t *testing.T) {
 	if err := columntype.ValidateColumnTypeSpec(&columntype.ColumnTypeSpec{PgType: "text", Array: true}); err != nil {
 		t.Fatal(err)
 	}
-	if err := columntype.ValidateColumnTypeSpec(&columntype.ColumnTypeSpec{PgType: "string", Array: true}); err != nil {
+	if err := columntype.ValidateColumnTypeSpec(&columntype.ColumnTypeSpec{PgType: "datetime"}); err != nil {
 		t.Fatal(err)
+	}
+	if err := columntype.ValidateColumnTypeSpec(&columntype.ColumnTypeSpec{PgType: "string", Array: true}); err == nil {
+		t.Fatal("expected error for string (not allowed)")
 	}
 	if err := columntype.ValidateColumnTypeSpec(&columntype.ColumnTypeSpec{PgType: "link", Array: true}); err == nil {
 		t.Fatal("expected error for disallowed pgType")
 	}
-	if err := columntype.ValidateColumnTypeSpec(&columntype.ColumnTypeSpec{PgType: "datetime"}); err == nil {
-		t.Fatal("expected error for datetime")
-	}
 	if err := columntype.ValidateColumnTypeSpec(&columntype.ColumnTypeSpec{PgType: "point"}); err == nil {
 		t.Fatal("expected error for point")
 	}
-	got, err := columntype.EffectiveColumnTypePgType(columntype.ColumnTypeSpec{PgType: "string", Array: true})
+	got, err := columntype.EffectiveColumnTypePgType(columntype.ColumnTypeSpec{PgType: "text", Array: true})
 	if err != nil || got != "text[]" {
 		t.Fatalf("got %q err=%v", got, err)
 	}
+	got, err = columntype.EffectiveColumnTypePgType(columntype.ColumnTypeSpec{PgType: "datetime", Array: true})
+	if err != nil || got != "timestamptz[]" {
+		t.Fatalf("datetime array: got %q err=%v", got, err)
+	}
 }
 
-func TestNormalizeColumnType_stringAlias(t *testing.T) {
+func TestNormalizeColumnType_pgTypeTrim(t *testing.T) {
 	got := columntype.NormalizeColumnType(columntype.ColumnType{
 		Metadata: columntype.ColumnTypeMetadata{Name: "select"},
-		Spec:     columntype.ColumnTypeSpec{PgType: "string"},
+		Spec:     columntype.ColumnTypeSpec{PgType: " text "},
 	})
 	if got.Spec.PgType != "text" {
 		t.Fatalf("pgType=%q want text", got.Spec.PgType)

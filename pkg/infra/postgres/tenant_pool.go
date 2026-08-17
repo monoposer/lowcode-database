@@ -42,16 +42,18 @@ func (m *TenantManager) EffectiveDataDSN(ctx context.Context) (string, error) {
 	return p.writeDSN, nil
 }
 
-// CreateTenant registers a tenant with its data DSN and seeds a default base.
-func (m *TenantManager) CreateTenant(ctx context.Context, id, displayName, dataDSN string, poolMaxConns int) error {
+// CreateTenant registers a tenant with its data DSN (does not create a base).
+// Returns true when a new tenant row was inserted.
+func (m *TenantManager) CreateTenant(ctx context.Context, id, displayName, dataDSN string, poolMaxConns int) (bool, error) {
 	return m.CreateTenantFull(ctx, id, displayName, dataDSN, nil, poolMaxConns, RecordStoreShared)
 }
 
 // CreateTenantFull registers a tenant with write DSN, optional read replica DSNs, and record store mode.
-func (m *TenantManager) CreateTenantFull(ctx context.Context, id, displayName, dataDSN string, readDSNs []string, poolMaxConns int, recordStore string) error {
+// Returns true when a new tenant row was inserted. Callers should create a public base + API key after insert.
+func (m *TenantManager) CreateTenantFull(ctx context.Context, id, displayName, dataDSN string, readDSNs []string, poolMaxConns int, recordStore string) (bool, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
-		return fmt.Errorf("tenant id is required")
+		return false, fmt.Errorf("tenant id is required")
 	}
 	if displayName == "" {
 		displayName = id
@@ -59,10 +61,13 @@ func (m *TenantManager) CreateTenantFull(ctx context.Context, id, displayName, d
 	var n int
 	_ = m.metaPool.QueryRow(ctx, `SELECT COUNT(*)::int FROM tenants WHERE tenant_id = $1`, id).Scan(&n)
 	if n > 0 {
-		return nil
+		return false, nil
 	}
-	_, err := m.insertTenantAndSeed(ctx, id, displayName, dataDSN, readDSNs, poolMaxConns, recordStore)
-	return err
+	_, err := m.insertTenant(ctx, id, displayName, dataDSN, readDSNs, poolMaxConns, recordStore)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // ActiveDataPoolCount returns the number of cached data pools (for observability).

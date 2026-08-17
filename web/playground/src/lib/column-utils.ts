@@ -4,10 +4,14 @@ function isLinkTypeId(typeId: string) {
   return typeId === 'link'
 }
 
+export function isSystemColumn(c: Column) {
+  return c.config?.system === true
+}
+
 export function isWritableColumn(c: Column) {
   return (
+    !isSystemColumn(c) &&
     c.typeId !== 'formula' &&
-    !isLinkTypeId(c.typeId) &&
     c.typeId !== 'lookup' &&
     c.typeId !== 'rollup'
   )
@@ -24,8 +28,8 @@ export function isArrayColumn(c: Column, types: ColType[]): boolean {
   return isArrayType(types.find((t) => t.id === c.typeId))
 }
 
-export function isGridColumn(c: Column) {
-  return !isLinkTypeId(c.typeId)
+export function isGridColumn(_c: Column) {
+  return true
 }
 
 export function isComputedColumn(c: Column) {
@@ -36,6 +40,8 @@ export function columnHeaderPrefix(c: Column): string {
   switch (c.typeId) {
     case 'formula':
       return 'ƒ '
+    case 'link':
+      return '→ '
     case 'lookup':
       return '↗ '
     case 'rollup':
@@ -78,6 +84,19 @@ export function cfgString(cfg: Record<string, unknown> | undefined, key: string)
 
 export function isRelationshipColumn(c: Column) {
   return isLinkTypeId(c.typeId)
+}
+
+export function isLinkManyColumn(c: Column) {
+  return isRelationshipColumn(c) && relationshipCardinality(c) === 'many'
+}
+
+export function pickRelationDisplayColumn(columns: Column[]): Column | undefined {
+  const preferred = new Set(['name', 'title', 'label'])
+  return columns.find((c) => {
+    const n = c.name.toLowerCase()
+    if (!preferred.has(n)) return false
+    return c.typeId === 'text' || c.typeId === 'string' || !c.typeId
+  })
 }
 
 export function relationshipCardinality(c: Column): 'one' | 'many' | undefined {

@@ -50,7 +50,7 @@ func buildTableSystemColumnsDDL(typeID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return idPart + ", updated_at timestamptz NOT NULL DEFAULT now()", nil
+	return idPart + ", created_at timestamptz NOT NULL DEFAULT now()", nil
 }
 
 func pgTypeToLogicalID(pgType string) string {

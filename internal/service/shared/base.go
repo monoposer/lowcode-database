@@ -18,7 +18,6 @@ type Base struct {
 	CacheTTL           time.Duration
 	Log                *logger.Logger
 	SlowQueryThreshold time.Duration
-	LogSQL             bool
 	// PGStatStatements enables GET /v1/admin/pg-stat-statements (pg_stat_statements).
 	PGStatStatements bool
 

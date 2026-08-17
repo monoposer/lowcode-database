@@ -25,7 +25,7 @@
 
 | Path | Notes |
 |------|-------|
-| `POST /v1/admin/tenants` | Register `tenants` + schema provisioning (`recordStore`: `shared` \| `dedicated`) |
+| `POST /v1/admin/tenants` | Register tenant + public base + default API key (`recordStore`: `shared` \| `dedicated`) |
 | `/v1/admin/api-keys` | Auth keys |
 | `/v1/admin/queries` | Saved query views |
 

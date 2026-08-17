@@ -1,4 +1,4 @@
-.PHONY: all run migrate migrate-meta migrate-data test test-integration docker-build docker-up docker-migrate docker-up-stack docker-down playground-dev playground-build
+.PHONY: all run migrate test test-integration docker-build docker-up docker-migrate docker-up-stack docker-down playground-dev playground-build
 
 all: test
 
@@ -18,17 +18,14 @@ playground-dev:
 playground-build:
 	cd web/playground && npm install && npm run build
 
+# Local `make run` defaults to debug so SQL and other debug logs are visible.
+LOG_LEVEL ?= debug
+
 run:
-	go run -ldflags "$(LDFLAGS)" ./cmd/server
+	LOG_LEVEL=$(LOG_LEVEL) go run -ldflags "$(LDFLAGS)" ./cmd/server
 
 migrate:
-	go run ./cmd/migrate -target all
-
-migrate-meta:
-	go run ./cmd/migrate -target meta
-
-migrate-data:
-	go run ./cmd/migrate -target data
+	go run ./cmd/migrate
 
 test:
 	go test ./cmd/... ./internal/... ./pkg/... -count=1
@@ -45,7 +42,7 @@ docker-build:
 		-t lowcode-database:latest .
 
 docker-up:
-	docker compose -f $(COMPOSE_FILE) up -d postgres redis
+	docker compose -f $(COMPOSE_FILE) up -d postgres redis dbgate
 
 docker-migrate:
 	docker compose -f $(COMPOSE_FILE) --profile migrate run --rm migrate

@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -15,6 +16,8 @@ const (
 	RecordStoreShared    = "shared"    // public.record / link_ref / calc_queue
 	RecordStoreDedicated = "dedicated" // {tenant_id}_record / _link_ref / _calc_queue
 )
+
+var nonIdent = regexp.MustCompile(`[^a-zA-Z0-9_]+`)
 
 type dataTablesCtxKey struct{}
 

@@ -3,7 +3,6 @@ package schema
 import (
 	"context"
 	"fmt"
-	"time"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -11,6 +10,7 @@ import (
 	"github.com/monoposer/lowcode-database/internal/service/catalog"
 	"github.com/monoposer/lowcode-database/internal/service/shared"
 	"github.com/monoposer/lowcode-database/pkg/infra/postgres"
+	"time"
 )
 
 func (s *Schema) CreateTable(ctx context.Context, in *Table) (*Table, error) {
@@ -46,9 +46,6 @@ func (s *Schema) CreateTable(ctx context.Context, in *Table) (*Table, error) {
 		return nil, fmt.Errorf("ensure virtual_records: %w", err)
 	}
 	vtID := uuid.NewString()
-	if err := postgres.EnsureVirtualRecordsPartitionOn(ctx, data, tables, vtID); err != nil {
-		return nil, fmt.Errorf("create partition: %w", err)
-	}
 
 	var t Table
 	t.BaseId = baseID
@@ -59,7 +56,6 @@ func (s *Schema) CreateTable(ctx context.Context, in *Table) (*Table, error) {
 		RETURNING name, label, created_at, updated_at`,
 		tenantID, baseID, in.Name, in.Label, vtID,
 	).Scan(&t.Name, &t.Label, &t.CreatedAt, &t.UpdatedAt); err != nil {
-		_ = postgres.DropVirtualRecordsPartition(ctx, data, vtID)
 		return nil, err
 	}
 	t.Id = t.Name
@@ -84,7 +80,7 @@ func (s *Schema) registerSystemColumns(ctx context.Context, meta *pgxpool.Pool, 
 	if _, err := meta.Exec(ctx, ins, tenantID, baseID, tableName, "id", "ID", idType, false, 0, sys); err != nil {
 		return err
 	}
-	_, err := meta.Exec(ctx, ins, tenantID, baseID, tableName, "updated_at", "Updated At", "datetime", false, 1, sys)
+	_, err := meta.Exec(ctx, ins, tenantID, baseID, tableName, "created_at", "Created At", "datetime", false, 1, sys)
 	return err
 }
 
@@ -232,7 +228,7 @@ func (s *Schema) DeleteTable(ctx context.Context, id string) error {
 	var ddl string
 	if vtID != nil && *vtID != "" {
 		var err error
-		ddl, err = postgres.DropVirtualRecordsPartitionSQL(ctx, data, *vtID)
+		ddl, err = postgres.DeleteRecordsByVTID(ctx, data, tenantID, *vtID)
 		if err != nil {
 			return err
 		}

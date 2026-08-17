@@ -1,7 +1,8 @@
 # Tenant data DB
 
-Physical tables, indexes, and runtime DDL are created by the service (`internal/service/schema`, `catalog`).  
-Versioned SQL is only for database-level extensions: `000001_postgis.up.sql`, `000002_pg_stat_statements.up.sql`.
+Physical tables, indexes, and runtime DDL are created by the service (`EnsureDataTables` in `pkg/infra/postgres`). There is **no** `cmd/migrate` target for data databases.
+
+`EnsureDataTables` also runs `CREATE EXTENSION IF NOT EXISTS` for **postgis** and **pg_stat_statements**. The Postgres server still needs the binaries / `shared_preload_libraries` (compose sets both).
 
 ## PostgreSQL version
 
@@ -13,7 +14,7 @@ Requires **PostgreSQL 16+**.
 |-----------|-------|
 | **pgcrypto** | Not needed. `gen_random_uuid()` is built-in since PG 13. |
 | **postgis** | Required for `geometry` / `geography` / `point` columns. See below. |
-| **pg_stat_statements** | SQL stats when `PG_STAT_STATEMENTS=true`. Needs `shared_preload_libraries=pg_stat_statements` (compose already sets this) + the `000002` migration. |
+| **pg_stat_statements** | SQL stats when `PG_STAT_STATEMENTS=true`. Needs `shared_preload_libraries=pg_stat_statements` (compose already sets this). |
 
 ---
 
@@ -22,14 +23,13 @@ Requires **PostgreSQL 16+**.
 PostGIS is **not** part of core PostgreSQL. Two steps:
 
 1. **Install PostGIS software** (binaries and SQL scripts for the `postgis` extension)
-2. **On each tenant data database** run `CREATE EXTENSION postgis;`
+2. Open a tenant data database (extensions are created on first `EnsureDataTables`)
 
 Missing either step, creating a `geometry` column fails with `type "geometry" does not exist` or `extension "postgis" is not available`.
 
 ### Local Docker (recommended)
 
-`deploy/docker-compose.yml` uses **`postgis/postgis:16-3.5`** (not `postgres:16-alpine`).  
-`make docker-up` only creates empty DBs; `make migrate` (or `make docker-migrate`) applies `000001_postgis.up.sql`.
+`deploy/docker-compose.yml` uses **`postgis/postgis:16-3.5`** with `platform: linux/amd64` (official image has no arm64; Apple Silicon runs it under emulation). Do not use `postgres:16-alpine` (no PostGIS binaries).
 
 **Existing old volume (plain postgres image):** PostGIS cannot be installed into that data directory; recreate:
 
@@ -77,18 +77,12 @@ SELECT PostGIS_Version();
 
 ### Multi-tenant: enable on every data database
 
-`lowcode_data` is only the default tenant DB. When Admin creates a tenant with a **dedicated database**, run the same on that DSN:
-
-```sql
-CREATE EXTENSION IF NOT EXISTS postgis;
-```
-
-Automate this in tenant provisioning or the `DATA_ADMIN_DATABASE_URL` create-database flow.
+`lowcode_data` is only the default tenant DB. When Admin creates a tenant with a **dedicated database**, the same extensions run via `EnsureDataTables` on that DSN.
 
 ### Verify
 
 ```bash
-psql "$DEFAULT_TENANT_DATA_DSN" -c "SELECT PostGIS_Version();"
+psql "$DATA_DATABASE_URL" -c "SELECT PostGIS_Version();"
 ```
 
 API column types: `geometry`, `geography`, `point` (see `internal/columntype/types.go`).

@@ -20,22 +20,14 @@ const testTenant = "test"
 
 func testBaseID(tenantID string) string { return "base_" + tenantID }
 
-func applyEmbeddedMigrations(t *testing.T, ctx context.Context, metaURL, dataURL string) {
+func applyEmbeddedMigrations(t *testing.T, ctx context.Context, metaURL string) {
 	t.Helper()
-	for _, spec := range []struct {
-		target string
-		url    string
-	}{
-		{"meta", metaURL},
-		{"data", dataURL},
-	} {
-		fsys, err := migrations.FS(spec.target)
-		if err != nil {
-			t.Fatalf("%s migrations: %v", spec.target, err)
-		}
-		if err := migrator.Apply(ctx, spec.url, fsys); err != nil {
-			t.Fatalf("apply %s migrations: %v", spec.target, err)
-		}
+	fsys, err := migrations.FS()
+	if err != nil {
+		t.Fatalf("meta migrations: %v", err)
+	}
+	if err := migrator.Apply(ctx, metaURL, fsys); err != nil {
+		t.Fatalf("apply meta migrations: %v", err)
 	}
 }
 
@@ -65,15 +57,10 @@ func SetupIntegration(t *testing.T) (*service.LowcodeService, func()) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
 
-	applyEmbeddedMigrations(t, ctx, metaURL, dataURL)
+	applyEmbeddedMigrations(t, ctx, metaURL)
 
-	cfg := &config.Config{
-		MetaDatabaseURL:      metaURL,
-		DefaultTenantDataDSN: dataURL,
-		DefaultTenantID:      testTenant,
-		VRDefaultShardDSN:    dataURL,
-	}
-	tm, err := postgres.NewTenantManager(ctx, cfg)
+	cfg := &config.Config{MetaDatabaseURL: metaURL}
+	tm, err := postgres.NewTenantManager(ctx, cfg, nil)
 	if err != nil {
 		t.Fatalf("tenant manager: %v", err)
 	}
@@ -122,15 +109,10 @@ func SetupIntegrationVR(t *testing.T) (*service.LowcodeService, func()) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
 
-	applyEmbeddedMigrations(t, ctx, metaURL, dataURL)
+	applyEmbeddedMigrations(t, ctx, metaURL)
 
-	cfg := &config.Config{
-		MetaDatabaseURL:      metaURL,
-		DefaultTenantDataDSN: dataURL,
-		DefaultTenantID:      vrTenant,
-		VRDefaultShardDSN:    dataURL,
-	}
-	tm, err := postgres.NewTenantManager(ctx, cfg)
+	cfg := &config.Config{MetaDatabaseURL: metaURL}
+	tm, err := postgres.NewTenantManager(ctx, cfg, nil)
 	if err != nil {
 		t.Fatalf("tenant manager: %v", err)
 	}
@@ -170,15 +152,10 @@ func SetupIntegrationSharedDB(t *testing.T) (*service.LowcodeService, func()) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
 
-	applyEmbeddedMigrations(t, ctx, metaURL, dataURL)
+	applyEmbeddedMigrations(t, ctx, metaURL)
 
-	cfg := &config.Config{
-		MetaDatabaseURL:      metaURL,
-		DefaultTenantDataDSN: dataURL,
-		DefaultTenantID:      sharedTenantA,
-		VRDefaultShardDSN:    dataURL,
-	}
-	tm, err := postgres.NewTenantManager(ctx, cfg)
+	cfg := &config.Config{MetaDatabaseURL: metaURL}
+	tm, err := postgres.NewTenantManager(ctx, cfg, nil)
 	if err != nil {
 		t.Fatalf("tenant manager: %v", err)
 	}

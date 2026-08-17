@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/monoposer/lowcode-database/internal/event"
@@ -46,10 +48,6 @@ func (s *Data) CreateRow(ctx context.Context, req *CreateRowRequest) (*CreateRow
 	if err != nil {
 		return nil, err
 	}
-	if err := postgres.EnsureVirtualRecordsPartitionOn(ctx, pool, tables, vtID); err != nil {
-		return nil, err
-	}
-
 	tableName := req.TableName
 	cols, _, _, err := s.meta().LoadColumns(ctx, tableName)
 	if err != nil {
@@ -301,7 +299,7 @@ func (s *Data) executeVRQuery(ctx context.Context, spec querySpec) (*QueryRowsRe
 	limitArg := argN
 	queryArgs := append(append([]any{}, args...), pageSize+1)
 	selectSQL := fmt.Sprintf(`
-		SELECT record_id, data, version FROM %s WHERE %s%s LIMIT $%d`,
+		SELECT record_id, data, version, created_at, updated_at FROM %s WHERE %s%s LIMIT $%d`,
 		tbl, where, order, limitArg)
 
 	rows, err := pool.Query(ctx, selectSQL, queryArgs...)
@@ -323,13 +321,20 @@ func (s *Data) executeVRQuery(ctx context.Context, spec querySpec) (*QueryRowsRe
 		var id string
 		var dataJSON []byte
 		var ver int64
-		if err := rows.Scan(&id, &dataJSON, &ver); err != nil {
+		var createdAt, updatedAt time.Time
+		if err := rows.Scan(&id, &dataJSON, &ver, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
 		lastID = id
 		native := map[string]any{}
 		if len(dataJSON) > 0 {
 			_ = json.Unmarshal(dataJSON, &native)
+		}
+		if _, ok := native["created_at"]; !ok && !createdAt.IsZero() {
+			native["created_at"] = createdAt.UTC().Format(time.RFC3339Nano)
+		}
+		if _, ok := native["updated_at"]; !ok && !updatedAt.IsZero() {
+			native["updated_at"] = updatedAt.UTC().Format(time.RFC3339Nano)
 		}
 		ids = append(ids, id)
 		scannedRows = append(scannedRows, scanned{id: id, data: native, version: ver})

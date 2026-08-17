@@ -12,25 +12,28 @@ import (
 	"github.com/monoposer/lowcode-database/pkg/tenant"
 )
 
-// BootstrapVirtualRecordsSeeds registers the default tenant and base.
-// tenantID is the tenant id (X-Tenant-Id).
+// BootstrapVirtualRecordsSeeds registers a tenant + base and ensures data parent tables.
+// Used by integration tests (not by server startup or cmd/migrate).
 func (m *TenantManager) BootstrapVirtualRecordsSeeds(ctx context.Context, tenantID, dataDSN string) error {
 	if m == nil || m.metaPool == nil {
 		return nil
 	}
 	tenantID = strings.TrimSpace(tenantID)
 	if tenantID == "" {
-		tenantID = "default"
+		return fmt.Errorf("tenant id is required")
 	}
 	dataDSN = strings.TrimSpace(dataDSN)
 	if dataDSN == "" {
-		return fmt.Errorf("data DSN is required for tenant bootstrap")
+		return fmt.Errorf("data DSN is required")
 	}
 
 	if _, err := m.metaPool.Exec(ctx, `
 		INSERT INTO tenants (tenant_id, name, label, data_dsn, data_dsn_write, status)
 		VALUES ($1, $2, $2, $3, $3, 'active')
-		ON CONFLICT (tenant_id) DO NOTHING
+		ON CONFLICT (tenant_id) DO UPDATE
+		SET data_dsn = EXCLUDED.data_dsn,
+		    data_dsn_write = EXCLUDED.data_dsn_write,
+		    updated_at = now()
 	`, tenantID, "Default", dataDSN); err != nil {
 		return fmt.Errorf("seed tenants: %w", err)
 	}
@@ -38,7 +41,7 @@ func (m *TenantManager) BootstrapVirtualRecordsSeeds(ctx context.Context, tenant
 	baseID := "base_" + tenantID
 	if _, err := m.metaPool.Exec(ctx, `
 		INSERT INTO lc_bases (base_id, tenant_id, name, label, status)
-		VALUES ($1, $2, 'default', 'Default', 'active')
+		VALUES ($1, $2, 'public', 'Public', 'active')
 		ON CONFLICT (base_id) DO NOTHING
 	`, baseID, tenantID); err != nil {
 		return fmt.Errorf("seed lc_bases: %w", err)
@@ -125,31 +128,23 @@ func (m *TenantManager) DataPoolForTenant(ctx context.Context) (*pgxpool.Pool, e
 }
 
 func (m *TenantManager) resolveCreateDSN(ctx context.Context, tenantID, dataDSN string) (string, error) {
+	_ = ctx
 	dataDSN = strings.TrimSpace(dataDSN)
 	if dataDSN == "" && m.dataDSNTemplate != "" {
 		dataDSN = fmt.Sprintf(m.dataDSNTemplate, tenantID)
 	}
-	if dataDSN != "" {
-		return dataDSN, nil
+	if dataDSN == "" {
+		return "", fmt.Errorf("data_dsn is required (or set DATA_DSN_TEMPLATE)")
 	}
-	var existing string
-	err := m.metaPool.QueryRow(ctx, `
-		SELECT data_dsn FROM tenants WHERE data_dsn <> '' ORDER BY created_at ASC LIMIT 1
-	`).Scan(&existing)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return "", fmt.Errorf("data_dsn is required")
-		}
-		return "", err
-	}
-	return existing, nil
+	return dataDSN, nil
 }
 
-// insertTenantAndSeed registers a tenant and seeds a default base.
-func (m *TenantManager) insertTenantAndSeed(ctx context.Context, tenantID, name, dataDSN string, readDSNs []string, poolMaxConns int, recordStore string) (string, error) {
+// insertTenant registers a tenant and ensures data-plane tables. Does not create a base —
+// Platform.CreateTenant seeds public base + API key after insert.
+func (m *TenantManager) insertTenant(ctx context.Context, tenantID, name, dataDSN string, readDSNs []string, poolMaxConns int, recordStore string) (string, error) {
 	tenantID = strings.TrimSpace(tenantID)
 	if tenantID == "" {
-		tenantID = "tenant_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+		return "", fmt.Errorf("tenant id is required")
 	}
 	if name == "" {
 		name = tenantID
@@ -170,15 +165,6 @@ func (m *TenantManager) insertTenantAndSeed(ctx context.Context, tenantID, name,
 		VALUES ($1, $2, $2, $3, $3, $4, $5, 'active', $6)
 	`, tenantID, name, resolved, readDSNs, poolMaxConns, store); err != nil {
 		return "", fmt.Errorf("insert tenant: %w", err)
-	}
-
-	baseID := "base_" + tenantID
-	if _, err := m.metaPool.Exec(ctx, `
-		INSERT INTO lc_bases (base_id, tenant_id, name, label, status)
-		VALUES ($1, $2, 'default', 'Default', 'active')
-		ON CONFLICT (base_id) DO NOTHING
-	`, baseID, tenantID); err != nil {
-		return "", fmt.Errorf("seed default base: %w", err)
 	}
 
 	pool, err := m.PoolForTenant(ctx, tenantID)

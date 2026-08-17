@@ -115,8 +115,7 @@ func ClaimFair(ctx context.Context, pool *pgxpool.Pool, batch, perTenant int) ([
 }
 
 func MarkCompleted(ctx context.Context, pool *pgxpool.Pool, id int64) error {
-	_, err := pool.Exec(ctx, fmt.Sprintf(`
-		UPDATE %s SET status = 2, completed_at = now(), last_error = NULL WHERE id = $1`, qTbl(ctx)), id)
+	_, err := pool.Exec(ctx, fmt.Sprintf(`DELETE FROM %s WHERE id = $1`, qTbl(ctx)), id)
 	return err
 }
 
@@ -137,9 +136,7 @@ func MarkRetry(ctx context.Context, pool *pgxpool.Pool, t Task, cause error) err
 		if err != nil {
 			return err
 		}
-		_, err = pool.Exec(ctx, fmt.Sprintf(`
-			UPDATE %s SET status = 3, retry_count = $2, last_error = $3, completed_at = now()
-			WHERE id = $1`, qTbl(ctx)), t.ID, next, msg)
+		_, err = pool.Exec(ctx, fmt.Sprintf(`DELETE FROM %s WHERE id = $1`, qTbl(ctx)), t.ID)
 		return err
 	}
 	backoff := time.Duration(1<<min(next, 8)) * time.Second
@@ -183,6 +180,16 @@ func HasPending(ctx context.Context, pool *pgxpool.Pool, recordID string) (bool,
 	return n > 0, err
 }
 
+// PurgeFinished deletes completed and exhausted queue rows left by older workers.
+func PurgeFinished(ctx context.Context, pool *pgxpool.Pool) error {
+	if pool == nil {
+		return nil
+	}
+	_, err := pool.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM %s WHERE status IN (2, 3)`, qTbl(ctx)))
+	return err
+}
+
 // ReplayDeadLetters re-enqueues failed tasks from calc_dead_letter (status pending).
 func ReplayDeadLetters(ctx context.Context, pool *pgxpool.Pool, tenantID string, limit int) (int, error) {
 	if limit <= 0 {
@@ -199,11 +206,11 @@ func ReplayDeadLetters(ctx context.Context, pool *pgxpool.Pool, tenantID string,
 	}
 	defer rows.Close()
 	type row struct {
-		id       int64
-		tenantID string
-		tableName  string
-		recordID string
-		fields   []string
+		id        int64
+		tenantID  string
+		tableName string
+		recordID  string
+		fields    []string
 	}
 	var list []row
 	for rows.Next() {

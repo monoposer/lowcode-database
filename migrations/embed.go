@@ -9,17 +9,11 @@ import (
 //go:embed meta/*.up.sql
 var metaFS embed.FS
 
-//go:embed data/*.up.sql
-var dataFS embed.FS
-
-// FS returns embedded *.up.sql files for target (meta or data).
-func FS(target string) (fs.FS, error) {
-	switch target {
-	case "meta":
-		return fs.Sub(metaFS, "meta")
-	case "data":
-		return fs.Sub(dataFS, "data")
-	default:
-		return nil, fmt.Errorf("unknown migration target %q (use meta or data)", target)
+// FS returns embedded meta *.up.sql files.
+func FS() (fs.FS, error) {
+	sub, err := fs.Sub(metaFS, "meta")
+	if err != nil {
+		return nil, fmt.Errorf("migrations/meta: %w", err)
 	}
+	return sub, nil
 }

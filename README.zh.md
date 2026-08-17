@@ -46,8 +46,7 @@ make playground-dev    # :5173  调试 UI（web/playground）
 | 变量 | 说明 |
 |------|------|
 | `META_DATABASE_URL` | Meta 库（`tenants`、`lc_*`） |
-| `DEFAULT_TENANT_DATA_DSN` | 引导租户 `data_dsn`（`record` / `link_ref` / `calc_queue`） |
-| `DEFAULT_TENANT_ID` | 启动时注册的租户 id（默认 `default`） |
+| `DATA_DATABASE_URL` | 本地默认租户 data DSN（创建租户时作为 `data_dsn`） |
 | `HTTP_ADDR` | 监听地址（默认 `:8080`） |
 | `REDIS_URL` + `CACHE_ENABLED` | 可选元数据缓存 |
 | `API_KEY_REQUIRED` | 为 true 时 `/v1/*` 需有效 `X-Api-Key` |
@@ -57,7 +56,7 @@ make playground-dev    # :5173  调试 UI（web/playground）
 
 ### 多租户
 
-每个租户是 `tenants` 一行，带 **`data_dsn`**。用 `POST /v1/admin/tenants` 创建；请求始终带 `X-Tenant-Id`。
+每个租户是 `tenants` 一行，带 **`data_dsn`**。用 `POST /v1/admin/tenants` 创建（同时种子 **public** base 与默认 API key，明文 `key` 仅返回一次）；请求始终带 `X-Tenant-Id`。`cmd/migrate` 与 server 启动都不会自动写入租户。
 
 ## API 结构
 
@@ -157,7 +156,7 @@ make docker-up-stack  # 含应用的完整栈（deploy/docker-compose.yml）
 | 路径 | 说明 |
 |------|------|
 | `cmd/server/` | 运行时：`/v1/admin/*` + `/v1/data/*` + calc |
-| `cmd/migrate/` | Schema 迁移 CLI |
+| `cmd/migrate/` | Meta schema 迁移 CLI |
 | `web/playground/` | 调试 UI |
 | `internal/api/` | 路由与 handler |
 | `internal/service/{schema,catalog,data,platform,shared}/` | 手写 JSON 类型（无 proto） |

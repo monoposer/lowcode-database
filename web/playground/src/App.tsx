@@ -14,6 +14,8 @@ import {
   cellToNative,
   createQuery,
   createColumn,
+  createColumnType,
+  deleteColumnType,
   createIndex,
   createRow,
   createTable,
@@ -40,6 +42,7 @@ import {
   type Query,
   type Index,
   type Row,
+  type Tenant,
   type ApiOpts,
 } from './api'
 import { FilterBuilder, emptyFilterGroup } from './components/FilterBuilder'
@@ -48,6 +51,7 @@ import { ColumnPicker } from './components/ColumnPicker'
 import { RowFilterBar } from './components/RowFilterBar'
 import { ArrayInput } from './components/ArrayInput'
 import { FormulaEditor } from './components/FormulaEditor'
+import { RelationPicker, loadRelationChoices, type RelationChoice } from './components/RelationPicker'
 import {
   IconDatabase,
   IconPlus,
@@ -56,6 +60,7 @@ import {
   IconSettings,
   IconTable,
   IconTrash,
+  IconTypes,
 } from './components/icons'
 import { buildFilterDSL, newFilterCondition, type FilterGroup } from './filter/dsl'
 import { extractFilterParams } from './filter/params'
@@ -71,6 +76,7 @@ import {
   isRelationshipColumn,
   isVirtualKind,
   isArrayColumn,
+  isLinkManyColumn,
   isWritableColumn,
   relationshipCardinality,
   relationshipTargetTable,
@@ -100,9 +106,9 @@ async function loadLookupTargetColumns(tableName: string, opts: ApiOpts): Promis
   return (schema.columns || []).filter(isLookupTargetColumn)
 }
 
-type Page = 'editor' | 'queries' | 'settings'
+type Page = 'editor' | 'queries' | 'types' | 'settings'
 
-const PAGES: Page[] = ['editor', 'queries', 'settings']
+const PAGES: Page[] = ['editor', 'queries', 'types', 'settings']
 
 function pageFromHash(): Page {
   const raw = (window.location.hash || '#/editor').replace(/^#\/?/, '')
@@ -115,6 +121,7 @@ export default function App() {
     () => (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8080',
   )
   const [tenantId, setTenantId] = useState('default')
+  const [tenants, setTenants] = useState<Tenant[]>([])
   const [newTenantId, setNewTenantId] = useState('')
   const [newTenantDisplayName, setNewTenantDisplayName] = useState('')
   const [newTenantDataDsn, setNewTenantDataDsn] = useState('')
@@ -123,6 +130,7 @@ export default function App() {
   const [tables, setTables] = useState<{ id: string; name: string; label?: string; idType?: string }[]>([])
   const [selectedTable, setSelectedTable] = useState<string>('')
   const [columns, setColumns] = useState<Column[]>([])
+  const [relationChoices, setRelationChoices] = useState<Record<string, RelationChoice[]>>({})
   const [indexes, setIndexes] = useState<Index[]>([])
   const [types, setTypes] = useState<ColType[]>([])
   const [rowData, setRowData] = useState<GridRow[]>([])
@@ -137,6 +145,10 @@ export default function App() {
   const [newColLabel, setNewColLabel] = useState('')
   const [newColType, setNewColType] = useState('text')
   const [newColNullable, setNewColNullable] = useState(true)
+  const [newCtName, setNewCtName] = useState('')
+  const [newCtLabel, setNewCtLabel] = useState('')
+  const [newCtPgType, setNewCtPgType] = useState('text')
+  const [newCtArray, setNewCtArray] = useState(false)
   const [newIdxName, setNewIdxName] = useState('')
   const [newIdxCols, setNewIdxCols] = useState<string[]>([])
   const [newIdxUnique, setNewIdxUnique] = useState(false)
@@ -205,6 +217,32 @@ export default function App() {
     }),
     [apiBase, tenantId],
   )
+
+  const refreshTenants = useCallback(async () => {
+    try {
+      const res = await listTenants({ baseUrl: apiBase, tenantId: 'default' })
+      setTenants(res.tenants || [])
+    } catch {
+      /* keep current selection when list fails */
+    }
+  }, [apiBase])
+
+  useEffect(() => {
+    void refreshTenants()
+  }, [refreshTenants])
+
+  const tenantOptions = useMemo(() => {
+    const ids = new Set(tenants.map((t) => t.tenantId))
+    if (tenantId && !ids.has(tenantId)) {
+      return [{ tenantId }, ...tenants]
+    }
+    return tenants
+  }, [tenants, tenantId])
+
+  const onTenantChange = (id: string) => {
+    setTenantId(id)
+    setErr(null)
+  }
 
   useEffect(() => {
     const onHash = () => setPage(pageFromHash())
@@ -314,8 +352,8 @@ export default function App() {
     }
   }, [newColType, newRelCardinality, newRelTargetTable, opts])
 
-  useEffect(() => {
-    void listTypes(opts)
+  const refreshTypes = useCallback(() => {
+    return listTypes(opts)
       .then((r) => {
         const list = r.types || []
         setTypes(list)
@@ -325,9 +363,23 @@ export default function App() {
             list.some((t) => t.id === cur && isTableIdType(t)) ? cur : 'uuid',
           )
         }
+        return list
       })
-      .catch(() => {})
+      .catch(() => [] as ColType[])
   }, [opts])
+
+  useEffect(() => {
+    void refreshTypes()
+  }, [refreshTypes])
+
+  const builtinTypes = useMemo(
+    () => types.filter((t) => t.refKind !== 'columnType' && !t.config?.columnType),
+    [types],
+  )
+  const customTypes = useMemo(
+    () => types.filter((t) => t.refKind === 'columnType' || t.config?.columnType === true),
+    [types],
+  )
 
   const refreshQueries = useCallback(async () => {
     if (!selectedTable) {
@@ -341,6 +393,10 @@ export default function App() {
       setQueries([])
     }
   }, [selectedTable, opts])
+
+  useEffect(() => {
+    if (page === 'types') void refreshTypes()
+  }, [page, refreshTypes])
 
   useEffect(() => {
     if (page === 'queries') void refreshQueries()
@@ -411,6 +467,33 @@ export default function App() {
     return schema
   }, [selectedTable, opts])
 
+  useEffect(() => {
+    const links = columns.filter(isRelationshipColumn)
+    if (!links.length) {
+      setRelationChoices({})
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      const next: Record<string, RelationChoice[]> = {}
+      await Promise.all(
+        links.map(async (c) => {
+          const table = relationshipTargetTable(c)
+          if (!table) return
+          try {
+            next[c.name] = await loadRelationChoices(table, opts)
+          } catch {
+            next[c.name] = []
+          }
+        }),
+      )
+      if (!cancelled) setRelationChoices(next)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [columns, opts])
+
   const filterColumns = useMemo(
     () =>
       columns.filter(isGridColumn).map((c) => ({
@@ -459,14 +542,15 @@ export default function App() {
             : undefined
 
         const lr = filter
-          ? await queryRows(selectedTable, { pageSize: 200, filter }, opts)
-          : await listRows(selectedTable, 200, opts)
+          ? await queryRows(selectedTable, { pageSize: 100, filter }, opts)
+          : await listRows(selectedTable, 100, opts)
 
         setRowData(
-          (lr.rows || []).map((r) => ({
-            id: r.id,
-            ...flattenCells(r, cols),
-          })),
+          (lr.rows || []).map((r) => {
+            const cells = flattenCells(r, cols)
+            // Preserve API record id; schema column "id" must not overwrite getRowId.
+            return { ...cells, id: String(r.id ?? '') }
+          }),
         )
         setRowCount(lr.count ?? lr.rows?.length ?? 0)
       } catch (e) {
@@ -543,7 +627,8 @@ export default function App() {
   )
 
   const colDefs: ColDef<GridRow>[] = useMemo(() => {
-    const gridCols = columns.filter(isGridColumn)
+    // Skip schema "id" — pinned column already shows record id (unique colId required by AG Grid).
+    const gridCols = columns.filter(isGridColumn).filter((c) => c.name !== 'id')
     const defs: ColDef<GridRow>[] = [
       {
         colId: '__select',
@@ -556,6 +641,7 @@ export default function App() {
         filter: false,
       },
       {
+        colId: '__rowId',
         headerName: 'id',
         field: 'id',
         width: 280,
@@ -565,7 +651,19 @@ export default function App() {
     ]
     for (const c of gridCols) {
       const label = c.label?.trim()
+      const isLink = isRelationshipColumn(c)
+      const many = isLinkManyColumn(c)
+      const choices = relationChoices[c.name] || []
+      const formatLink = (raw: unknown) => {
+        const ids = formatCell(raw)
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+        if (!ids.length) return ''
+        return ids.map((id) => choices.find((x) => x.id === id)?.label || id).join(', ')
+      }
       defs.push({
+        colId: c.name,
         headerComponent: ColumnHeader,
         headerComponentParams: {
           name: c.name,
@@ -575,11 +673,14 @@ export default function App() {
         },
         field: c.name,
         flex: 1,
-        minWidth: Math.max(120, c.name.length * 8 + (label ? label.length * 10 : 0)),
+        minWidth: Math.max(140, c.name.length * 8 + (label ? label.length * 10 : 0)),
         wrapHeaderText: true,
         autoHeaderHeight: true,
         editable: isWritableColumn(c),
-        valueFormatter: (p) => formatCell(p.value as string | undefined),
+        valueFormatter: (p) => (isLink ? formatLink(p.value) : formatCell(p.value as string | undefined)),
+        cellEditor: isLink && !many ? 'agSelectCellEditor' : undefined,
+        cellEditorParams:
+          isLink && !many ? { values: ['', ...choices.map((x) => x.id)] } : undefined,
         cellClass: isComputedColumn(c)
           ? 'computed-cell'
           : isWritableColumn(c)
@@ -588,7 +689,7 @@ export default function App() {
       })
     }
     return defs
-  }, [columns])
+  }, [columns, relationChoices])
 
   const run = async (fn: () => Promise<void>) => {
     setErr(null)
@@ -718,13 +819,21 @@ export default function App() {
       const dataDsn = newTenantDataDsn.trim()
       if (dataDsn) body.dataDsn = dataDsn
       if (newTenantCreateDb) body.createDatabase = true
-      await createTenant(body, { baseUrl: apiBase })
+      const created = await createTenant(body, { baseUrl: apiBase })
       setTenantId(id)
       setNewTenantId('')
       setNewTenantDisplayName('')
       setNewTenantDataDsn('')
       setNewTenantCreateDb(false)
       setNewTenantRecordStore('shared')
+      await refreshTenants()
+      if (created.key) {
+        window.alert(
+          `Tenant "${id}" created.\n` +
+            `Public base: ${created.base?.baseId ?? `base_${id}`}\n` +
+            `API key (copy now, shown once):\n${created.key}`,
+        )
+      }
     })
   }
 
@@ -913,7 +1022,12 @@ export default function App() {
     const writable = columns.filter(isWritableColumn)
     const fields: Record<string, unknown> = {}
     for (const c of writable) {
-      const v = cellToNative(c.typeId, newRowCells[c.name] ?? '', false, isArrayColumn(c, types))
+      const v = cellToNative(
+        c.typeId,
+        newRowCells[c.name] ?? '',
+        false,
+        isArrayColumn(c, types) || isLinkManyColumn(c),
+      )
       if (v !== undefined) fields[c.name] = v
     }
     void run(async () => {
@@ -938,7 +1052,12 @@ export default function App() {
     const oldVal = event.oldValue == null ? '' : String(event.oldValue)
     if (newVal === oldVal) return
 
-    const cell = cellToNative(col.typeId, newVal, true, isArrayColumn(col, types))
+    const cell = cellToNative(
+      col.typeId,
+      newVal,
+      true,
+      isArrayColumn(col, types) || isLinkManyColumn(col),
+    )
     if (cell === undefined) return
 
     void (async () => {
@@ -1020,6 +1139,15 @@ export default function App() {
             onClick={() => goPage('queries')}
           >
             <IconDatabase />
+          </button>
+          <button
+            type="button"
+            data-testid="tab-types"
+            className={`nav-rail-btn${page === 'types' ? ' active' : ''}`}
+            title="Column types"
+            onClick={() => goPage('types')}
+          >
+            <IconTypes />
           </button>
         </div>
         <button
@@ -1143,6 +1271,19 @@ export default function App() {
                   <span>{selectedTable}</span>
                 </>
               )}
+            </div>
+          </header>
+        )}
+
+        {page === 'types' && (
+          <header className="studio-header">
+            <div className="studio-header-breadcrumb">
+              <span className="current">Column types</span>
+            </div>
+            <div className="studio-header-actions">
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => void refreshTypes()}>
+                <IconRefresh size={14} /> Refresh
+              </button>
             </div>
           </header>
         )}
@@ -1556,7 +1697,6 @@ export default function App() {
                   value={newColType}
                   onChange={(e) => {
                     setNewColType(e.target.value)
-                    setNewColArray(false)
                     if (e.target.value !== 'formula') setNewFormulaExpr('')
                     if (e.target.value !== 'lookup') {
                       setNewLookupRelColumn('')
@@ -1578,12 +1718,24 @@ export default function App() {
                   }}
                 >
                   <optgroup label="Built-in">
-                    {types.map((t) => (
+                    {builtinTypes.map((t) => (
                       <option key={t.id} value={t.id}>
                         {t.name || t.id}
                       </option>
                     ))}
                   </optgroup>
+                  {customTypes.length > 0 && (
+                    <optgroup label="Column types">
+                      {customTypes.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.label || t.name || t.id}
+                          {t.config?.array === true || (typeof t.pgType === 'string' && t.pgType.endsWith('[]'))
+                            ? ' []'
+                            : ''}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
                 <label className="inline">
                   <input
@@ -1954,7 +2106,17 @@ export default function App() {
                     <span className="cell-input-id">{c.name}</span>
                     {showLabel && <span className="cell-input-label">{label}</span>}
                   </span>
-                  {isArrayColumn(c, types) ? (
+                  {isRelationshipColumn(c) && relationshipTargetTable(c) ? (
+                    <RelationPicker
+                      tableName={relationshipTargetTable(c)}
+                      many={isLinkManyColumn(c)}
+                      value={newRowCells[c.name] ?? ''}
+                      onChange={(v) => setNewRowCells((prev) => ({ ...prev, [c.name]: v }))}
+                      opts={opts}
+                      aria-label={aria}
+                      placeholder={`Select ${relationshipTargetTable(c)}`}
+                    />
+                  ) : isArrayColumn(c, types) ? (
                     <ArrayInput
                       aria-label={aria}
                       value={newRowCells[c.name] ?? ''}
@@ -1995,6 +2157,161 @@ export default function App() {
           </div>
         )}
 
+        {page === 'types' && (
+          <div className="studio-content-scroll settings-page" data-testid="types-page">
+            <h1>Column types</h1>
+            <p className="muted" style={{ marginBottom: 24 }}>
+              Tenant types (e.g. SELECT / MULTI_SELECT). Array-ness is <code>spec.array</code>, not column{' '}
+              <code>config</code>. Create types here, then pick them when adding columns on a table.
+            </p>
+
+            <div className="settings-section panel">
+              <div className="panel-header"><h2>Tenant column types</h2></div>
+              <div className="panel-body">
+                <table className="meta-table">
+                  <thead>
+                    <tr>
+                      <th>name</th>
+                      <th>label</th>
+                      <th>pgType</th>
+                      <th>array</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {customTypes.map((t) => (
+                      <tr key={t.id}>
+                        <td>
+                          <code>{t.id}</code>
+                        </td>
+                        <td>{t.label || t.name || '—'}</td>
+                        <td>
+                          <code>{t.pgType || '?'}</code>
+                        </td>
+                        <td>{t.config?.array === true ? 'yes' : '—'}</td>
+                        <td className="meta-actions">
+                          <button
+                            type="button"
+                            data-testid={`delete-columntype-${t.id}`}
+                            onClick={() => {
+                              if (!window.confirm(`Delete column type "${t.id}"?`)) return
+                              void run(async () => {
+                                await deleteColumnType(t.id, opts)
+                                await refreshTypes()
+                              })
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {!customTypes.length && (
+                  <p className="muted">No tenant column types yet. Create select / multi_select below.</p>
+                )}
+
+                <h3 style={{ marginTop: '1.25rem' }}>Create</h3>
+                <div className="form-row">
+                  <input
+                    data-testid="add-columntype-name"
+                    value={newCtName}
+                    onChange={(e) => setNewCtName(e.target.value)}
+                    placeholder="name (e.g. multi_select)"
+                  />
+                  <input
+                    data-testid="add-columntype-label"
+                    value={newCtLabel}
+                    onChange={(e) => setNewCtLabel(e.target.value)}
+                    placeholder="label (optional)"
+                  />
+                  <select
+                    data-testid="add-columntype-pgtype"
+                    value={newCtPgType}
+                    onChange={(e) => setNewCtPgType(e.target.value)}
+                  >
+                    <option value="text">text</option>
+                    <option value="number">number</option>
+                    <option value="datetime">datetime</option>
+                    <option value="boolean">boolean</option>
+                    <option value="jsonb">jsonb</option>
+                  </select>
+                  <label className="inline">
+                    <input
+                      type="checkbox"
+                      data-testid="add-columntype-array"
+                      checked={newCtArray}
+                      onChange={(e) => setNewCtArray(e.target.checked)}
+                    />
+                    array
+                  </label>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    data-testid="add-columntype-btn"
+                    onClick={() => {
+                      const name = newCtName.trim()
+                      if (!name) {
+                        setErr('Column type name is required.')
+                        return
+                      }
+                      void run(async () => {
+                        await createColumnType(
+                          {
+                            name,
+                            label: newCtLabel.trim() || undefined,
+                            spec: { pgType: newCtPgType, array: newCtArray || undefined },
+                          },
+                          opts,
+                        )
+                        setNewCtName('')
+                        setNewCtLabel('')
+                        setNewCtArray(false)
+                        setNewCtPgType('text')
+                        await refreshTypes()
+                        setNewColType(name)
+                      })
+                    }}
+                  >
+                    <IconPlus size={14} /> Add column type
+                  </button>
+                </div>
+                {err && page === 'types' && <p className="error">{err}</p>}
+              </div>
+            </div>
+
+            <div className="settings-section panel">
+              <div className="panel-header"><h2>Built-in pgTypes</h2></div>
+              <div className="panel-body">
+                <p className="panel-desc">Platform scalars and virtual kinds (read-only).</p>
+                <table className="meta-table">
+                  <thead>
+                    <tr>
+                      <th>id</th>
+                      <th>name</th>
+                      <th>pgType</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {builtinTypes.map((t) => (
+                      <tr key={t.id}>
+                        <td>
+                          <code>{t.id}</code>
+                        </td>
+                        <td>{t.name || t.id}</td>
+                        <td>
+                          <code>{t.pgType || '—'}</code>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
         {page === 'settings' && (
           <div className="studio-content-scroll settings-page">
             <h1>Playground</h1>
@@ -2015,11 +2332,24 @@ export default function App() {
                   </div>
                   <div className="form-field">
                     <label htmlFor="tenant-id">X-Tenant-Id</label>
-                    <input id="tenant-id" value={tenantId} onChange={(e) => setTenantId(e.target.value)} />
+                    <select
+                      id="tenant-id"
+                      data-testid="tenant-select"
+                      value={tenantId}
+                      onChange={(e) => onTenantChange(e.target.value)}
+                      onFocus={() => void refreshTenants()}
+                    >
+                      {!tenantOptions.length && <option value={tenantId || 'default'}>{tenantId || 'default'}</option>}
+                      {tenantOptions.map((t) => (
+                        <option key={t.tenantId} value={t.tenantId}>
+                          {t.name ? `${t.tenantId} — ${t.name}` : t.tenantId}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
                 <p className="panel-desc">
-                  X-Tenant-Id is required on every request.
+                  X-Tenant-Id is required on every request. Pick a tenant from the list (loaded via GET /v1/admin/tenants).
                 </p>
                 <div className="form-row">
                   <button type="button" className="btn" onClick={() => void refreshTables()}>Refresh tables</button>
@@ -2030,12 +2360,10 @@ export default function App() {
                     onClick={() => {
                       void (async () => {
                         try {
-                          const res = await listTenants(opts)
-                          const ids = (res.tenants || []).map((t) => t.tenantId).join(', ')
-                          setConn(`tenants: ${ids || '(none)'}`)
-                          if (!tenantId && res.tenants?.[0]?.tenantId) {
-                            setTenantId(res.tenants[0].tenantId)
-                          }
+                          const res = await listTenants({ baseUrl: apiBase, tenantId: 'default' })
+                          const list = res.tenants || []
+                          setTenants(list)
+                          setConn(`tenants: ${list.map((t) => t.tenantId).join(', ') || '(none)'}`)
                         } catch (e) {
                           setErr(e instanceof Error ? e.message : String(e))
                         }
@@ -2052,7 +2380,7 @@ export default function App() {
             <div className="settings-section panel">
               <div className="panel-header"><h2>Create tenant</h2></div>
               <div className="panel-body">
-                <p className="panel-desc">Registers tenant in meta DB via POST /v1/admin/tenants (no X-Tenant-Id).</p>
+                <p className="panel-desc">POST /v1/admin/tenants — seeds a public base and default API key (plaintext returned once).</p>
                 <div className="form-grid">
                   <div className="form-field">
                     <label htmlFor="create-tenant-id">Tenant id</label>
@@ -2138,12 +2466,21 @@ export default function App() {
           <h1 className="playground-brand">Playground</h1>
           <label className="tenant-inline" htmlFor="tenant-id-bar">
             <span className="tenant-label">X-Tenant-Id</span>
-            <input
+            <select
               id="tenant-id-bar"
+              data-testid="tenant-select-bar"
               value={tenantId}
-              onChange={(e) => setTenantId(e.target.value)}
-              size={12}
-            />
+              onChange={(e) => onTenantChange(e.target.value)}
+              onFocus={() => void refreshTenants()}
+              title="Select tenant"
+            >
+              {!tenantOptions.length && <option value={tenantId || 'default'}>{tenantId || 'default'}</option>}
+              {tenantOptions.map((t) => (
+                <option key={t.tenantId} value={t.tenantId}>
+                  {t.tenantId}
+                </option>
+              ))}
+            </select>
           </label>
           <span>{apiBase.replace(/^https?:\/\//, '').split('/')[0]}</span>
           {loading && <span className="loading">Loading…</span>}
@@ -2159,6 +2496,7 @@ type GridRow = { id: string } & Record<string, string | undefined>
 function flattenCells(row: Row, cols: Column[]): Record<string, string | undefined> {
   const out: Record<string, string | undefined> = {}
   for (const c of cols) {
+    if (c.name === 'id') continue
     const v = row[c.name]
     out[c.name] = v === undefined ? undefined : formatCell(v)
   }

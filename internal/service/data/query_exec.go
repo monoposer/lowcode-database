@@ -11,22 +11,17 @@ import (
 	"github.com/monoposer/lowcode-database/internal/query"
 	"github.com/monoposer/lowcode-database/internal/service/schema"
 	"github.com/monoposer/lowcode-database/internal/service/shared"
-	"github.com/monoposer/lowcode-database/pkg/logger"
 	"strings"
 	"time"
 )
 
 func (s *Data) executeQuery(ctx context.Context, spec querySpec) (resp *QueryRowsResponse, execErr error) {
-	if err := s.rewriteVRLookupFilters(ctx, &spec); err != nil {
-		return nil, err
-	}
 	return s.executeVRQuery(ctx, spec)
 }
 
 func (s *Data) scanQueryRows(ctx context.Context, plan *queryExecPlan, spec querySpec, data *pgxpool.Pool, pageSize int32, start time.Time) (*QueryRowsResponse, error) {
 	countSQL := fmt.Sprintf(`SELECT COUNT(*) FROM %s%s`, plan.fromSQL, plan.whereSQL)
 	var total int32
-	s.logSQL("count", plan.tableName, countSQL, plan.args)
 	if err := data.QueryRow(ctx, countSQL, plan.args...).Scan(&total); err != nil {
 		return nil, err
 	}
@@ -37,7 +32,6 @@ func (s *Data) scanQueryRows(ctx context.Context, plan *queryExecPlan, spec quer
 	querySQL := fmt.Sprintf(`SELECT %s FROM %s%s%s LIMIT $%d`,
 		plan.columnSQL, plan.fromSQL, plan.whereSQL, plan.orderClause, limitArg,
 	)
-	s.logSQL("select", plan.tableName, querySQL, queryArgs)
 	rows, err := data.Query(ctx, querySQL, queryArgs...)
 	if err != nil {
 		return nil, err
@@ -120,7 +114,7 @@ func (s *Data) scanQueryRows(ctx context.Context, plan *queryExecPlan, spec quer
 
 // querySpec holds merged query parameters from saved query / request.
 type querySpec struct {
-	TableName        string
+	TableName      string
 	Filter         map[string]any
 	Sort           []*shared.SortOrder
 	ColumnIds      []string
@@ -130,7 +124,7 @@ type querySpec struct {
 }
 
 type loadedQuery struct {
-	TableName   string
+	TableName string
 	Filter    map[string]any
 	Sort      []*shared.SortOrder
 	ColumnIds []string
@@ -218,19 +212,6 @@ func (s *Data) recordSavedQuery(_ context.Context, tenantID, tableName, queryNam
 	}
 }
 
-func (s *Data) logSQL(op, tableName, sql string, args []any) {
-	if s.B.Log == nil || !s.B.LogSQL {
-		return
-	}
-	s.B.Log.Info("sql query",
-		"db", "data-shard",
-		"op", op,
-		"table_name", tableName,
-		"sql", sql,
-		"args", logger.FormatSQLArgs(args),
-	)
-}
-
 func (s *Data) logQueryExecution(tableName string, start time.Time, rowCount int, total int32, err error) {
 	if s.B.Log == nil {
 		return
@@ -248,10 +229,7 @@ func (s *Data) logQueryExecution(tableName string, start time.Time, rowCount int
 		s.B.Log.Warn("query failed", attrs...)
 		return
 	}
-	if s.B.LogSQL {
-		s.B.Log.Info("query done", attrs...)
-		return
-	}
+	s.B.Log.Debug("query done", attrs...)
 	if duration >= s.B.SlowQueryThreshold {
 		s.B.Log.Warn("slow query", attrs...)
 	}
@@ -348,7 +326,7 @@ func (s *Data) buildQueryExecPlan(ctx context.Context, spec querySpec) (*queryEx
 	orderClause := buildExecOrderClause(spec, attrMap)
 
 	return &queryExecPlan{
-		tableName:             tableName,
+		tableName:           tableName,
 		selCols:             selCols,
 		lookupSpecs:         lookupSpecs,
 		rollupComputedSpecs: rollupComputedSpecs,
@@ -368,7 +346,7 @@ type rollupComputed struct {
 }
 
 type queryExecPlan struct {
-	tableName             string
+	tableName           string
 	selCols             []shared.ColumnMeta
 	lookupSpecs         []lookupJoinSpec
 	rollupComputedSpecs []rollupComputed

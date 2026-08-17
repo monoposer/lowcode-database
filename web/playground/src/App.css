@@ -174,6 +174,7 @@
 .main-panel {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--studio-bg);
@@ -699,18 +700,33 @@
   color: var(--studio-text-dim);
 }
 
-.tenant-inline input {
+.tenant-inline input,
+.tenant-inline select {
   padding: 2px 6px;
   font-size: 11px;
   font-family: var(--studio-mono);
-  width: 100px;
+  min-width: 100px;
+  max-width: 160px;
+  background: var(--studio-bg, #1a1a1a);
+  color: inherit;
+  border: 1px solid var(--studio-border, #333);
+  border-radius: 4px;
+  cursor: pointer;
 }
 
 /* Grid */
 .grid-host {
-  flex: 1;
+  flex: 1 1 auto;
   width: 100%;
-  min-height: 0;
+  min-height: 240px;
+  height: 100%;
+  position: relative;
+}
+
+.grid-host > div {
+  position: absolute;
+  inset: 0;
+  width: 100%;
   height: 100%;
 }
 
@@ -732,6 +748,7 @@
 }
 
 .grid-host .ag-root-wrapper {
+  height: 100%;
   border: none;
   border-radius: 0;
 }
@@ -1040,6 +1057,129 @@ label.block textarea {
   padding: 5px 8px;
   font-size: 12px;
   width: 100%;
+}
+
+.cell-input .relation-picker {
+  min-width: 200px;
+}
+
+.relation-picker {
+  position: relative;
+}
+
+.relation-picker-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 8px;
+  font-size: 12px;
+  text-align: left;
+  color: var(--studio-text);
+  background: var(--studio-input-bg);
+  border: 1px solid var(--studio-border-light);
+  border-radius: var(--studio-radius);
+  cursor: pointer;
+}
+
+.relation-picker-trigger:hover {
+  border-color: var(--studio-text-dim);
+}
+
+.relation-picker--open .relation-picker-trigger {
+  border-color: var(--studio-accent);
+}
+
+.relation-picker-value,
+.relation-picker-placeholder {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.relation-picker-placeholder {
+  color: var(--studio-text-dim);
+}
+
+.relation-picker-chevron {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.relation-picker--open .relation-picker-chevron {
+  transform: rotate(180deg);
+}
+
+.relation-picker-menu {
+  position: absolute;
+  z-index: 40;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  max-height: 240px;
+  overflow: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--studio-bg);
+  border: 1px solid var(--studio-border);
+  border-radius: var(--studio-radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.relation-picker-empty {
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--studio-text-dim);
+}
+
+.relation-picker-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  text-align: left;
+  color: var(--studio-text);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.relation-picker-option:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.relation-picker-option--active {
+  background: rgba(62, 207, 142, 0.08);
+}
+
+.relation-picker-check {
+  width: 14px;
+  font-size: 12px;
+  color: var(--studio-accent);
+}
+
+.relation-picker-option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.relation-picker-option-label {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.relation-picker-option-id {
+  font-size: 10px;
+  font-family: var(--studio-mono);
+  color: var(--studio-text-dim);
 }
 
 .array-input {

@@ -49,7 +49,7 @@ cmd/migrate   ← 一次性 CLI，对 meta + 各 data DSN apply SQL；服务不�
 | **Meta** | `META_DATABASE_URL` | `tenants`、`lc_bases`、表/列/索引/关系/Query、column types、API Key、webhooks |
 | **Data** | `tenants.data_dsn`（可另配 write/reads） | `record` / `link_ref` / `calc_queue`（+ dedicated 前缀表） |
 
-Data 侧 `migrations/data` 主要装扩展（PostGIS、`pg_stat_statements`）；**行父表与分区由运行时 DDL 创建**（`pkg/infra/postgres/virtual_records.go`）。
+Data 侧扩展（PostGIS、`pg_stat_statements`）与**行父表由运行时 DDL 创建**（`pkg/infra/postgres/virtual_records.go`）。`cmd/migrate` 只迁 meta。
 
 ### 3.2 身份层级
 
@@ -87,13 +87,13 @@ HTTP
 ### 4.1 `record`（原名 virtual_records）
 
 ```sql
--- 示意：父表 LIST (vt_id)
+-- 示意：统一堆表，按 vt_id 过滤
 record (
   record_id, tenant_id, vt_id,
   data jsonb, version,
   created_at, updated_at, …
   PRIMARY KEY (vt_id, record_id)
-) PARTITION BY LIST (vt_id);
+);
 ```
 
 - 业务字段全在 `data`；公式/lookup/rollup **缓存**也写回 `data`（带 `version` 乐观锁）。
@@ -213,7 +213,7 @@ LowcodeService
 
 | 类别 | 环境变量（节选） |
 |------|------------------|
-| 双库 | `META_DATABASE_URL`、`DEFAULT_TENANT_DATA_DSN`、`DEFAULT_TENANT_ID`、`DATA_DSN_TEMPLATE` |
+| 双库 | `META_DATABASE_URL`、`DATA_DSN_TEMPLATE` |
 | HTTP | `HTTP_ADDR`、`API_KEY_REQUIRED`、`MAX_ROW`、`DDL_CONFIRM_REQUIRED` |
 | 池 | `PG_MAX_CONNS`、`MAX_TENANT_DATA_POOLS`、`DEFAULT_TENANT_POOL_MAX_CONNS` |
 | 缓存 | `REDIS_URL`、`CACHE_ENABLED`、`CACHE_TTL_SECONDS` |

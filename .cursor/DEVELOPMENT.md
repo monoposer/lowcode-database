@@ -8,9 +8,8 @@ The code uses a **dual-DB model** (not the old `TENANT_MODE` in stale READMEs):
 # Meta: all lc_* metadata + tenants
 META_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/lowcode_meta
 
-# Default tenant data DB (record / link_ref / calc_queue)
-DEFAULT_TENANT_DATA_DSN=postgresql://postgres:postgres@localhost:5432/lowcode_data
-DEFAULT_TENANT_ID=default
+# Migrate applies meta only. This DSN is what you pass as tenant data_dsn.
+DATA_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/lowcode_data
 
 HTTP_ADDR=:8080
 MAX_ROW=100
@@ -20,7 +19,7 @@ MAX_ROW=100
 # CACHE_ENABLED=true
 # CACHE_TTL_SECONDS=300
 # PG_STAT_STATEMENTS=true      # GET /v1/admin/pg-stat-statements
-# LOG_LEVEL=info
+LOG_LEVEL=debug
 # SLOW_QUERY_THRESHOLD_MS=500
 
 # Optional: CREATE DATABASE when Admin creates a tenant
@@ -33,8 +32,8 @@ Copy: `cp .env.example .env` and edit as above.
 ## Run and debug
 
 ```bash
-make docker-up      # postgis/postgis:16-3.5; empty DBs lowcode_meta / lowcode_data
-make migrate        # or make docker-migrate / go run ./cmd/migrate -target all
+make docker-up      # postgis/postgis:16-3.5 (linux/amd64); empty DBs lowcode_meta / lowcode_data
+make migrate        # or make docker-migrate / go run ./cmd/migrate
 make run            # HTTP service (does not migrate)
 make test
 make test-integration
@@ -71,16 +70,16 @@ HTTP /v1/*
 
 ## Migration
 
-SQL: `migrations/meta/`; data: [data/README.md](../migrations/data/README.md) (PostGIS `000001_postgis.up.sql`).
+SQL: `migrations/meta/` (`cmd/migrate`). Data tables/extensions: runtime DDL (`EnsureDataTables`); PostGIS ops notes: [data/README.md](../migrations/data/README.md).
 
 | Command | Notes |
 |---------|-------|
 | `make docker-up` | postgres + redis only; empty volume init only CREATE DATABASE |
-| `make migrate` | `cmd/migrate` apply meta + data (embed `migrations/`) |
+| `make migrate` | `cmd/migrate` apply meta (embed `migrations/meta`) |
 | `make docker-migrate` | compose `run --rm migrate` (not started by docker-up) |
-| `go run ./cmd/migrate -target meta -database-url '...'` | Single-DB migrate |
+| `go run ./cmd/migrate -database-url '...'` | Meta migrate against an explicit URL |
 
-**Data DB:** business tables still use runtime DDL. UUID PKs use built-in `gen_random_uuid()`. PostGIS: Docker uses `postgis/postgis`; `make migrate` enables it on `lowcode_data`; self-hosted/cloud: [data/README.md](../migrations/data/README.md).
+**Data DB:** business tables and extensions (`postgis`, optional `pg_stat_statements`) use runtime DDL. UUID PKs use built-in `gen_random_uuid()`. Docker uses `postgis/postgis`; self-hosted/cloud: [data/README.md](../migrations/data/README.md).
 
 SQL files are idempotent (`IF NOT EXISTS`). Re-run `make migrate` after adding `NNNN_xxx.up.sql`.
 

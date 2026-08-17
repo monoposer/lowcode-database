@@ -17,7 +17,7 @@ English is the language of most repository docs. Chinese overviews: root [README
 | [architecture/system.md](architecture/system.md) | **Current system**: processes, dual DB, pgx tenancy, record/calc, Playground |
 | [architecture/analysis.md](architecture/analysis.md) | Layers, data flow, trade-offs |
 | [architecture/tenant-isolation.md](architecture/tenant-isolation.md) | Isolation: tenant, `data_dsn`, `record_store` |
-| [architecture/virtual-records.md](architecture/virtual-records.md) | Tenant shards, LIST partitions, indexes (`record` evolved from `virtual_records`) |
+| [architecture/virtual-records.md](architecture/virtual-records.md) | Tenant shards, unified `record` table, indexes (`record` evolved from `virtual_records`) |
 | [architecture/record-calc.md](architecture/record-calc.md) | `record.data` jsonb + `link_ref` + `calc_queue` |
 
 ## Related

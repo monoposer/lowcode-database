@@ -1,7 +1,7 @@
 -- Meta database schema (single migration for fresh installs).
--- Hierarchy: Tenant ⊃ Base ⊃ Table. Row data on the tenant data DB; LIST key = vt_id.
+-- Hierarchy: Tenant ⊃ Base ⊃ Table. Row data on the tenant data DB; logical table key = vt_id.
 -- lc_tables.name = logical table key for API; table_name columns reference that name.
--- vt_id = global UUID (partition key). label = display name. tenant_id = X-Tenant-Id.
+-- vt_id = global UUID. label = display name. tenant_id = X-Tenant-Id.
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 

@@ -9,6 +9,7 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/monoposer/lowcode-database/pkg/config"
+	"github.com/monoposer/lowcode-database/pkg/logger"
 )
 
 // TenantManager holds the meta-database pool and per-tenant data-database pools.
@@ -33,11 +34,12 @@ type TenantManager struct {
 }
 
 // NewTenantManager connects to META_DATABASE_URL. Schema must be applied via cmd/migrate.
-func NewTenantManager(ctx context.Context, cfg *config.Config) (*TenantManager, error) {
+func NewTenantManager(ctx context.Context, cfg *config.Config, log *logger.Logger) (*TenantManager, error) {
 	if cfg.MetaDatabaseURL == "" {
 		return nil, fmt.Errorf("META_DATABASE_URL is required")
 	}
 	settings := PoolSettingsFromConfig(cfg)
+	settings.QueryTracer = newSQLQueryTracer(log)
 	meta, err := NewPoolFromDSN(ctx, cfg.MetaDatabaseURL, settings, 0)
 	if err != nil {
 		return nil, fmt.Errorf("meta database: %w", err)
@@ -58,19 +60,6 @@ func NewTenantManager(ctx context.Context, cfg *config.Config) (*TenantManager, 
 			return nil, fmt.Errorf("data admin pool: %w", err)
 		}
 		m.adminPool = ap
-	}
-
-	// Bootstrap default tenant + virtual_records shard (optional env).
-	if cfg.DefaultTenantDataDSN != "" {
-		tenantID := cfg.DefaultTenantID
-		if tenantID == "" {
-			tenantID = "default"
-		}
-		shardDSN := cfg.VRDefaultShardDSN
-		if shardDSN == "" {
-			shardDSN = cfg.DefaultTenantDataDSN
-		}
-		_ = m.BootstrapVirtualRecordsSeeds(ctx, tenantID, shardDSN)
 	}
 
 	return m, nil

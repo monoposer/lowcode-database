@@ -1,6 +1,8 @@
 package data
 
 import (
+	"fmt"
+
 	"github.com/monoposer/lowcode-database/internal/service/calc"
 	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
@@ -65,7 +67,8 @@ func linkFieldMeta(cols []shared.FullColumnMeta, ref string) (shared.FullColumnM
 func hydrateCells(native map[string]any, cols []shared.FullColumnMeta, links map[string][]string, pending bool) map[string]*shared.Value {
 	out := map[string]*shared.Value{}
 	for _, c := range cols {
-		if c.Name == "id" || c.Name == "updated_at" || c.Name == "created_at" {
+		// Row.Id carries the primary key; skip duplicating it into cells.
+		if c.Name == "id" {
 			continue
 		}
 		if calc.IsLinkType(c.TypeId) || calc.IsLinkType(c.Kind) {
@@ -111,4 +114,31 @@ func changedKeys(m map[string]any) []string {
 
 func mustIDs(v any) []string {
 	return asStringSlice(v)
+}
+
+func asStringSlice(v any) []string {
+	switch t := v.(type) {
+	case string:
+		if t == "" {
+			return nil
+		}
+		return []string{t}
+	case []any:
+		var out []string
+		for _, x := range t {
+			out = append(out, fmt.Sprint(x))
+		}
+		return out
+	case []string:
+		return t
+	default:
+		if v == nil {
+			return nil
+		}
+		s := fmt.Sprint(v)
+		if s == "" || s == "<nil>" {
+			return nil
+		}
+		return []string{s}
+	}
 }

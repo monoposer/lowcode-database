@@ -8,7 +8,7 @@ Database connections, tenant context, migrations, config.
 
 | File | Role |
 |------|------|
-| `tenant_manager.go` | Meta pool, default tenant bootstrap |
+| `tenant_manager.go` | Meta pool (no startup tenant bootstrap) |
 | `record_store.go` | `record_store=shared` vs `{tenant_id}_record` |
 | `tenant_schema.go` | Ensure data tables on tenant DSN |
 | `pg.go` | pgxpool creation |
@@ -31,11 +31,11 @@ Optional Redis; used by cache / redis metrics.
 
 ## pkg/migrator
 
-`cmd/migrate` reads embedded `migrations/` (or `-dir`).
+`cmd/migrate` reads embedded `migrations/meta/` (or `-dir`).
 
 ## pkg/config
 
-`.env` + environment: `META_DATABASE_URL`, `VR_DEFAULT_SHARD_DSN`, …
+`.env` + environment: `META_DATABASE_URL`, `DATA_DSN_TEMPLATE`, …
 
 ## Dependency direction
 
@@ -47,4 +47,4 @@ Optional Redis; used by cache / redis metrics.
 |------|----------|
 | `000001_init.up.sql` | Full meta: tenants (incl. replica DSNs + `record_store`), tables, columns, indexes, columnTypes, webhooks |
 
-Data DB `000001_postgis.up.sql` enables PostGIS; business tables are created by **schema** runtime DDL.
+Data tables and PostGIS are created by **schema** runtime DDL (`EnsureDataTables`).

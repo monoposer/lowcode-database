@@ -6,4 +6,5 @@
 //   - scope.go — tenant_id / base_id WHERE helpers
 //   - tenant_pool.go — DataPool / DataReadPool, CreateTenant, profile
 //   - pg.go — NewPoolFromDSN, pool settings from config
+//   - sql_trace.go — debug-level pgx SQL tracer
 package postgres

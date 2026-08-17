@@ -2,7 +2,7 @@
 
 > **Status: implemented.** Rows live in the shard `record` table (`data jsonb`). Link instances live in `link_ref`. formula / lookup / rollup caches are refreshed by `calc_queue` (DB queue + worker).
 
-Tenant shards and LIST partitions: [virtual-records.md](virtual-records.md) (`record` evolved from `virtual_records`: `tenant_id` = tenant, `vt_id` = logical-table partition key, `record_id` = row id).
+Tenant shards: [virtual-records.md](virtual-records.md) (`record` evolved from `virtual_records`: `tenant_id` = tenant, `vt_id` = logical table id, `record_id` = row id).
 
 ## Storage model
 

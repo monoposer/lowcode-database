@@ -31,7 +31,7 @@ typeId resolution order: pgType → columnType
 
 Canonical: `text`, `number`, `datetime`, `boolean`, `jsonb`, `point`, virtual kinds `formula` / `link` / `lookup` / `rollup`.
 
-**Arrays** are a property of tenant **columnTypes** (`spec.array`), not column `config`. `spec.pgType` must be one of `string` | `text` | `number` | `boolean` | `jsonb` (`string` → `text`). Create separate types for SELECT vs MULTI_SELECT:
+**Arrays** are a property of tenant **columnTypes** (`spec.array`), not column `config`. `spec.pgType` must be one of `text` | `number` | `datetime` | `boolean` | `jsonb`. Create separate types for SELECT vs MULTI_SELECT:
 
 ```http
 POST /v1/admin/column-types

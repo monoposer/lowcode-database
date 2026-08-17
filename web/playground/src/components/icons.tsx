@@ -78,6 +78,15 @@ export function IconChevron({ size = 16, className }: IconProps) {
   )
 }
 
+export function IconTypes({ size = 18, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={className}>
+      <path d="M4 7h16M4 12h10M4 17h7" />
+      <rect x="15" y="14" width="5" height="5" rx="1" />
+    </svg>
+  )
+}
+
 export function IconTrash({ size = 16, className }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={className}>
@@ -86,3 +95,4 @@ export function IconTrash({ size = 16, className }: IconProps) {
     </svg>
   )
 }
+

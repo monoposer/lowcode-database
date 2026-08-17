@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -11,7 +10,7 @@ import (
 )
 
 // Record store (NocoBase-style unified JSONB rows).
-// Physical columns keep record_id / tenant_id / vt_id for LIST partition + shard routing.
+// Physical columns keep record_id / tenant_id / vt_id for shard routing and per-table filters.
 // Spec mapping: id=record_id, tenant_id=tenant_id, table_name=vt_id.
 const (
 	RecordTable    = "record"
@@ -19,14 +18,12 @@ const (
 	CalcQueueTable = "calc_queue"
 )
 
-var nonIdent = regexp.MustCompile(`[^a-zA-Z0-9_]+`)
-
-// EnsureVirtualRecordsParent creates the shared LIST-partitioned record parent (idempotent).
+// EnsureVirtualRecordsParent creates the shared record table (idempotent).
 func EnsureVirtualRecordsParent(ctx context.Context, pool *pgxpool.Pool) error {
 	return EnsureDataTables(ctx, pool, SharedDataTables())
 }
 
-// EnsureDataTables creates the LIST-partitioned record parent, link_ref, and calc_queue for a store.
+// EnsureDataTables creates record, link_ref, and calc_queue for a store.
 func EnsureDataTables(ctx context.Context, pool *pgxpool.Pool, tables DataTables) error {
 	if pool == nil {
 		return fmt.Errorf("pool is required")
@@ -74,6 +71,8 @@ func EnsureDataTables(ctx context.Context, pool *pgxpool.Pool, tables DataTables
 	}
 	fnIdent := pgx.Identifier{fnName}.Sanitize()
 	trgIdent := pgx.Identifier{trgName}.Sanitize()
+	_, _ = pool.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS postgis`)
+	_, _ = pool.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS pg_stat_statements`)
 	stmts := []string{
 		`CREATE EXTENSION IF NOT EXISTS "pgcrypto"`,
 		fmt.Sprintf(`
@@ -88,7 +87,7 @@ func EnsureDataTables(ctx context.Context, pool *pgxpool.Pool, tables DataTables
 				created_by      TEXT,
 				updated_by      TEXT,
 				PRIMARY KEY (vt_id, record_id)
-			) PARTITION BY LIST (vt_id)`, tbl),
+			)`, tbl),
 		fmt.Sprintf(`ALTER TABLE %s ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1`, tbl),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s ON %s (tenant_id)`, idxRecordTenant, tbl),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s ON %s (tenant_id, vt_id)`, idxRecordTable, tbl),
@@ -162,96 +161,22 @@ func EnsureDataTables(ctx context.Context, pool *pgxpool.Pool, tables DataTables
 	return nil
 }
 
-// PartitionTableName returns a safe partition relation name for vt_id.
-func PartitionTableName(vtID string) string {
-	s := nonIdent.ReplaceAllString(strings.ToLower(vtID), "_")
-	s = strings.Trim(s, "_")
-	if s == "" {
-		s = "x"
-	}
-	if len(s) > 40 {
-		s = s[:40]
-	}
-	return "prt_" + s
-}
-
-// EnsureVirtualRecordsPartition creates a LIST partition on the ctx store (or shared).
-func EnsureVirtualRecordsPartition(ctx context.Context, pool *pgxpool.Pool, vtID string) error {
-	return EnsureVirtualRecordsPartitionOn(ctx, pool, TablesFromContext(ctx), vtID)
-}
-
-// EnsureVirtualRecordsPartitionOn creates a LIST partition for vt_id on the given parent (idempotent).
-func EnsureVirtualRecordsPartitionOn(ctx context.Context, pool *pgxpool.Pool, tables DataTables, vtID string) error {
-	if pool == nil {
-		return fmt.Errorf("pool is required")
-	}
-	vtID = strings.TrimSpace(vtID)
-	if vtID == "" {
-		return fmt.Errorf("vt_id is required")
-	}
-	if tables.Record == "" {
-		tables = SharedDataTables()
-	}
-	if err := EnsureDataTables(ctx, pool, tables); err != nil {
-		return err
-	}
-	part := PartitionTableName(vtID)
-	var exists bool
-	err := pool.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1 FROM pg_inherits i
-			JOIN pg_class c ON c.oid = i.inhrelid
-			JOIN pg_class p ON p.oid = i.inhparent
-			WHERE p.relname = $1 AND c.relname = $2
-		)`, tables.Record, part).Scan(&exists)
-	if err != nil {
-		return err
-	}
-	if exists {
-		return nil
-	}
-	sql := fmt.Sprintf(
-		`CREATE TABLE IF NOT EXISTS %s PARTITION OF %s FOR VALUES IN (%s)`,
-		pgx.Identifier{part}.Sanitize(),
-		tables.QRecord(),
-		quoteLiteral(vtID),
-	)
-	if _, err := pool.Exec(ctx, sql); err != nil {
-		if strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "overlaps") {
-			return nil
-		}
-		return fmt.Errorf("create partition %s: %w", part, err)
-	}
-	return nil
-}
-
-// DropVirtualRecordsPartition drops the LIST partition for vt_id if present.
-func DropVirtualRecordsPartition(ctx context.Context, pool *pgxpool.Pool, vtID string) error {
-	_, err := DropVirtualRecordsPartitionSQL(ctx, pool, vtID)
-	return err
-}
-
-// DropVirtualRecordsPartitionSQL drops the LIST partition and returns the executed DDL.
-func DropVirtualRecordsPartitionSQL(ctx context.Context, pool *pgxpool.Pool, vtID string) (string, error) {
+// DeleteRecordsByVTID deletes rows for a logical table and returns the executed SQL.
+func DeleteRecordsByVTID(ctx context.Context, pool *pgxpool.Pool, tenantID, vtID string) (string, error) {
 	if pool == nil || strings.TrimSpace(vtID) == "" {
 		return "", nil
 	}
-	part := PartitionTableName(vtID)
-	ddl := fmt.Sprintf(`DROP TABLE IF EXISTS %s`, pgx.Identifier{part}.Sanitize())
-	_, err := pool.Exec(ctx, ddl)
-	return ddl, err
-}
-
-func quoteLiteral(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
-}
-
-// CountVirtualRecordPartitions returns the number of LIST partitions of record.
-func CountVirtualRecordPartitions(ctx context.Context, pool *pgxpool.Pool) (int, error) {
-	var n int
-	err := pool.QueryRow(ctx, `
-		SELECT COUNT(*)::int FROM pg_inherits i
-		JOIN pg_class p ON p.oid = i.inhparent
-		WHERE p.relname = $1`, TablesFromContext(ctx).Record).Scan(&n)
-	return n, err
+	tables := TablesFromContext(ctx)
+	if tables.Record == "" {
+		tables = SharedDataTables()
+	}
+	q := tables.QRecord()
+	if strings.TrimSpace(tenantID) != "" {
+		sql := fmt.Sprintf(`DELETE FROM %s WHERE tenant_id = $1 AND vt_id = $2`, q)
+		_, err := pool.Exec(ctx, sql, tenantID, vtID)
+		return sql, err
+	}
+	sql := fmt.Sprintf(`DELETE FROM %s WHERE vt_id = $1`, q)
+	_, err := pool.Exec(ctx, sql, vtID)
+	return sql, err
 }

@@ -24,13 +24,19 @@ type Result struct {
 // Apply runs *.up.sql files from fsys against databaseURL in filename order.
 // SQL is expected to be idempotent (IF NOT EXISTS). No version table is written.
 func Apply(ctx context.Context, databaseURL string, fsys fs.FS) error {
-	_, err := ApplyResult(ctx, databaseURL, fsys)
+	_, err := ApplyResult(ctx, databaseURL, fsys, nil)
+	return err
+}
+
+// ApplyWithConfig is Apply plus optional session GUCs (`SET` for the connection).
+func ApplyWithConfig(ctx context.Context, databaseURL string, fsys fs.FS, sessionConfig map[string]string) error {
+	_, err := ApplyResult(ctx, databaseURL, fsys, sessionConfig)
 	return err
 }
 
 // ApplyResult is Apply plus the list of files executed. Fails before DDL if
 // required extensions are not available on the server (e.g. PostGIS missing).
-func ApplyResult(ctx context.Context, databaseURL string, fsys fs.FS) (Result, error) {
+func ApplyResult(ctx context.Context, databaseURL string, fsys fs.FS, sessionConfig map[string]string) (Result, error) {
 	var out Result
 	if databaseURL == "" {
 		return out, fmt.Errorf("database URL is required")
@@ -70,9 +76,24 @@ func ApplyResult(ctx context.Context, databaseURL string, fsys fs.FS) (Result, e
 		return out, fmt.Errorf("postgres extensions not available: %s", strings.Join(missing, ", "))
 	}
 
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return out, fmt.Errorf("acquire: %w", err)
+	}
+	defer conn.Release()
+
+	for k, v := range sessionConfig {
+		if k == "" {
+			continue
+		}
+		if _, err := conn.Exec(ctx, `SELECT set_config($1, $2, false)`, k, v); err != nil {
+			return out, fmt.Errorf("set_config %s: %w", k, err)
+		}
+	}
+
 	for i, f := range files {
 		fmt.Printf("applying %s\n", path.Base(f.name))
-		if _, err := pool.Exec(ctx, string(bodies[i])); err != nil {
+		if _, err := conn.Exec(ctx, string(bodies[i])); err != nil {
 			return out, fmt.Errorf("apply %s: %w", f.name, err)
 		}
 		out.Applied = append(out.Applied, f.name)

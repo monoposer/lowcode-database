@@ -3,9 +3,11 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/monoposer/lowcode-database/pkg/config"
-	"time"
 )
 
 // NewPool creates a pgx connection pool using META_DATABASE_URL from config.
@@ -36,6 +38,9 @@ func NewPoolFromDSN(ctx context.Context, dsn string, settings PoolSettings, maxC
 		life = time.Hour
 	}
 	cfg.MaxConnLifetime = life
+	if settings.QueryTracer != nil {
+		cfg.ConnConfig.Tracer = settings.QueryTracer
+	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
@@ -53,6 +58,7 @@ type PoolSettings struct {
 	MaxTenantPools  int
 	HotIdle         time.Duration
 	CreateWait      time.Duration
+	QueryTracer     pgx.QueryTracer
 }
 
 func PoolSettingsFromConfig(cfg *config.Config) PoolSettings {

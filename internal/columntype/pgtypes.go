@@ -65,13 +65,13 @@ func IsLinkType(typeID string) bool {
 }
 
 // EffectiveColumnTypePgType returns the logical PostgreSQL type for a columnType spec
-// (e.g. text + array → text[]). PgType must be string|text|number|boolean|jsonb.
+// (e.g. text + array → text[]). PgType must be text|number|datetime|boolean|jsonb.
 func EffectiveColumnTypePgType(spec ColumnTypeSpec) (string, error) {
 	pg := strings.TrimSpace(spec.PgType)
 	if canon, ok := NormalizeColumnTypePgType(pg); ok {
 		pg = canon
 	} else if pg != "" {
-		return "", fmt.Errorf("spec.pgType must be one of string, text, number, boolean, jsonb")
+		return "", fmt.Errorf("spec.pgType must be one of text, number, datetime, boolean, jsonb")
 	}
 	underlying, err := ResolveUnderlyingPgType(pg, spec.Precision, spec.Scale)
 	if err != nil {

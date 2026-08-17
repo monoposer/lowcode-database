@@ -67,6 +67,7 @@ func (w *Worker) tick(ctx context.Context) {
 		}
 		sctx := postgres.WithDataTables(ctx, sh.Tables)
 		_ = postgres.EnsureDataTables(sctx, pool, sh.Tables)
+		_ = PurgeFinished(sctx, pool)
 		if err := w.Drain(sctx, meta, pool); err != nil {
 			w.log("drain", "tenant_id", sh.TenantID, "err", err)
 		}

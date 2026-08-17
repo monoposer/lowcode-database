@@ -34,11 +34,11 @@ There is no `search_path` switching. SQL uses qualified table names. Static quer
 ```
 Tenant (tenant_id)  ──data_dsn──►  Data DB
     └── Base (base_id)
-            └── Table (name = API Table.Id, partition key = vt_id)
+            └── Table (name = API Table.Id, row key = vt_id)
                     └── Column
 ```
 
-`vt_id` (`lc_tables.vt_id`) is globally unique. LIST partitions on `record` are per logical table. Multiple tenants may share one data DSN; they never share a `vt_id`.
+`vt_id` (`lc_tables.vt_id`) is globally unique. Rows for a logical table are `record` rows with that `vt_id`. Multiple tenants may share one data DSN; they never share a `vt_id`.
 
 ---
 
@@ -76,7 +76,8 @@ POST /v1/admin/tenants
 }
 ```
 
-Omit `dataDsn` to use `DATA_DSN_TEMPLATE` / `DEFAULT_TENANT_DATA_DSN`. `createDatabase: true` needs `DATA_ADMIN_DATABASE_URL`.
+Omit `dataDsn` to use `DATA_DSN_TEMPLATE`. `createDatabase: true` needs `DATA_ADMIN_DATABASE_URL`.
+CreateTenant also seeds a **public** base (`name=public`, `baseId=base_{tenantId}`) and a default API key (plaintext returned once as `key`).
 
 ---
 

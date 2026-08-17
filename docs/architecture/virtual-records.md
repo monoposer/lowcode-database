@@ -5,27 +5,26 @@
 
 ## Overview
 
-**Goal:** all low-code business records live in one global table per business PG shard. Isolation of logical tables uses **LIST partition by `vt_id`**. Horizontal sharding of business data uses **`tenant_id`** (different tenants land on different PG shard instances).
+**Goal:** all low-code business records live in one global table per business PG shard. Isolation of logical tables uses **`vt_id` predicates** (LIST partition by `vt_id` is deferred). Horizontal sharding of business data uses **`tenant_id`** (different tenants land on different PG shard instances).
 
-**Covers:** partition model, shard routing, index auto-migrate, filter / full-text, multi-hop Lookup, Rollup, constraints, boundaries, unsupported cases.
+**Covers:** unified `record` table, shard routing, index auto-migrate, filter / full-text, multi-hop Lookup, Rollup, constraints, boundaries, unsupported cases.
 
 **Decisions:**
 
 | Item | Decision |
 |------|----------|
 | `vt_id` | **Globally unique** (UUID or prefixed global ID); logical display name (e.g. `order`) is separate from `vt_id` |
-| Partition key | `PARTITION BY LIST (vt_id)`; uniqueness includes the partition key: `PRIMARY KEY (vt_id, record_id)` |
+| Row key | Uniqueness includes `vt_id`: `PRIMARY KEY (vt_id, record_id)`. No LIST partitions for now. |
 | Hierarchy | **`Tenant ⊃ Base ⊃ Table`**; shard routing key is `tenant_id`; a tenant **does not span shards** |
 | Full text | App maintains `data._fulltext_text` + partial GIN (**no** pg_jieba dependency) |
-| PG version | Business shards should be **PostgreSQL 14+** (`CREATE INDEX CONCURRENTLY` on partitioned tables) |
+| PG version | Business shards should be **PostgreSQL 14+** |
 
 ```mermaid
 flowchart LR
   req[HTTP_Request] --> meta[Global_Meta]
   meta -->|"tenant_id to shard_tag"| pool[Shard_Pool]
   pool --> shard[PG_Shard]
-  shard --> parent[virtual_records]
-  parent --> part["prt_vt_* LIST"]
+  shard --> rec[record]
 ```
 
 ### Core architecture
@@ -33,7 +32,7 @@ flowchart LR
 | Component | Role |
 |-----------|------|
 | **Global-Meta** (dedicated PG) | Tenants, metamodel `virtual_tables` / `virtual_columns`, shard routing, usage stats |
-| **Business PG shard** (`pg-shard-101`…) | One parent table `virtual_records` per shard, LIST-partitioned by `vt_id`; all data for a tenant lives on one shard |
+| **Business PG shard** (`pg-shard-101`…) | One `record` table per shard; all data for a tenant lives on one shard |
 
 New tenants are placed on a shard that still has capacity; **existing tenants are not auto-migrated** (migration is an ops job).
 
@@ -45,7 +44,7 @@ The implemented table name is `record` (evolved from `virtual_records`). Tenants
 |-----------|----------|-----------------|
 | Meta | Dedicated Meta DB (`lc_*`) | Still dedicated Global-Meta (table names may evolve) |
 | Data routing | `tenant_id` → `lc_tenants.data_dsn` | `tenant_id` → `tenants.data_dsn` |
-| Row storage | Per-logical-table physical table, or `lc_dynamic_rows` JSONB | Single table `virtual_records` + LIST child partitions |
+| Row storage | Per-logical-table physical table, or `lc_dynamic_rows` JSONB | Single table `record` (JSONB `data`), filtered by `vt_id` |
 | Isolation | Tenant (+ optional schema / RLS) | Whole tenant on one shard |
 | Indexes | Physical column indexes / RLS shared GIN | Parent **partial** expression indexes (`WHERE vt_id = …`) |
 
@@ -57,21 +56,21 @@ The implemented table name is `record` (evolved from `virtual_records`). Tenants
 |----|-------|-------|
 | `tenant_id` | Globally unique | **Isolation unit + shard routing key**; all tenant data on one shard |
 | `base_id` | Globally unique | Logical database / app inside a tenant (≈ former `schema_name` grouping); one Base, many Tables |
-| `vt_id` | **Globally unique** | Logical table instance ID; **LIST partition key**; not the user-visible name |
+| `vt_id` | **Globally unique** | Logical table instance ID; row filter on `record.vt_id`; not the user-visible name |
 | `record_id` | Unique within one `vt_id` | May repeat across `vt_id` values |
 
 Headers: `X-Tenant-Id` (required), `X-Base-Id` (Base-scoped APIs; defaults to the first Base in the tenant). Meta no longer uses `schema_name` / `lc_tenants` as the routing identity.
 
-Logical names (e.g. `order`) are display / API aliases only. **Partition names** should be `prt_<vt_id_sanitized>`, not `prt_vt_order` (that would imply the logical name is the partition key). Multiple tenants on one shard can each have an “orders” table with distinct global `vt_id` values.
+Logical names (e.g. `order`) are display / API aliases only. Multiple tenants on one shard can each have an “orders” table with distinct global `vt_id` values.
 
-**Multiple tenants in one partition?** With globally unique `vt_id` and each logical table belonging to one tenant, each LIST child partition serves one tenant. Even if a shared `vt_id` exception appears later, **all business SQL must include a `tenant_id` predicate**.
+**Shared `vt_id`?** Each logical table belongs to one tenant. **All business SQL must include a `tenant_id` predicate.**
 
 ---
 
 ## 2. Table definition (per business shard)
 
 ```sql
--- Parent table on a business shard: all tenants, all logical tables
+-- Heap table on a business shard: all tenants, all logical tables
 CREATE TABLE record (
     record_id       TEXT NOT NULL,
     tenant_id           TEXT NOT NULL,
@@ -82,28 +81,20 @@ CREATE TABLE record (
     created_by      TEXT,
     updated_by      TEXT,
     PRIMARY KEY (vt_id, record_id)
-) PARTITION BY LIST (vt_id);
+);
 
--- Optional hot-path helpers (prefer partial indexes that include vt_id, or indexes on children)
-CREATE INDEX idx_vr_ws ON virtual_records (tenant_id);
-CREATE INDEX idx_vr_ctime ON virtual_records (created_at);
+CREATE INDEX idx_vr_ws ON record (tenant_id);
+CREATE INDEX idx_vr_ctime ON record (created_at);
 ```
 
-### Partition rule
+### Logical tables
 
-Each new logical table (`virtual_table`) dynamically creates a LIST child on **the tenant’s shard**:
-
-```sql
--- vt_id is a globally unique ID (readable placeholder; production uses UUID / prefixed ID)
-CREATE TABLE prt_vt_01hxyz PARTITION OF virtual_records
-  FOR VALUES IN ('vt_01hxyz');
-```
+Each new logical table is a new `vt_id` (UUID). Rows are inserted into the same `record` heap with that `vt_id`. LIST child tables (`prt_*`) are not created.
 
 ### Properties
 
-- Parent `virtual_records` **holds no business rows**; data lives in `prt_*` children.
-- Queries with `vt_id = '…'` get partition pruning.
-- **Business queries must also include `tenant_id`** (injected by the app), even if the partition currently belongs to one tenant.
+- All business rows live in `record` (or `{tenant_id}_record` when dedicated).
+- Queries always include `vt_id = '…'` and **`tenant_id`** (injected by the app).
 - JOIN / Link / Lookup / Rollup can run on the same shard; **cross-shard database JOINs are not allowed**.
 
 Reserved `data` keys (do not collide with business fields): `_fulltext_text`, `_rollup_*`, etc.
@@ -148,7 +139,7 @@ CREATE TABLE lc_bases (
 );
 ```
 
-**Quota:** Tenant count (`max_tenant_count` / `current_tenant_count`, default cap 1000). LIST partitions remain per `vt_id` (one table, one partition), independent of placement quota.
+**Quota:** Tenant count (`max_tenant_count` / `current_tenant_count`, default cap 1000). Independent of how many `vt_id` values share a `record` table.
 
 ### 3.2 Auto-placement for new tenants
 
@@ -165,7 +156,7 @@ CREATE TABLE lc_bases (
 |--|--|
 | ✅ | All data for a tenant on one shard; no splitting a tenant across shards |
 | ✅ | Auto-placement applies to **new** tenants only; existing ones are not moved |
-| ✅ | Tenant move: ops tool copies all partition data → verify → atomically update `tenants.pg_instance_tag` → clean old shard; target shard needs a full Index Migrate |
+| ✅ | Tenant move: ops tool copies `record` rows for the tenant → verify → atomically update `tenants.pg_instance_tag` → clean old shard; target shard needs a full Index Migrate |
 | ❌ | Cross-shard PG JOIN / DB-level Lookup / Rollup; assemble in the application if needed |
 
 ---
@@ -174,7 +165,7 @@ CREATE TABLE lc_bases (
 
 Metamodel `virtual_columns` drives indexes; the low-code UI configures whether to index, index type, and full-text.
 
-Indexes are created on parent `virtual_records` as **PARTIAL** indexes `WHERE vt_id = '…'`. LIST children inherit the definition; per-child DDL is not required.
+Indexes are created on `record` as **PARTIAL** indexes `WHERE vt_id = '…'`.
 
 ### Meta fields
 
@@ -213,7 +204,7 @@ WHERE vt_id = 'vt_01habc';
    - `need_index = true`: `CREATE INDEX CONCURRENTLY` if missing;
    - `need_index = false`: `DROP INDEX CONCURRENTLY` if present.
 3. Idempotent: compare desired definition to catalog; retry on failure; DDL and metamodel converge.
-4. **PostgreSQL 14+**: partitioned parent supports `CREATE INDEX CONCURRENTLY` (concurrent build per partition). Below 14, use per-partition non-blocking strategy or a write pause (not recommended here).
+4. Prefer `CREATE INDEX CONCURRENTLY` so index builds do not block writes.
 
 After a tenant moves to a new shard, run a full Index Migrate for all `vt_id` values on that tenant.
 
@@ -256,7 +247,7 @@ WHERE vt_id = 'vt_01hxyz'
 
 - `tsvector` is token matching, **not** arbitrary substring `%xxx%`; contiguous fragments without separators may miss.
 - Full text is single-vt; cross-vt / cross-shard needs an external search engine (e.g. Meilisearch).
-- **Do not** filter with per-row `to_tsvector()` without an index (full partition scan + CPU).
+- **Do not** filter with per-row `to_tsvector()` without an index (full table scan + CPU).
 
 ### pg_jieba (optional, not default)
 

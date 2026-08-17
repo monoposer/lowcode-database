@@ -24,7 +24,7 @@ Switch: `PG_STAT_STATEMENTS=true|false` (default false).
 
 When on: `GET /v1/admin/pg-stat-statements?limit=100` lists statements on the current tenant **data DB** (by `total_exec_time` desc).
 
-Postgres needs `shared_preload_libraries=pg_stat_statements` (already in `deploy/docker-compose.yml`) + data migration `000002_pg_stat_statements.up.sql`.
+Postgres needs `shared_preload_libraries=pg_stat_statements` (already in `deploy/docker-compose.yml`). `EnsureDataTables` runs `CREATE EXTENSION` when the library is available.
 
 ## pkg/logger
 

@@ -9,16 +9,16 @@ import (
 var columnTypeNameRe = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
 var checkNameRe = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
 
-// Allowed ColumnTypeSpec.PgType ids. "string" normalizes to "text".
+// Allowed ColumnTypeSpec.PgType ids (no aliases).
 var columnTypeBasePgTypes = map[string]string{
-	"string":  "text",
-	"text":    "text",
-	"number":  "number",
-	"boolean": "boolean",
-	"jsonb":   "jsonb",
+	"text":     "text",
+	"number":   "number",
+	"datetime": "datetime",
+	"boolean":  "boolean",
+	"jsonb":    "jsonb",
 }
 
-// NormalizeColumnTypePgType maps an allowed base id (incl. string→text).
+// NormalizeColumnTypePgType maps an allowed base id to itself.
 // Returns canonical id and false when not in the allowlist.
 func NormalizeColumnTypePgType(pgType string) (string, bool) {
 	canon, ok := columnTypeBasePgTypes[strings.TrimSpace(pgType)]
@@ -60,7 +60,7 @@ func ValidateColumnTypeSpec(spec *ColumnTypeSpec) error {
 	}
 	canon, ok := NormalizeColumnTypePgType(pg)
 	if !ok {
-		return fmt.Errorf("spec.pgType must be one of string, text, number, boolean, jsonb")
+		return fmt.Errorf("spec.pgType must be one of text, number, datetime, boolean, jsonb")
 	}
 	underlying, err := ResolveUnderlyingPgType(canon, spec.Precision, spec.Scale)
 	if err != nil {

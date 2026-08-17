@@ -11,10 +11,6 @@ const dbEnv = {
   META_DATABASE_URL:
     process.env.META_DATABASE_URL ||
     'postgresql://postgres:postgres@localhost:5432/lowcode_meta',
-  DEFAULT_TENANT_DATA_DSN:
-    process.env.DEFAULT_TENANT_DATA_DSN ||
-    'postgresql://postgres:postgres@localhost:5432/lowcode_data',
-  DEFAULT_TENANT_ID: process.env.E2E_TENANT_ID || 'default',
   HTTP_ADDR: process.env.HTTP_ADDR || ':8080',
 }
 
@@ -36,7 +32,7 @@ export default defineConfig({
       command: 'go run ./cmd/server',
       cwd: apiRoot,
       env: dbEnv,
-      url: `${API_BASE}/v1/types`,
+      url: `${API_BASE}/health`,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },

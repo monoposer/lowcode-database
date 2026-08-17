@@ -38,10 +38,18 @@ function dataBase(opts: ApiOpts) {
   )
 }
 
+function admin(opts: ApiOpts) {
+  return `${base(opts)}/v1/admin`
+}
+
+function dataAPI(opts: ApiOpts) {
+  return `${dataBase(opts)}/v1/data`
+}
+
 // -------- Tables --------
 
 export async function listTables(opts: ApiOpts = {}) {
-  const res = await fetch(`${base(opts)}/v1/tables`, { headers: headers(opts) })
+  const res = await fetch(`${admin(opts)}/tables`, { headers: headers(opts) })
   return parseJson<{ tables: Table[] }>(res)
 }
 
@@ -50,7 +58,7 @@ export async function createTable(
   opts: ApiOpts = {},
   body: { schemaName?: string; idType?: string; label?: string } = {},
 ) {
-  const res = await fetch(`${base(opts)}/v1/tables`, {
+  const res = await fetch(`${admin(opts)}/tables`, {
     method: 'POST',
     headers: headers(opts),
     body: JSON.stringify({ name, ...body }),
@@ -59,7 +67,7 @@ export async function createTable(
 }
 
 export async function deleteTable(id: string, opts: ApiOpts = {}) {
-  const res = await fetch(`${base(opts)}/v1/tables/${encodeURIComponent(id)}`, {
+  const res = await fetch(`${admin(opts)}/tables/${encodeURIComponent(id)}`, {
     method: 'DELETE',
     headers: headers(opts),
   })
@@ -67,14 +75,14 @@ export async function deleteTable(id: string, opts: ApiOpts = {}) {
 }
 
 export async function getTableSchema(tableName: string, opts: ApiOpts = {}) {
-  const res = await fetch(`${base(opts)}/v1/tables/${encodeURIComponent(tableName)}/schema`, {
+  const res = await fetch(`${admin(opts)}/tables/${encodeURIComponent(tableName)}/schema`, {
     headers: headers(opts),
   })
   return parseJson<{ table: Table; columns: Column[]; indexes: Index[] }>(res)
 }
 
 export async function renameTable(id: string, newName: string, opts: ApiOpts = {}) {
-  const res = await fetch(`${base(opts)}/v1/tables/${encodeURIComponent(id)}:rename`, {
+  const res = await fetch(`${admin(opts)}/tables/${encodeURIComponent(id)}:rename`, {
     method: 'POST',
     headers: headers(opts),
     body: JSON.stringify({ id, newName }),
@@ -82,11 +90,11 @@ export async function renameTable(id: string, newName: string, opts: ApiOpts = {
   return parseJson<{ table: Table }>(res)
 }
 
-// -------- Columns (GET/POST /v1/columns, PATCH/DELETE /v1/columns/{id}) --------
+// -------- Columns --------
 
 export async function listColumns(tableName: string, opts: ApiOpts = {}) {
   const q = new URLSearchParams({ table_name: tableName })
-  const res = await fetch(`${base(opts)}/v1/columns?${q}`, {
+  const res = await fetch(`${admin(opts)}/columns?${q}`, {
     headers: headers(opts),
   })
   return parseJson<{ columns: Column[] }>(res)
@@ -104,7 +112,7 @@ export async function createColumn(
   },
   opts: ApiOpts = {},
 ) {
-  const res = await fetch(`${base(opts)}/v1/columns`, {
+  const res = await fetch(`${admin(opts)}/columns`, {
     method: 'POST',
     headers: headers(opts),
     body: JSON.stringify(body),
@@ -126,7 +134,7 @@ export async function updateColumn(
   opts: ApiOpts = {},
 ) {
   const q = tableName ? `?table_name=${encodeURIComponent(tableName)}` : ''
-  const res = await fetch(`${base(opts)}/v1/columns/${encodeURIComponent(columnRef)}${q}`, {
+  const res = await fetch(`${admin(opts)}/columns/${encodeURIComponent(columnRef)}${q}`, {
     method: 'PATCH',
     headers: headers(opts),
     body: JSON.stringify({ ...body, tableName }),
@@ -136,18 +144,18 @@ export async function updateColumn(
 
 export async function deleteColumn(tableName: string, columnRef: string, opts: ApiOpts = {}) {
   const q = tableName ? `?table_name=${encodeURIComponent(tableName)}` : ''
-  const res = await fetch(`${base(opts)}/v1/columns/${encodeURIComponent(columnRef)}${q}`, {
+  const res = await fetch(`${admin(opts)}/columns/${encodeURIComponent(columnRef)}${q}`, {
     method: 'DELETE',
     headers: headers(opts),
   })
   return parseJson<Record<string, unknown>>(res)
 }
 
-// -------- Indexes (today: PG catalog via /v1/indexes; RFC: JSONB partial / FTS on virtual_records) --------
+// -------- Indexes --------
 
 export async function listIndexes(tableName: string, opts: ApiOpts = {}) {
   const q = new URLSearchParams({ table_name: tableName })
-  const res = await fetch(`${base(opts)}/v1/indexes?${q}`, {
+  const res = await fetch(`${admin(opts)}/indexes?${q}`, {
     headers: headers(opts),
   })
   return parseJson<{ indexes: Index[] }>(res)
@@ -157,7 +165,7 @@ export async function createIndex(
   body: { tableName: string; name: string; columnIds: string[]; isUnique?: boolean },
   opts: ApiOpts = {},
 ) {
-  const res = await fetch(`${base(opts)}/v1/indexes`, {
+  const res = await fetch(`${admin(opts)}/indexes`, {
     method: 'POST',
     headers: headers(opts),
     body: JSON.stringify(body),
@@ -166,7 +174,7 @@ export async function createIndex(
 }
 
 export async function deleteIndex(pgIndexName: string, opts: ApiOpts = {}) {
-  const res = await fetch(`${base(opts)}/v1/indexes/${encodeURIComponent(pgIndexName)}`, {
+  const res = await fetch(`${admin(opts)}/indexes/${encodeURIComponent(pgIndexName)}`, {
     method: 'DELETE',
     headers: headers(opts),
   })
@@ -195,7 +203,7 @@ export async function listQueries(tableName: string | undefined, opts: ApiOpts =
   const q = new URLSearchParams()
   if (tableName) q.set('table_name', tableName)
   const suffix = q.toString() ? `?${q}` : ''
-  const res = await fetch(`${base(opts)}/v1/admin/queries${suffix}`, {
+  const res = await fetch(`${admin(opts)}/queries${suffix}`, {
     headers: headers(opts),
   })
   return parseJson<{ queries: Query[] }>(res)
@@ -212,7 +220,7 @@ export async function createQuery(
   },
   opts: ApiOpts = {},
 ) {
-  const res = await fetch(`${base(opts)}/v1/admin/queries`, {
+  const res = await fetch(`${admin(opts)}/queries`, {
     method: 'POST',
     headers: headers(opts),
     body: JSON.stringify(body),
@@ -222,7 +230,7 @@ export async function createQuery(
 
 export async function deleteQuery(tableName: string, name: string, opts: ApiOpts = {}) {
   const q = new URLSearchParams({ table_name: tableName })
-  const res = await fetch(`${base(opts)}/v1/admin/queries/${encodeURIComponent(name)}?${q}`, {
+  const res = await fetch(`${admin(opts)}/queries/${encodeURIComponent(name)}?${q}`, {
     method: 'DELETE',
     headers: headers(opts),
   })
@@ -243,7 +251,7 @@ export async function executeQuery(
   opts: ApiOpts = {},
 ) {
   const q = new URLSearchParams({ table_name: tableName })
-  const res = await fetch(`${dataBase(opts)}/v1/data/queries/${encodeURIComponent(name)}?${q}`, {
+  const res = await fetch(`${dataAPI(opts)}/queries/${encodeURIComponent(name)}?${q}`, {
     method: 'POST',
     headers: headers(opts),
     body: JSON.stringify(body),
@@ -251,11 +259,40 @@ export async function executeQuery(
   return parseJson<{ rows: Row[]; nextPageToken?: string; count?: number }>(res)
 }
 
-// -------- Types (built-in, read-only) --------
+// -------- Types / columnTypes --------
 
 export async function listTypes(opts: ApiOpts = {}) {
-  const res = await fetch(`${base(opts)}/v1/types`, { headers: headers(opts) })
+  const res = await fetch(`${admin(opts)}/types`, { headers: headers(opts) })
   return parseJson<{ types: ColType[] }>(res)
+}
+
+export type ColumnTypeDef = {
+  id?: string
+  name: string
+  label?: string
+  spec: {
+    pgType: string
+    array?: boolean
+    precision?: number
+    scale?: number
+  }
+}
+
+export async function createColumnType(body: ColumnTypeDef, opts: ApiOpts = {}) {
+  const res = await fetch(`${admin(opts)}/column-types`, {
+    method: 'POST',
+    headers: headers(opts),
+    body: JSON.stringify(body),
+  })
+  return parseJson<{ columnType: ColumnTypeDef }>(res)
+}
+
+export async function deleteColumnType(id: string, opts: ApiOpts = {}) {
+  const res = await fetch(`${admin(opts)}/column-types/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: headers(opts),
+  })
+  return parseJson<Record<string, unknown>>(res)
 }
 
 // -------- Rows --------
@@ -263,7 +300,7 @@ export async function listTypes(opts: ApiOpts = {}) {
 export async function listRows(tableName: string, pageSize: number, opts: ApiOpts = {}) {
   const q = new URLSearchParams({ pageSize: String(pageSize) })
   const res = await fetch(
-    `${base(opts)}/v1/tables/${encodeURIComponent(tableName)}/rows?${q}`,
+    `${dataAPI(opts)}/tables/${encodeURIComponent(tableName)}/rows?${q}`,
     { headers: headers(opts) },
   )
   return parseJson<{ rows: Row[]; nextPageToken?: string }>(res)
@@ -281,7 +318,7 @@ export async function queryRows(
   opts: ApiOpts = {},
 ) {
   const res = await fetch(
-    `${base(opts)}/v1/tables/${encodeURIComponent(tableName)}/rows:query`,
+    `${dataAPI(opts)}/tables/${encodeURIComponent(tableName)}/rows:query`,
     {
       method: 'POST',
       headers: headers(opts),
@@ -296,7 +333,7 @@ export async function createRow(
   fields: Record<string, unknown>,
   opts: ApiOpts = {},
 ) {
-  const res = await fetch(`${base(opts)}/v1/tables/${encodeURIComponent(tableName)}/rows`, {
+  const res = await fetch(`${dataAPI(opts)}/tables/${encodeURIComponent(tableName)}/rows`, {
     method: 'POST',
     headers: headers(opts),
     body: JSON.stringify({ tableName, ...fields }),
@@ -311,7 +348,7 @@ export async function updateRow(
   opts: ApiOpts = {},
 ) {
   const res = await fetch(
-    `${base(opts)}/v1/tables/${encodeURIComponent(tableName)}/rows/${encodeURIComponent(rowId)}`,
+    `${dataAPI(opts)}/tables/${encodeURIComponent(tableName)}/rows/${encodeURIComponent(rowId)}`,
     {
       method: 'PATCH',
       headers: headers(opts),
@@ -323,7 +360,7 @@ export async function updateRow(
 
 export async function bulkDeleteRows(tableName: string, rowIds: string[], opts: ApiOpts = {}) {
   const res = await fetch(
-    `${base(opts)}/v1/tables/${encodeURIComponent(tableName)}/rows:bulkDelete`,
+    `${dataAPI(opts)}/tables/${encodeURIComponent(tableName)}/rows:bulkDelete`,
     {
       method: 'POST',
       headers: headers(opts),
@@ -345,16 +382,22 @@ export async function createTenant(
   },
   opts: ApiOpts = {},
 ) {
-  const res = await fetch(`${base(opts)}/v1/admin/tenants`, {
+  const res = await fetch(`${admin(opts)}/tenants`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  return parseJson<{ id: string }>(res)
+  return parseJson<{
+    id: string
+    recordStore?: string
+    base?: { baseId?: string; name?: string; label?: string }
+    apiKey?: { id?: string; name?: string; keyPrefix?: string }
+    key?: string
+  }>(res)
 }
 
 export async function getDatabaseConnection(opts: ApiOpts = {}) {
-  const res = await fetch(`${base(opts)}/v1/database/connection`, {
+  const res = await fetch(`${admin(opts)}/database/connection`, {
     headers: headers(opts),
   })
   return parseJson<ConnectionInfo>(res)
@@ -368,7 +411,7 @@ export type Tenant = {
 }
 
 export async function listTenants(opts: ApiOpts = {}) {
-  const res = await fetch(`${base(opts)}/v1/admin/tenants`, {
+  const res = await fetch(`${admin(opts)}/tenants`, {
     headers: headers(opts),
   })
   return parseJson<{ tenants: Tenant[] }>(res)
@@ -408,7 +451,9 @@ export type Index = {
 export type ColType = {
   id: string
   name?: string
+  label?: string
   pgType?: string
+  refKind?: string
   config?: Record<string, unknown>
 }
 

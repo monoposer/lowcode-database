@@ -127,7 +127,7 @@ There is **no** cross-row transaction (rollup parent/child). Link writes `link_r
 ```
 tenant_id  →  tenants.data_dsn     (which Postgres)
            →  record.tenant_id     (which rows in a shared DB)
-table      →  lc_tables.vt_id      (LIST partition)
+table      →  lc_tables.vt_id      (record.vt_id)
 ```
 
 Two tenants may share one DSN. Isolation is then **predicates** (`tenant_id` / `base_id` / `vt_id`), not a separate cluster. A private Postgres is a DSN convention (`tenants.data_dsn`), not a different code path. Static SQL is supposed to go through `postgres.Where` / `AndWhere`; DSL SQL is assembled at runtime and must not drop those keys.
@@ -138,7 +138,7 @@ Two tenants may share one DSN. Isolation is then **predicates** (`tenant_id` / `
 
 | You add | What happens |
 |---------|----------------|
-| More **tenants on one DSN** | Same pool; more `vt_id` partitions; Meta rows grow |
+| More **tenants on one DSN** | Same pool; more `vt_id` values in `record`; Meta rows grow |
 | More **unique DSNs** | More pgx pools (capped by `MAX_TENANT_DATA_POOLS`, LRU) |
 | More **read replicas** | More pools; queries spread; writes unchanged |
 | More **server replicas** | HTTP capacity ↑; **each** replica polls **every** shard `calc_queue`; memory EventBus no longer sufficient |
@@ -161,7 +161,7 @@ This is a **BFF-backed engine**, not a tenant-facing SaaS edge by itself.
 ## Strengths
 
 1. **Operationally simple.** One binary, one port, one image. No server/worker version skew. Local `make run` is production-shaped.
-2. **Postgres-native model.** Indexes are real PG indexes; virtual columns have no extra physical column; rows are `record` LIST partitions by `vt_id`.
+2. **Postgres-native model.** Indexes are real PG indexes; virtual columns have no extra physical column; rows are `record` filtered by `vt_id`.
 3. **Clear tenancy.** `X-Tenant-Id` → Meta `tenants.data_dsn` → pooled connections keyed by DSN (shared across tenants on the same shard).
 4. **Read/write split without a second process.** Replica routing lives in `TenantManager`; strong reads opt into the primary.
 5. **Events are actually deliverable.** Memory bus for single instance; Redis Stream for multiple replicas of the same binary; webhooks for external consumers.
@@ -176,7 +176,7 @@ This is a **BFF-backed engine**, not a tenant-facing SaaS edge by itself.
 2. **Calc fan-out on replicas.** Every instance polls every shard’s `calc_queue` (`SKIP LOCKED` makes this safe but wastes connections and wakeups). There is no elected calc owner.
 3. **Memory EventBus does not cross instances.** Default `EVENT_BUS=memory` is local only. Multi-replica deploys must set `EVENT_BUS=redis` or webhooks will miss events from other processes. Redis Stream webhook consumer group delivers each event once.
 4. **Replica lag is the caller’s problem.** Strong read is opt-in. A read-after-write without `consistency=strong` can miss the row on a lagging replica.
-5. **Runtime DDL vs versioned SQL.** Data tables/partitions/indexes are created by the app; `migrations/data` only covers extensions (`cmd/migrate`). That does not version every tenant’s logical schema.
+5. **Runtime DDL vs versioned SQL.** Data tables/indexes/extensions are created by the app (`EnsureDataTables`). `cmd/migrate` versions **meta** only. That does not version every tenant’s logical schema.
 6. **Authz is external.** Any valid API key for the tenant can hit admin and data. Fine if a BFF enforces RBAC; see [roadmap](../roadmap.md#authorization-rbac).
 7. **Product gaps.** Graph expand, plugins, Choice ENUM, schema-bundle import are out of scope; see [roadmap](../roadmap.md).
 8. **Observability is thin.** In-process memory metrics, optional `pg_stat_statements`, JSON logs. No traces spanning Meta SQL → Data SQL → calc.

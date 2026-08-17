@@ -65,7 +65,7 @@ func (w *IndexMigrate) tick(ctx context.Context) {
 
 	type job struct {
 		tenantID, baseID, tableName, name, pgIndex, vtID, expr, indexType, status string
-		unique                                                                  bool
+		unique                                                                    bool
 	}
 	var jobs []job
 	for rows.Next() {
@@ -135,9 +135,7 @@ func (w *IndexMigrate) apply(ctx context.Context, tenantID, baseID, tableName, n
 		w.fail(ctx, tenantID, baseID, tableName, name, err)
 		return
 	}
-	if vtID != "" {
-		_ = postgres.EnsureVirtualRecordsPartitionOn(ctx, pool, tables, vtID)
-	}
+	_ = postgres.EnsureDataTables(ctx, pool, tables)
 
 	if status == "drop_pending" {
 		sql := fmt.Sprintf(`DROP INDEX CONCURRENTLY IF EXISTS %s`, pgx.Identifier{pgIndex}.Sanitize())
@@ -186,12 +184,12 @@ func (w *IndexMigrate) apply(ctx context.Context, tenantID, baseID, tableName, n
 	}
 	if w.EventBus != nil {
 		_ = w.EventBus.Publish(ctx, event.Envelope{
-			ID:       uuid.NewString(),
-			Type:     event.BusType(event.MetadataIndexCreated),
-			TenantID: tenantID,
-			TableName:  tableName,
-			Data:     map[string]any{"index": map[string]any{"name": name}, "ddl": sql},
-			Time:     time.Now().UTC(),
+			ID:        uuid.NewString(),
+			Type:      event.BusType(event.MetadataIndexCreated),
+			TenantID:  tenantID,
+			TableName: tableName,
+			Data:      map[string]any{"index": map[string]any{"name": name}, "ddl": sql},
+			Time:      time.Now().UTC(),
 		})
 	}
 	_, _ = meta.Exec(ctx, `

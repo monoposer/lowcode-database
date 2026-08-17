@@ -1,4 +1,4 @@
-# Local/dev dependencies: Postgres + Redis.
+# Local/dev dependencies: Postgres + Redis + DbGate.
 # Run from repo root: make docker-up
 # Schema is NOT auto-applied. After postgres is up: make migrate
 #   or: docker compose -f deploy/docker-compose.yml run --rm migrate
@@ -6,8 +6,10 @@
 
 services:
   postgres:
-    # PostGIS bundled (geometry/geography/point column types). Plain postgres:16-alpine has no PostGIS.
+    # PostGIS bundled (geometry/geography/point). Official image is amd64-only;
+    # pin platform so Apple Silicon pulls via emulation instead of failing the manifest.
     image: postgis/postgis:16-3.5
+    platform: linux/amd64
     container_name: lowcode-postgres
     environment:
       POSTGRES_USER: postgres
@@ -26,7 +28,7 @@ services:
       retries: 5
 
   redis:
-    image: redis:7-alpine
+    image: redis:7
     container_name: lowcode-redis
     ports:
       - "6379:6379"
@@ -36,6 +38,39 @@ services:
       timeout: 3s
       retries: 5
 
+  dbgate:
+    image: ccr.ccs.tencentyun.com/sola/dbgate:latest
+    container_name: lowcode-dbgate
+    ports:
+      - "3000:3000"
+    environment:
+      CONNECTIONS: meta,data,redis
+      LABEL_meta: lowcode_meta
+      SERVER_meta: postgres
+      USER_meta: postgres
+      PASSWORD_meta: postgres
+      PORT_meta: "5432"
+      DATABASE_meta: lowcode_meta
+      ENGINE_meta: postgres@dbgate-plugin-postgres
+      LABEL_data: lowcode_data
+      SERVER_data: postgres
+      USER_data: postgres
+      PASSWORD_data: postgres
+      PORT_data: "5432"
+      DATABASE_data: lowcode_data
+      ENGINE_data: postgres@dbgate-plugin-postgres
+      LABEL_redis: redis
+      SERVER_redis: redis
+      PORT_redis: "6379"
+      ENGINE_redis: redis@dbgate-plugin-redis
+    volumes:
+      - dbgate-data:/root/.dbgate
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   migrate:
     profiles: [migrate]
     build:
@@ -43,10 +78,8 @@ services:
       dockerfile: deploy/Dockerfile
     image: lowcode-database:latest
     entrypoint: ["./migrate"]
-    command: ["-target", "all"]
     environment:
       META_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/lowcode_meta
-      DEFAULT_TENANT_DATA_DSN: postgresql://postgres:postgres@postgres:5432/lowcode_data
     depends_on:
       postgres:
         condition: service_healthy
@@ -62,12 +95,11 @@ services:
       - "8080:8080"
     environment:
       META_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/lowcode_meta
-      DEFAULT_TENANT_DATA_DSN: postgresql://postgres:postgres@postgres:5432/lowcode_data
-      DEFAULT_TENANT_ID: default
       REDIS_URL: redis://redis:6379/0
       CACHE_ENABLED: "true"
       HTTP_ADDR: :8080
       EVENT_BUS: redis
+      LOG_LEVEL: debug
     depends_on:
       postgres:
         condition: service_healthy
@@ -76,3 +108,4 @@ services:
 
 volumes:
   pg-data:
+  dbgate-data:

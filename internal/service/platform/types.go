@@ -29,8 +29,12 @@ type UpdateTenantResponse struct {
 }
 
 type CreateTenantResponse struct {
-	Id          string `json:"id,omitempty"`
-	RecordStore string `json:"recordStore,omitempty"`
+	Id          string   `json:"id,omitempty"`
+	RecordStore string   `json:"recordStore,omitempty"`
+	Base        *BaseDTO `json:"base,omitempty"`
+	ApiKey      *APIKey  `json:"apiKey,omitempty"`
+	// Key is the plaintext API key; returned once on create.
+	Key string `json:"key,omitempty"`
 }
 
 type GetDatabaseConnectionRequest struct{}
@@ -104,7 +108,7 @@ type Query struct {
 	Id        string              `json:"id,omitempty"`
 	Name      string              `json:"name,omitempty"`
 	Label     string              `json:"label,omitempty"`
-	TableName   string              `json:"tableName,omitempty"`
+	TableName string              `json:"tableName,omitempty"`
 	Filter    map[string]any      `json:"filter,omitempty"`
 	Sort      []*shared.SortOrder `json:"sort,omitempty"`
 	ColumnIds []string            `json:"columnIds,omitempty"`
@@ -115,7 +119,7 @@ type Query struct {
 
 // ExecuteQueryRequest is the saved-query run input (used by the data service).
 type ExecuteQueryRequest struct {
-	TableName     string         `json:"tableName,omitempty"`
+	TableName   string         `json:"tableName,omitempty"`
 	QueryId     string         `json:"queryId,omitempty"`
 	PageSize    int32          `json:"pageSize,omitempty"`
 	PageToken   string         `json:"pageToken,omitempty"`

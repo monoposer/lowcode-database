@@ -30,13 +30,13 @@ type Modifier struct {
 
 // PgTypeEntry is a platform built-in PostgreSQL type (not stored in meta DB).
 type PgTypeEntry struct {
-	ID           string     `json:"id"`
-	Name         string     `json:"name,omitempty"`
-	PgType       string     `json:"pgType"`
-	Category     Category   `json:"category"`
-	Description  string     `json:"description,omitempty"`
-	Modifiers    []Modifier `json:"modifiers,omitempty"`
-	Kind         string     `json:"kind,omitempty"` // virtual: formula, link, lookup, rollup
+	ID          string     `json:"id"`
+	Name        string     `json:"name,omitempty"`
+	PgType      string     `json:"pgType"`
+	Category    Category   `json:"category"`
+	Description string     `json:"description,omitempty"`
+	Modifiers   []Modifier `json:"modifiers,omitempty"`
+	Kind        string     `json:"kind,omitempty"` // virtual: formula, link, lookup, rollup
 }
 
 // CheckSpec is one CHECK on a tenant column type. Expr uses VALUE.
@@ -55,8 +55,8 @@ type ColumnTypeMetadata struct {
 
 // ColumnTypeSpec is the definition of a tenant column type (underlying pgType + CHECKs).
 type ColumnTypeSpec struct {
-	// PgType is the underlying built-in scalar id: string|text|number|boolean|jsonb
-	// (string is an alias of text). Not datetime/point/virtual, and not raw SQL.
+	// PgType is the underlying built-in scalar id: text|number|datetime|boolean|jsonb.
+	// Not point/virtual, and not raw SQL.
 	PgType    string      `json:"pgType"`
 	Array     bool        `json:"array,omitempty"` // true → logical PG array (e.g. text[])
 	Precision *int        `json:"precision,omitempty"`

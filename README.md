@@ -46,8 +46,7 @@ After startup:
 | Variable | Description |
 |----------|-------------|
 | `META_DATABASE_URL` | Meta DB (`tenants`, `lc_*`) |
-| `DEFAULT_TENANT_DATA_DSN` | Bootstrap tenant `data_dsn` (`record` / `link_ref` / `calc_queue`) |
-| `DEFAULT_TENANT_ID` | Bootstrap tenant id (default `default`) |
+| `DATA_DATABASE_URL` | Local default tenant data DSN (pass as `data_dsn` when creating a tenant) |
 | `HTTP_ADDR` | Listen address (default `:8080`) |
 | `REDIS_URL` + `CACHE_ENABLED` | Optional metadata cache |
 | `API_KEY_REQUIRED` | Require `X-Api-Key` on `/v1/*` |
@@ -57,7 +56,7 @@ See [`.env.example`](.env.example) for full options.
 
 ### Multi-tenant
 
-Each tenant is a `tenants` row with **`data_dsn`**. Create via `POST /v1/admin/tenants`. Send `X-Tenant-Id` on every request.
+Each tenant is a `tenants` row with **`data_dsn`**. Create via `POST /v1/admin/tenants` (also seeds a **public** base and a default API key; plaintext `key` is returned once), then send `X-Tenant-Id` on every request. `cmd/migrate` only applies **meta** schema and does not bootstrap tenants.
 
 ## API layout
 

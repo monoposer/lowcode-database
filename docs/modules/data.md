@@ -26,9 +26,9 @@ Calc engine: `internal/service/calc` (queue + in-process worker). Design: [recor
 
 ## Query
 
-- Filter / sort: `internal/dsl` + VR JSONB predicates (`data->>` / FTS / `in_record_ids`)
-- Lookup filters: `rewriteVRLookupFilters` pushed down to the source vt
+- Filter / sort: `internal/dsl` + VR JSONB predicates (`data->>` / FTS / `in_record_ids`); lookup/formula/rollup filters read `record.data` calc cache
 - Slow queries: `SLOW_QUERY_THRESHOLD_MS` warn
+- SQL statements: debug (`LOG_LEVEL=debug`)
 
 ## Admin vs Data
 

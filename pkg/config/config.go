@@ -18,10 +18,6 @@ type Config struct {
 	// DataDSNTemplate optional printf template for tenant data DSN when API omits data_dsn, e.g. postgresql://u:p@host:5432/%s
 	DataDSNTemplate string
 
-	// DefaultTenantID + DefaultTenantDataDSN bootstrap one tenant (+ default base) on startup.
-	DefaultTenantID      string
-	DefaultTenantDataDSN string
-
 	HTTPAddr string
 	MaxRow   int
 
@@ -33,8 +29,6 @@ type Config struct {
 	// SlowQueryThresholdMS triggers warn logs when SQL exceeds this duration.
 	SlowQueryThresholdMS int
 	LogLevel             string
-	// LogSQL logs row-query SQL and bind args at info level (for local debugging).
-	LogSQL bool
 
 	// PGStatStatements enables pg_stat_statements listing via GET /v1/admin/pg-stat-statements.
 	PGStatStatements bool
@@ -75,9 +69,6 @@ type Config struct {
 	// Index backfill timeout (seconds) for CONCURRENTLY DDL.
 	IndexBackfillTimeoutSec int
 
-	// VRDefaultShardDSN is an alias for the default tenant data DSN (defaults to DefaultTenantDataDSN).
-	VRDefaultShardDSN string
-
 	// Calc loop (formula / lookup / rollup cache via calc_queue) always runs in cmd/server.
 	CalcWorkerBatch  int
 	CalcWorkerPollMS int
@@ -96,8 +87,6 @@ func Load() (*Config, error) {
 		MetaDatabaseURL:         os.Getenv("META_DATABASE_URL"),
 		DataAdminDatabaseURL:    os.Getenv("DATA_ADMIN_DATABASE_URL"),
 		DataDSNTemplate:         os.Getenv("DATA_DSN_TEMPLATE"),
-		DefaultTenantID:         getenvDefault("DEFAULT_TENANT_ID", "default"),
-		DefaultTenantDataDSN:    os.Getenv("DEFAULT_TENANT_DATA_DSN"),
 		HTTPAddr:                getenvDefault("HTTP_ADDR", ":8080"),
 		MaxRow:                  getenvInt("MAX_ROW", 1000),
 		RedisURL:                os.Getenv("REDIS_URL"),
@@ -105,7 +94,6 @@ func Load() (*Config, error) {
 		CacheTTLSeconds:         getenvInt("CACHE_TTL_SECONDS", 300),
 		SlowQueryThresholdMS:    getenvInt("SLOW_QUERY_THRESHOLD_MS", 500),
 		LogLevel:                getenvDefault("LOG_LEVEL", "info"),
-		LogSQL:                  getenvBool("LOG_SQL", false),
 		PGStatStatements:        getenvBool("PG_STAT_STATEMENTS", false),
 		APIKeyRequired:          getenvBool("API_KEY_REQUIRED", false),
 		RateLimitRPS:            getenvInt("RATE_LIMIT_RPS", 100),
@@ -126,14 +114,10 @@ func Load() (*Config, error) {
 		CalcAlertQueueLen:       getenvInt("CALC_ALERT_QUEUE_LEN", 10000),
 		DDLConfirmRequired:      getenvBool("DDL_CONFIRM_REQUIRED", true),
 		IndexBackfillTimeoutSec: getenvInt("INDEX_BACKFILL_TIMEOUT_SEC", 300),
-		VRDefaultShardDSN: firstNonEmpty(
-			os.Getenv("VR_DEFAULT_SHARD_DSN"),
-			os.Getenv("DEFAULT_TENANT_DATA_DSN"),
-		),
-		CalcWorkerBatch:  getenvInt("CALC_WORKER_BATCH", 16),
-		CalcWorkerPollMS: getenvInt("CALC_WORKER_POLL_MS", 500),
-		EventBus:         strings.ToLower(strings.TrimSpace(getenvDefault("EVENT_BUS", "memory"))),
-		EventStreamKey:   getenvDefault("EVENT_STREAM_KEY", "lc:events"),
+		CalcWorkerBatch:         getenvInt("CALC_WORKER_BATCH", 16),
+		CalcWorkerPollMS:        getenvInt("CALC_WORKER_POLL_MS", 500),
+		EventBus:                strings.ToLower(strings.TrimSpace(getenvDefault("EVENT_BUS", "memory"))),
+		EventStreamKey:          getenvDefault("EVENT_STREAM_KEY", "lc:events"),
 	}
 
 	if cfg.MetaDatabaseURL == "" {
@@ -141,15 +125,6 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
-}
-
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if strings.TrimSpace(v) != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 func getenvDefault(key, def string) string {

@@ -24,7 +24,7 @@
 - `lc_tables` — `name` (= public Id), `vt_id`, `label`
 - `lc_columns` — `type_id`, `config` JSONB, `position`
 
-Logical tables do not get a physical `CREATE TABLE`. Rows live in `record` (LIST partition by `vt_id`).
+Logical tables do not get a physical `CREATE TABLE`. Rows live in `record` (filter by `vt_id`).
 
 ## Virtual columns (no physical column)
 

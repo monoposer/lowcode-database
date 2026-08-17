@@ -59,7 +59,7 @@ shared.Base  (TenantManager · Cache · Metrics)
         │
 ┌───────┴────────┐
 │ pgx + Where    │  static CRUD (lc_* / record) must include tenant_id / base_id
-│ pgx dynamic SQL│  DSL filters, partition DDL, FOR UPDATE SKIP LOCKED
+│ pgx dynamic SQL│  DSL filters, FOR UPDATE SKIP LOCKED
 └───────┬────────┘
         │
  Meta DB (shared)          Data DB (per-tenant tenants.data_dsn)
@@ -89,9 +89,9 @@ Middleware (`cmd/server`): CORS → request log → optional `authn.Validator` (
 | DB | Connection | Contents |
 |----|------------|----------|
 | **Meta** | `META_DATABASE_URL` | `tenants` (`data_dsn`), `lc_bases`, `lc_tables` / `lc_columns` / `lc_indexes` / `lc_queries`, API keys |
-| **Data** | `tenants.data_dsn` | `record` (LIST `vt_id`) or `{tenant_id}_record` when `record_store=dedicated`; `link_ref`, `calc_queue` |
+| **Data** | `tenants.data_dsn` | `record` or `{tenant_id}_record` when `record_store=dedicated`; `link_ref`, `calc_queue` |
 
-`TenantManager` does **not** run migrations at startup. Default tenant can be bootstrapped with `DEFAULT_TENANT_DATA_DSN` + `DEFAULT_TENANT_ID`.
+`TenantManager` does **not** run migrations at startup. Create tenants and bases via Admin API (`POST /tenants`, `POST /bases`).
 
 Public `Table.Id` is the logical **name**, not a UUID. Physical column names match logical `name`. Virtual columns have no physical column.
 
@@ -104,7 +104,7 @@ Tenant (tenant_id)  ──data_dsn──►  Data DB
                     └── Column (logical name; virtual columns have no physical column)
 ```
 
-Row partition key `vt_id` is globally unique (`lc_tables.vt_id`). Multiple tenants may share one data DSN; rows and meta always carry `tenant_id`. Set `tenants.record_store=dedicated` for a private `{tenant_id}_record` parent on that DSN; dedicated Postgres is still `data_dsn`.
+Row key `vt_id` is globally unique (`lc_tables.vt_id`). Multiple tenants may share one data DSN; rows and meta always carry `tenant_id`. Set `tenants.record_store=dedicated` for a private `{tenant_id}_record` table on that DSN; dedicated Postgres is still `data_dsn`.
 
 ### 4.3 Pools
 
@@ -132,7 +132,7 @@ HTTP + X-Tenant-Id
 ```
 
 - Meta and Data are **always separate pools**, even if they happen to be the same Postgres instance.
-- Static SQL must include tenant predicates (`postgres.Where` / `AndWhere`): meta `tenant_id` + `base_id`; `record` has `tenant_id` and partition key `vt_id`.
+- Static SQL must include tenant predicates (`postgres.Where` / `AndWhere`): meta `tenant_id` + `base_id`; `record` has `tenant_id` and `vt_id`.
 - Worker scans of `calc_queue` may have no tenant in context; do not add row filters then.
 
 | Mechanism | Behavior |
@@ -197,7 +197,7 @@ Schema comes from `migrations/` and `EnsureVirtualRecordsParent`. Access layer i
 HTTP puts `tenant_id` / `base_id` on context. Static SQL **must** include tenant predicates:
 
 - meta tables: `tenant_id` + `base_id`
-- `record`: `tenant_id` (plus partition key `vt_id`)
+- `record`: `tenant_id` and `vt_id`
 - `link_ref` / `calc_queue`: column `tenant_id`
 - **No filter when context has no tenant** (worker scans the whole shard `calc_queue`)
 
@@ -205,7 +205,7 @@ HTTP puts `tenant_id` / `base_id` on context. Static SQL **must** include tenant
 
 | Path | Why dynamic SQL |
 |------|-----------------|
-| `EnsureVirtualRecordsParent` / partition DDL | `PARTITION BY LIST`, dynamic partition names |
+| `EnsureVirtualRecordsParent` | Shared or dedicated `record` / `link_ref` / `calc_queue` |
 | `executeVRQuery` and DSL | Runtime columns → jsonb expressions |
 | `calc.Claim` SKIP LOCKED | Queue claim |
 | pg_catalog INDEX | Catalog is source of truth |
@@ -228,7 +228,7 @@ Plugins, graph expand, Choice/ENUM, RBAC, schema-bundle import: [roadmap](../roa
 | Metadata cache | `REDIS_URL` + `CACHE_ENABLED` | Invalidate on writes |
 | SQL stats | `PG_STAT_STATEMENTS=true` | Postgres `pg_stat_statements` |
 | Slow query | `SLOW_QUERY_THRESHOLD_MS` | query / SQL warn logs |
-| SQL log | `LOG_SQL=true` | Emit SQL |
+| SQL log | `LOG_LEVEL=debug` | pgx SQL + args |
 | Tracing | `pkg/telemetry` | OpenTelemetry; OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set |
 
 ---
@@ -278,7 +278,7 @@ Routes: `internal/api/routes.go` (chi). Tests and `cmd/server` mount all prefixe
 | `internal/api` | chi routes and handlers |
 | `internal/service/*` types | JSON resource / request types |
 | `internal/service/*` | Domain logic |
-| `pkg/infra/postgres` | Pools, shard routing, partition DDL, `Where` helpers |
+| `pkg/infra/postgres` | Pools, shard routing, `Where` helpers |
 | `pkg/config` `pkg/logger` `pkg/tenant` | Env, logs, tenant context |
 | `internal/service/calc` | Queue engine + in-process `calc_queue` worker |
 | `internal/columntype` | pgType registry and columnType spec |
@@ -315,9 +315,7 @@ POST /v1/data/tables/{name}/rows
 | Variable | Role |
 |----------|------|
 | `META_DATABASE_URL` | Meta DB |
-| `DEFAULT_TENANT_DATA_DSN` | Bootstrap tenant data DSN |
-| `DEFAULT_TENANT_ID` | Bootstrap tenant id (default `default`) |
-| `VR_DEFAULT_SHARD_DSN` | Default data DSN alias (defaults to `DEFAULT_TENANT_DATA_DSN`) |
+| `DATA_DATABASE_URL` | Optional local default for tenant `data_dsn` (not used by migrate) |
 | `HTTP_ADDR` | Listen address (default `:8080`) |
 | `MAX_ROW` | Max rows per query |
 | `REDIS_URL` / `CACHE_ENABLED` / `CACHE_TTL_SECONDS` | Metadata cache |
@@ -325,7 +323,7 @@ POST /v1/data/tables/{name}/rows
 | `API_KEY_REQUIRED` | Require API Key |
 | `PG_MAX_CONNS` / `PG_MIN_CONNS` / `PG_MAX_CONN_LIFETIME_MIN` | pgx pools |
 | `MAX_TENANT_DATA_POOLS` | Data-pool LRU cap (default 50) |
-| `SLOW_QUERY_THRESHOLD_MS` / `LOG_LEVEL` / `LOG_SQL` | Logging |
+| `SLOW_QUERY_THRESHOLD_MS` / `LOG_LEVEL` | Logging |
 
 Full list: [`.env.example`](../../.env.example).
 
@@ -333,10 +331,9 @@ Full list: [`.env.example`](../../.env.example).
 
 | Target | Location | Notes |
 |--------|----------|-------|
-| Meta | `migrations/meta/*.up.sql` | `make migrate` or `make docker-migrate` |
-| Data | `migrations/data/*.up.sql` | PostGIS, `pg_stat_statements`; row tables via runtime DDL |
+| Meta | `migrations/meta/*.up.sql` | Schema only (no tenant/base DML). `cmd/migrate` / `make migrate` |
 
-SQL is idempotent (`IF NOT EXISTS`). **Business services do not auto-migrate.**
+Data tables, indexes, PostGIS, and `pg_stat_statements` are created by **runtime DDL** (`EnsureDataTables`). SQL is idempotent (`IF NOT EXISTS`). **`cmd/migrate` does not touch data databases.**
 
 ---
 

@@ -31,7 +31,7 @@ func (s *Platform) GetDatabaseConnection(ctx context.Context, _ *GetDatabaseConn
 }
 
 func passwordHint() string {
-	return "This API never returns a password. Use the password in the tenant data DSN (tenants.data_dsn / DEFAULT_TENANT_DATA_DSN), or set PGPASSWORD / ~/.pgpass when running psql locally."
+	return "This API never returns a password. Use the password in the tenant data DSN (tenants.data_dsn), or set PGPASSWORD / ~/.pgpass when running psql locally."
 }
 
 func parsePostgresDSNForDisplay(dsn string) (host string, port int, database, user, urlWithoutPassword, psqlCommand string, err error) {

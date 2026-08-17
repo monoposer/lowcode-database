@@ -88,7 +88,7 @@ func main() {
 		}
 	}
 
-	tenantMgr, err := postgres.NewTenantManager(ctx, cfg)
+	tenantMgr, err := postgres.NewTenantManager(ctx, cfg, appLog)
 	if err != nil {
 		log.Fatalf("init tenant manager: %v", err)
 	}
@@ -105,7 +105,6 @@ func main() {
 		service.WithCache(metaCache, time.Duration(cfg.CacheTTLSeconds)*time.Second),
 		service.WithPGStatStatements(cfg.PGStatStatements),
 		service.WithLogger(appLog, time.Duration(cfg.SlowQueryThresholdMS)*time.Millisecond),
-		service.WithLogSQL(cfg.LogSQL),
 		service.WithLimits(cfg),
 		service.WithHTTPMiddleware(ratelimit.New(cfg.RateLimitGlobalRPS, cfg.RateLimitTenantRPS).Middleware),
 		service.WithEventBus(bus),
@@ -114,9 +113,7 @@ func main() {
 	if cfg.PGStatStatements {
 		appLog.Info("pg_stat_statements list API enabled", "path", "/v1/admin/pg-stat-statements")
 	}
-	if cfg.LogSQL {
-		appLog.Info("sql logging enabled", "env", "LOG_SQL")
-	}
+	appLog.Info("logging", "level", cfg.LogLevel)
 
 	go (&worker.IndexMigrate{
 		Tenants:  tenantMgr,
