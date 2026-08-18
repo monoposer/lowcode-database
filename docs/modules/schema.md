@@ -34,6 +34,8 @@ Logical tables do not get a physical `CREATE TABLE`. Rows live in `record` (filt
 | `link` | `target_table_name` (+ optional `link_column_id` \| `target_column_id` for FK-style); Teable two-way: `bidirectional` (default true for `link_ref`), `inverse_field_name`, `inverse_cardinality` |
 | `lookup` / `rollup` | `relation_column_id` + … |
 
+Adding or updating formula / lookup / rollup enqueues existing rows onto `calc_queue` so `record.data` cache is backfilled. Link writes enqueue the edited row and related records.
+
 See [roadmap](../roadmap.md) for schema bundle import (not in this version).
 
 ## Admin API

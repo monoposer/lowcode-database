@@ -32,7 +32,7 @@ func TestVirtualRecordsCRUD(t *testing.T) {
 	str := "hello virtual records"
 	created, err := svc.CreateRow(ctx, &data.CreateRowRequest{
 		TableName: table,
-		Cells:   map[string]*shared.Value{"title": {StringValue: &str}},
+		Cells:     map[string]*shared.Value{"title": {StringValue: &str}},
 	})
 	if err != nil {
 		t.Fatalf("create row: %v", err)
@@ -43,7 +43,7 @@ func TestVirtualRecordsCRUD(t *testing.T) {
 
 	q, err := svc.QueryRows(ctx, &data.QueryRowsRequest{
 		TableName: table,
-		Filter:  map[string]any{"field": "title", "op": "eq", "value": str},
+		Filter:    map[string]any{"type": "EQ", "attr": "title", "val": str},
 	})
 	if err != nil {
 		t.Fatalf("query: %v", err)

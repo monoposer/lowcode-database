@@ -47,4 +47,4 @@ Optional Redis; used by cache / redis metrics.
 |------|----------|
 | `000001_init.up.sql` | Full meta: tenants (incl. replica DSNs + `record_store`), tables, columns, indexes, columnTypes, webhooks |
 
-Data tables and PostGIS are created by **schema** runtime DDL (`EnsureDataTables`).
+Data tables are created by **schema** runtime DDL (`EnsureDataTables`).

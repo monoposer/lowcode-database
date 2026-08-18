@@ -36,11 +36,37 @@ type Props = {
   allowEmpty?: boolean
 }
 
-function parseIds(raw: string): string[] {
+export function parseLinkIds(raw: string): string[] {
   return raw
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean)
+}
+
+export function LinkChips({
+  ids,
+  choices,
+  empty = '',
+}: {
+  ids: string[]
+  choices: RelationChoice[]
+  empty?: string
+}) {
+  if (!ids.length) {
+    return empty ? <span className="link-chips-empty">{empty}</span> : null
+  }
+  return (
+    <span className="link-chips">
+      {ids.map((id) => {
+        const label = choices.find((c) => c.id === id)?.label || id
+        return (
+          <span key={id} className="link-chip" title={id}>
+            {label}
+          </span>
+        )
+      })}
+    </span>
+  )
 }
 
 export function RelationPicker({
@@ -57,7 +83,7 @@ export function RelationPicker({
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
-  const selectedIds = useMemo(() => parseIds(value), [value])
+  const selectedIds = useMemo(() => parseLinkIds(value), [value])
 
   useEffect(() => {
     if (!tableName) {
@@ -100,8 +126,6 @@ export function RelationPicker({
     }
   }, [open])
 
-  const selectedLabels = selectedIds.map((id) => choices.find((c) => c.id === id)?.label || id)
-
   const toggle = (id: string) => {
     if (many) {
       const next = selectedIds.includes(id)
@@ -113,12 +137,6 @@ export function RelationPicker({
     onChange(id === selectedIds[0] && allowEmpty ? '' : id)
     setOpen(false)
   }
-
-  const triggerText = loading
-    ? 'Loading…'
-    : selectedLabels.length
-      ? selectedLabels.join(', ')
-      : placeholder
 
   return (
     <div
@@ -133,8 +151,14 @@ export function RelationPicker({
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        <span className={selectedLabels.length ? 'relation-picker-value' : 'relation-picker-placeholder'}>
-          {triggerText}
+        <span className={selectedIds.length ? 'relation-picker-value' : 'relation-picker-placeholder'}>
+          {loading ? (
+            'Loading…'
+          ) : selectedIds.length ? (
+            <LinkChips ids={selectedIds} choices={choices} />
+          ) : (
+            placeholder
+          )}
         </span>
         <IconChevron size={14} className="relation-picker-chevron" />
       </button>

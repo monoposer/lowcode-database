@@ -7,7 +7,7 @@ Tick before going live. Domain model is unchanged. **RBAC is not in this service
 - [ ] **One runtime**: `cmd/server` on `HTTP_ADDR` (`:8080`) serves `/v1/admin/*`, `/v1/data/*`, and polls `calc_queue`
 - [ ] `cmd/migrate` is CLI only; the server does **not** auto-migrate
 - [ ] Horizontal scale = N identical server replicas (set `EVENT_BUS=redis`; calc uses `SKIP LOCKED`)
-- [ ] New data DSN: first table/tenant provision runs `EnsureDataTables` (PostGIS / `pg_stat_statements`)
+- [ ] New data DSN: first table/tenant provision runs `EnsureDataTables` (`pg_stat_statements`)
 
 ## Read/write split
 
@@ -30,7 +30,7 @@ Tick before going live. Domain model is unchanged. **RBAC is not in this service
 
 ## Data DB extensions
 
-- [ ] PostGIS binaries on each tenant data Postgres; `EnsureDataTables` runs `CREATE EXTENSION`
+- [ ] `pg_stat_statements` on tenant data Postgres when `PG_STAT_STATEMENTS=true`; `EnsureDataTables` runs `CREATE EXTENSION`
 
 ## Overload / calc / cache / security
 

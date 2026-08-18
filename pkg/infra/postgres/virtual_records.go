@@ -71,7 +71,6 @@ func EnsureDataTables(ctx context.Context, pool *pgxpool.Pool, tables DataTables
 	}
 	fnIdent := pgx.Identifier{fnName}.Sanitize()
 	trgIdent := pgx.Identifier{trgName}.Sanitize()
-	_, _ = pool.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS postgis`)
 	_, _ = pool.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS pg_stat_statements`)
 	stmts := []string{
 		`CREATE EXTENSION IF NOT EXISTS "pgcrypto"`,

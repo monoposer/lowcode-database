@@ -81,11 +81,13 @@ func (s *Data) CreateRow(ctx context.Context, req *CreateRowRequest) (*CreateRow
 		recordID, tenantID, vtID, payload); err != nil {
 		return nil, err
 	}
-	if err := s.persistLinks(ctx, pool, tenantID, tableName, recordID, allCols, linkMap); err != nil {
+	peers, err := s.persistLinks(ctx, pool, tenantID, tableName, recordID, allCols, linkMap)
+	if err != nil {
 		return nil, err
 	}
 	meta := s.B.Tenants.MetaPool()
 	_ = calc.EnqueueAfterUserEdit(ctx, meta, pool, tenantID, tableName, recordID, changedKeys(dataMap), len(linkMap) > 0)
+	enqueueLinkPeers(ctx, pool, tenantID, tableName, recordID, peers)
 
 	pending, _ := calc.HasPending(ctx, pool, recordID)
 	resp := &CreateRowResponse{
@@ -168,10 +170,12 @@ func (s *Data) UpdateRow(ctx context.Context, req *UpdateRowRequest) (*UpdateRow
 	if tag.RowsAffected() == 0 {
 		return nil, fmt.Errorf("row not found or version conflict")
 	}
-	if err := s.persistLinks(ctx, pool, tenantID, tableName, req.RowId, allCols, linkMap); err != nil {
+	peers, err := s.persistLinks(ctx, pool, tenantID, tableName, req.RowId, allCols, linkMap)
+	if err != nil {
 		return nil, err
 	}
 	_ = calc.EnqueueAfterUserEdit(ctx, s.B.Tenants.MetaPool(), pool, tenantID, tableName, req.RowId, changedKeys(patch), len(linkMap) > 0)
+	enqueueLinkPeers(ctx, pool, tenantID, tableName, req.RowId, peers)
 
 	pending, _ := calc.HasPending(ctx, pool, req.RowId)
 	links, _ := calc.LinksByRecords(ctx, pool, tenantID, []string{req.RowId})
@@ -202,6 +206,7 @@ func (s *Data) DeleteRow(ctx context.Context, req *DeleteRowRequest) (*DeleteRow
 	}
 	tableName := req.TableName
 	incoming, _ := calc.ListIncoming(ctx, pool, tenantID, req.RowId)
+	outgoing, _ := calc.ListOutgoing(ctx, pool, tenantID, req.RowId)
 	tbl := tables.QRecord()
 	del := fmt.Sprintf(`DELETE FROM %s WHERE record_id = $1`, tbl)
 	del, delArgs, _ := postgres.AndWhere(del, []any{req.RowId}, 2,
@@ -220,6 +225,16 @@ func (s *Data) DeleteRow(ctx context.Context, req *DeleteRowRequest) (*DeleteRow
 		}
 		seen[e.FromRecordID] = true
 		_ = calc.Enqueue(ctx, pool, tenantID, e.FromTableName, e.FromRecordID, nil)
+	}
+	for _, e := range outgoing {
+		if e.ToTableName == "" || e.ToRecordID == "" || e.ToRecordID == req.RowId {
+			continue
+		}
+		if seen[e.ToRecordID] {
+			continue
+		}
+		seen[e.ToRecordID] = true
+		_ = calc.Enqueue(ctx, pool, tenantID, e.ToTableName, e.ToRecordID, nil)
 	}
 	s.B.EmitEvent(ctx, event.RecordsAfterDelete, tableName, map[string]any{"rowId": req.RowId})
 	return &DeleteRowResponse{}, nil
@@ -264,19 +279,19 @@ func (s *Data) executeVRQuery(ctx context.Context, spec querySpec) (*QueryRowsRe
 		pageSize = min32(pageSize, maxScan)
 	}
 
-	where := `vt_id = $1 AND tenant_id = $2`
+	where := vrRecordAlias + `.vt_id = $1 AND ` + vrRecordAlias + `.tenant_id = $2`
 	args := []any{vtID, tenantID}
 	argN := 3
 
 	if spec.PageToken != "" {
-		where += fmt.Sprintf(` AND record_id > $%d`, argN)
+		where += fmt.Sprintf(` AND %s.record_id > $%d`, vrRecordAlias, argN)
 		args = append(args, spec.PageToken)
 		argN++
 	}
 
 	if spec.Filter != nil {
 		filterCols := vrFilterColumns(physCols, allCols)
-		preds, err := vrFilterSQL(spec.Filter, filterCols, &argN, &args)
+		preds, err := vrFilterSQLOn(spec.Filter, filterCols, tables.QLinkRef(), &argN, &args)
 		if err != nil {
 			return nil, err
 		}
@@ -286,10 +301,11 @@ func (s *Data) executeVRQuery(ctx context.Context, spec querySpec) (*QueryRowsRe
 	}
 
 	tbl := tables.QRecord()
-	order := ` ORDER BY record_id`
+	from := tbl + " " + vrRecordAlias
+	order := ` ORDER BY ` + vrRecordAlias + `.record_id`
 	countLimitArg := argN
 	countArgs := append(append([]any{}, args...), maxScan)
-	countSQL := fmt.Sprintf(`SELECT COUNT(*) FROM (SELECT 1 FROM %s WHERE %s LIMIT $%d) _scan_cap`, tbl, where, countLimitArg)
+	countSQL := fmt.Sprintf(`SELECT COUNT(*) FROM (SELECT 1 FROM %s WHERE %s LIMIT $%d) _scan_cap`, from, where, countLimitArg)
 
 	var total int32
 	if err := pool.QueryRow(ctx, countSQL, countArgs...).Scan(&total); err != nil {
@@ -299,8 +315,8 @@ func (s *Data) executeVRQuery(ctx context.Context, spec querySpec) (*QueryRowsRe
 	limitArg := argN
 	queryArgs := append(append([]any{}, args...), pageSize+1)
 	selectSQL := fmt.Sprintf(`
-		SELECT record_id, data, version, created_at, updated_at FROM %s WHERE %s%s LIMIT $%d`,
-		tbl, where, order, limitArg)
+		SELECT %s.record_id, %s.data, %s.version, %s.created_at, %s.updated_at FROM %s WHERE %s%s LIMIT $%d`,
+		vrRecordAlias, vrRecordAlias, vrRecordAlias, vrRecordAlias, vrRecordAlias, from, where, order, limitArg)
 
 	rows, err := pool.Query(ctx, selectSQL, queryArgs...)
 	if err != nil {
@@ -371,19 +387,6 @@ func cellsToNativeMap(cells map[string]*shared.Value, cols []shared.ColumnMeta) 
 		out[k] = shared.ValueToAnyForColumn(v, "")
 	}
 	return out
-}
-
-func ftsQuery(q string) string {
-	parts := strings.Fields(q)
-	if len(parts) == 0 {
-		return ""
-	}
-	for i, p := range parts {
-		p = strings.ReplaceAll(p, "'", "")
-		p = strings.ReplaceAll(p, ":", "")
-		parts[i] = p
-	}
-	return strings.Join(parts, " & ")
 }
 
 func (s *Data) GetRow(ctx context.Context, req *GetRowRequest) (*GetRowResponse, error) {

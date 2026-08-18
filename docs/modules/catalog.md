@@ -29,7 +29,7 @@ typeId resolution order: pgType → columnType
 
 **Path:** `internal/columntype`
 
-Canonical: `text`, `number`, `datetime`, `boolean`, `jsonb`, `point`, virtual kinds `formula` / `link` / `lookup` / `rollup`.
+Canonical: `text`, `number`, `datetime`, `boolean`, `jsonb`, virtual kinds `formula` / `link` / `lookup` / `rollup`.
 
 **Arrays** are a property of tenant **columnTypes** (`spec.array`), not column `config`. `spec.pgType` must be one of `text` | `number` | `datetime` | `boolean` | `jsonb`. Create separate types for SELECT vs MULTI_SELECT:
 

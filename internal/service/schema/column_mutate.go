@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"time"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/monoposer/lowcode-database/internal/columntype"
 	"github.com/monoposer/lowcode-database/internal/event"
 	formulacompile "github.com/monoposer/lowcode-database/internal/formula"
+	"github.com/monoposer/lowcode-database/internal/service/calc"
 	"github.com/monoposer/lowcode-database/internal/service/catalog"
 	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
@@ -89,6 +91,7 @@ func (s *Schema) AddColumn(ctx context.Context, req *Column) (*Column, error) {
 	if tgt := shared.CfgString(c.Config, "target_table_name"); tgt != "" && tgt != tableKey {
 		s.B.InvalidateTableMetaCache(ctx, tgt)
 	}
+	s.enqueueCalcBackfill(ctx, tenantID, tableKey, &c)
 	s.B.EmitEvent(ctx, event.MetadataColumnCreated, tableKey, map[string]any{"column": columnToMap(&c)})
 	return &c, nil
 }
@@ -267,6 +270,7 @@ func (s *Schema) UpdateColumn(ctx context.Context, req *Column, isNullable *bool
 	}
 	PublicColumn(&c)
 	s.B.InvalidateTableMetaCache(ctx, c.TableName)
+	s.enqueueCalcBackfill(ctx, tenantID, c.TableName, &c)
 	s.B.EmitEvent(ctx, event.MetadataColumnUpdated, c.TableName, map[string]any{"column": columnToMap(&c)})
 	return &c, nil
 }
@@ -319,6 +323,38 @@ func (s *Schema) normalizeUpdateColumnConfig(
 		}
 	}
 	return cfgArg, nil
+}
+
+func needsCalcBackfill(typeID string) bool {
+	switch columntype.Kind(typeID) {
+	case "formula", "lookup", "rollup":
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Schema) enqueueCalcBackfill(ctx context.Context, tenantID, tableName string, c *Column) {
+	if s == nil || s.B == nil || s.B.Tenants == nil || c == nil || !needsCalcBackfill(c.TypeId) {
+		return
+	}
+	ctx, _, err := s.B.Tenants.AttachDataTables(ctx)
+	if err != nil {
+		return
+	}
+	pool, err := s.B.Tenants.DataPool(ctx)
+	if err != nil {
+		return
+	}
+	baseID, err := s.B.BaseID(ctx)
+	if err != nil {
+		return
+	}
+	vtID, err := s.B.Tenants.TableVTID(ctx, tenantID, baseID, tableName)
+	if err != nil {
+		return
+	}
+	_ = calc.EnqueueTable(ctx, pool, tenantID, tableName, vtID, []string{c.Name})
 }
 
 func (s *Schema) applyPhysicalColumnChanges(

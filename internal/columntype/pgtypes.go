@@ -15,7 +15,6 @@ var canonicalPgTypes = []PgTypeEntry{
 	{ID: "datetime", Name: "datetime", PgType: "timestamptz", Category: CategoryScalar, Description: "Timestamp with time zone"},
 	{ID: "boolean", Name: "boolean", PgType: "boolean", Category: CategoryScalar},
 	{ID: "jsonb", Name: "jsonb", PgType: "jsonb", Category: CategoryScalar},
-	{ID: "point", Name: "point", PgType: "geometry(Point,4326)", Category: CategoryScalar, Description: "PostGIS point"},
 	{ID: "formula", Name: "formula", Category: CategoryVirtual, Kind: "formula"},
 	{ID: "link", Name: "link", Category: CategoryVirtual, Kind: "link"},
 	{ID: "lookup", Name: "lookup", Category: CategoryVirtual, Kind: "lookup"},

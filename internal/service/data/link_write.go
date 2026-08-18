@@ -10,22 +10,48 @@ import (
 	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
-func (s *Data) persistLinks(ctx context.Context, pool *pgxpool.Pool, tenantID, tableName, recordID string, cols []shared.FullColumnMeta, links map[string][]string) error {
+type linkPeer struct {
+	TableName string
+	RecordID  string
+}
+
+func (s *Data) persistLinks(ctx context.Context, pool *pgxpool.Pool, tenantID, tableName, recordID string, cols []shared.FullColumnMeta, links map[string][]string) ([]linkPeer, error) {
 	if len(links) == 0 {
-		return nil
+		return nil, nil
 	}
 	tx, err := pool.Begin(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer tx.Rollback(ctx)
-	if err := persistLinksTx(ctx, tx, tenantID, tableName, recordID, cols, links); err != nil {
-		return err
+	peers, err := persistLinksTx(ctx, tx, tenantID, tableName, recordID, cols, links)
+	if err != nil {
+		return nil, err
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return peers, nil
 }
 
-func persistLinksTx(ctx context.Context, tx pgx.Tx, tenantID, tableName, recordID string, cols []shared.FullColumnMeta, links map[string][]string) error {
+func persistLinksTx(ctx context.Context, tx pgx.Tx, tenantID, tableName, recordID string, cols []shared.FullColumnMeta, links map[string][]string) ([]linkPeer, error) {
+	seen := map[string]struct{}{}
+	var peers []linkPeer
+	addPeer := func(table, id string) {
+		id = trimLinkID(id)
+		if table == "" || id == "" {
+			return
+		}
+		if id == recordID && table == tableName {
+			return
+		}
+		key := table + "\x00" + id
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		peers = append(peers, linkPeer{TableName: table, RecordID: id})
+	}
 	for fieldRef, ids := range links {
 		col, ok := linkFieldMeta(cols, fieldRef)
 		if !ok {
@@ -37,8 +63,17 @@ func persistLinksTx(ctx context.Context, tx pgx.Tx, tenantID, tableName, recordI
 		}
 		fieldKey := col.Name
 		oldIDs, _ := calc.ListToIDs(ctx, tx, tenantID, recordID, fieldKey)
+		for _, id := range oldIDs {
+			addPeer(toTable, id)
+		}
+		if linkCardinality(col) == "one" && len(ids) > 1 {
+			ids = ids[:1]
+		}
+		for _, id := range ids {
+			addPeer(toTable, id)
+		}
 		if err := calc.ReplaceLinks(ctx, tx, tenantID, tableName, recordID, fieldKey, toTable, ids); err != nil {
-			return err
+			return nil, err
 		}
 		if !shared.CfgBool(col.Config, "bidirectional") {
 			continue
@@ -48,7 +83,7 @@ func persistLinksTx(ctx context.Context, tx pgx.Tx, tenantID, tableName, recordI
 			continue
 		}
 		if err := calc.DeleteInverseForField(ctx, tx, tenantID, inv, oldIDs, recordID); err != nil {
-			return err
+			return nil, err
 		}
 		invCard := stringsToCard(shared.CfgString(col.Config, "inverse_cardinality"))
 		if invCard == "" {
@@ -60,27 +95,39 @@ func persistLinksTx(ctx context.Context, tx pgx.Tx, tenantID, tableName, recordI
 				continue
 			}
 			if invCard == "one" {
-				// Teable ManyOne inverse: reassign child → this parent and detach from other parents' many field.
 				oldParents, _ := calc.ListToIDs(ctx, tx, tenantID, toID, inv)
 				if err := calc.ReplaceLinks(ctx, tx, tenantID, toTable, toID, inv, tableName, []string{recordID}); err != nil {
-					return err
+					return nil, err
 				}
 				for _, oldParent := range oldParents {
+					addPeer(tableName, oldParent)
 					if oldParent == recordID {
 						continue
 					}
 					if err := calc.DeleteEdge(ctx, tx, tenantID, oldParent, fieldKey, toID); err != nil {
-						return err
+						return nil, err
 					}
 				}
 				continue
 			}
 			if err := calc.InsertInverse(ctx, tx, tenantID, tableName, recordID, inv, toTable, toID); err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}
-	return nil
+	return peers, nil
+}
+
+func enqueueLinkPeers(ctx context.Context, pool *pgxpool.Pool, tenantID, selfTable, selfID string, peers []linkPeer) {
+	for _, p := range peers {
+		if p.TableName == "" || p.RecordID == "" {
+			continue
+		}
+		if p.TableName == selfTable && p.RecordID == selfID {
+			continue
+		}
+		_ = calc.Enqueue(ctx, pool, tenantID, p.TableName, p.RecordID, nil)
+	}
 }
 
 func stringsToCard(s string) string {

@@ -1,12 +1,12 @@
 package data
 
 import (
-	"github.com/monoposer/lowcode-database/internal/service/platform"
 	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"github.com/monoposer/lowcode-database/internal/dsl"
+	"github.com/monoposer/lowcode-database/internal/service/platform"
 	"github.com/monoposer/lowcode-database/internal/service/shared"
 	"github.com/monoposer/lowcode-database/pkg/tenant"
 	"strings"
@@ -16,7 +16,7 @@ import (
 func (s *Data) QueryRows(ctx context.Context, req *QueryRowsRequest) (*QueryRowsResponse, error) {
 	ctx = withReadConsistency(ctx, req.Consistency)
 	spec := querySpec{
-		TableName:   req.TableName,
+		TableName: req.TableName,
 		Filter:    req.Filter,
 		Sort:      req.Sort,
 		ColumnIds: req.ColumnIds,
@@ -56,7 +56,7 @@ func (s *Data) ExecuteQuery(ctx context.Context, req *platform.ExecuteQueryReque
 		return nil, err
 	}
 	resp, err := s.executeQuery(ctx, querySpec{
-		TableName:        ds.TableName,
+		TableName:      ds.TableName,
 		Filter:         mergeFilters(baseFilter, req.Filter),
 		Sort:           ds.Sort,
 		ColumnIds:      colIds,
@@ -131,9 +131,9 @@ func (s *Data) SearchRows(ctx context.Context, req *SearchRowsRequest) (*SearchR
 	if q == "" {
 		return nil, fmt.Errorf("query is required")
 	}
-	filter := map[string]any{"field": "_fulltext_text", "op": "fts", "value": q}
+	filter := map[string]any{"type": "FTS", "attr": "_fulltext_text", "val": q}
 	if req.Filter != nil {
-		filter = map[string]any{"op": "and", "children": []any{filter, req.Filter}}
+		filter = mergeFilters(filter, req.Filter)
 	}
 	qresp, err := s.QueryRows(ctx, &QueryRowsRequest{
 		TableName: req.TableName, Filter: filter, PageSize: req.PageSize, PageToken: req.PageToken,

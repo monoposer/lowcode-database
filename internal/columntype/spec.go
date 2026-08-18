@@ -56,7 +56,7 @@ type ColumnTypeMetadata struct {
 // ColumnTypeSpec is the definition of a tenant column type (underlying pgType + CHECKs).
 type ColumnTypeSpec struct {
 	// PgType is the underlying built-in scalar id: text|number|datetime|boolean|jsonb.
-	// Not point/virtual, and not raw SQL.
+	// Not virtual, and not raw SQL.
 	PgType    string      `json:"pgType"`
 	Array     bool        `json:"array,omitempty"` // true → logical PG array (e.g. text[])
 	Precision *int        `json:"precision,omitempty"`

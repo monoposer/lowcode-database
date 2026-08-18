@@ -30,12 +30,14 @@ Tenant shards: [virtual-records.md](virtual-records.md) (`record` evolved from `
 - **List**: read `record.data` cache; batch-check `calc_queue status=0`; expose row-level `pending` as “updating”.
 - **Detail** `GET /v1/data/tables/{id}/rows/{rowId}`: compute DAG live; if it differs from cache and there is no pending, enqueue only — do not mutate the record.
 - Eventually consistent; no cross-row strong consistency.
+- Adding or updating a `formula` / `lookup` / `rollup` column enqueues every existing row of that table so list cache is backfilled.
+- Creating or changing a Link enqueues this row plus old and new related rows (so parent rollups and child lookups refresh). Deleting a row enqueues both incoming and outgoing peers.
 
 ## Read / write
 
 1. User changes a scalar field → update `record.data` + `version` → enqueue DAG downstream into `calc_queue`.
-2. User changes a Link → update `link_ref` only (two rows if bidirectional) → enqueue this record.
-3. Remote record change → reverse-lookup `from_record_id` on `link_ref` and batch-enqueue (lookup fan-out; rollup usually fans out 1).
+2. User changes a Link → update `link_ref` only (two rows if bidirectional) → enqueue this record **and** old/new related records.
+3. Remote record change → reverse-lookup `from_record_id` on `link_ref` and batch-enqueue (lookup fan-out; rollup usually fans out 1). Adding a virtual column enqueues existing rows of that table.
 4. Worker: `SELECT … FOR UPDATE SKIP LOCKED` → compute formula/lookup/rollup → **partial** write of data keys + optimistic lock.
 
 ## API planes
@@ -52,6 +54,7 @@ Tenant shards: [virtual-records.md](virtual-records.md) (`record` evolved from `
 - **link**: `to_table_name` (or `target_table_name`), `bidirectional` (default true for pure `link_ref`), `inverse_field_id` / `inverse_field_name`, `cardinality`, `inverse_cardinality`
   - Creating a two-way link auto-creates the symmetric field on the target table (Teable-style), e.g. `order.order_items` (many) ↔ `order_items.order` (one).
   - Row writes update both `link_ref` directions when `bidirectional` is set.
+  - Cell shape: `cardinality=one` (many-to-one) is a single id string; `cardinality=many` (one-to-many) is an id array.
 - **formula**: `expression`, `deps` (may be inferred from `{{col}}`)
 - **lookup**: `link_field_id` / `relation_column_id`, `target_field_id` / `target_column_id`
 - **rollup**: same + `aggregation` / `aggregate` (`sum`|`count`|`max`|`min`|`avg`)

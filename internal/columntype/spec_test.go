@@ -17,7 +17,7 @@ func TestValidateColumnType_rejectsBuiltinName(t *testing.T) {
 }
 
 func TestCanonicalPgTypes(t *testing.T) {
-	want := []string{"text", "number", "datetime", "boolean", "jsonb", "point", "formula", "link", "lookup", "rollup"}
+	want := []string{"text", "number", "datetime", "boolean", "jsonb", "formula", "link", "lookup", "rollup"}
 	got := columntype.ListPgTypes()
 	if len(got) != len(want) {
 		t.Fatalf("len=%d want %d", len(got), len(want))

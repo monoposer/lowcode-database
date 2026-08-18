@@ -7,6 +7,7 @@ export type FilterOp =
   | 'GTE'
   | 'LT'
   | 'LTE'
+  | 'BETWEEN'
   | 'LIKE'
   | 'IN'
   | 'NIN'
@@ -25,6 +26,8 @@ export type FilterCondition = {
   op: FilterOp
   /** Raw string from UI; coerced when building DSL */
   val: string
+  /** Range end for BETWEEN */
+  val2?: string
 }
 
 export type FilterGroup = {
@@ -38,6 +41,8 @@ export type FilterOpDef = {
   needsValue: boolean
   /** Comma-separated list for IN / NIN */
   listValue?: boolean
+  /** Two bounds for BETWEEN */
+  rangeValue?: boolean
 }
 
 const COMMON: FilterOpDef[] = [
@@ -62,7 +67,20 @@ const COMPARABLE_OPS: FilterOpDef[] = [
   { op: 'LTE', label: '≤', needsValue: true },
 ]
 
+const DATETIME_OPS: FilterOpDef[] = [
+  ...COMPARABLE_OPS,
+  { op: 'BETWEEN', label: 'between', needsValue: true, rangeValue: true },
+]
+
 const BOOL_OPS: FilterOpDef[] = [{ op: 'EQ', label: 'is', needsValue: true }]
+
+const LINK_OPS: FilterOpDef[] = [
+  { op: 'ARRAY_HAS', label: 'contains', needsValue: true },
+  { op: 'ARRAY_NOT_HAS', label: 'does not contain', needsValue: true },
+  { op: 'ARRAY_OVERLAP', label: 'contains any of', needsValue: true, listValue: true },
+  { op: 'EMPTY', label: 'is empty', needsValue: false },
+  { op: 'NOT_EMPTY', label: 'is not empty', needsValue: false },
+]
 
 const ARRAY_OPS: FilterOpDef[] = [
   { op: 'ARRAY_HAS', label: 'has', needsValue: true },
@@ -164,16 +182,17 @@ export function filterOpsForType(
   resultTypeId?: string,
   isArray?: boolean,
 ): FilterOpDef[] {
+  if (typeId === 'link') return LINK_OPS
   if (isArray) return ARRAY_OPS
   const t = effectiveFilterTypeId(typeId, expression, resultTypeId)
   if (t === 'boolean') return BOOL_OPS
   if (t === 'number') return COMPARABLE_OPS
-  if (DATETIME_TYPE_IDS.has(t)) return COMPARABLE_OPS
+  if (DATETIME_TYPE_IDS.has(t)) return DATETIME_OPS
   return TEXT_OPS
 }
 
-export function newFilterCondition(attr = '', isArray = false): FilterCondition {
-  const op = isArray ? 'ARRAY_HAS' : 'EQ'
+export function newFilterCondition(attr = '', isArray = false, typeId?: string): FilterCondition {
+  const op = isArray || typeId === 'link' ? 'ARRAY_HAS' : 'EQ'
   return { id: crypto.randomUUID(), attr, op, val: '' }
 }
 
@@ -233,9 +252,21 @@ export function buildFilterDSL(
       nodes.push({ type: c.op, attr: c.attr })
       continue
     }
-    if (!c.val.trim()) continue
 
     const expr = columnExpressions?.[c.attr]
+    if (def.rangeValue) {
+      if (!c.val.trim() || !c.val2?.trim()) continue
+      nodes.push({
+        type: c.op,
+        attr: c.attr,
+        val: [
+          coerceScalar(c.val, typeId, expr, resultTypeId),
+          coerceScalar(c.val2, typeId, expr, resultTypeId),
+        ],
+      })
+      continue
+    }
+    if (!c.val.trim()) continue
     if (def.listValue || c.op === 'ARRAY_OVERLAP' || c.op === 'ARRAY_NOT_OVERLAP' || c.op === 'ARRAY_CONTAINS' || c.op === 'ARRAY_NOT_CONTAINS') {
       nodes.push({ type: c.op, attr: c.attr, val: parseList(c.val, typeId, expr, resultTypeId) })
     } else {

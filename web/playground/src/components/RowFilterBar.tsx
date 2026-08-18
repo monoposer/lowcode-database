@@ -44,7 +44,7 @@ export function RowFilterBar({
     const ops = filterOpsForColumn(col ?? { name: attr, typeId: 'text' })
     const cur = value.conditions.find((c) => c.id === id)
     const op = ops.some((o) => o.op === cur?.op) ? cur!.op : ops[0].op
-    updateCondition(id, { attr, op, val: '' })
+    updateCondition(id, { attr, op, val: '', val2: '' })
   }
 
   const onOpChange = (id: string, attr: string, op: FilterGroup['conditions'][0]['op']) => {
@@ -64,7 +64,12 @@ export function RowFilterBar({
       col?.typeId,
     )
     const nextKind = filterValueInputKind(filterType, op, opDef.listValue, col?.typeId)
-    updateCondition(id, { op, val: prevKind === nextKind ? (cur?.val ?? '') : '' })
+    const keep = prevKind === nextKind
+    updateCondition(id, {
+      op,
+      val: keep ? (cur?.val ?? '') : '',
+      val2: op === 'BETWEEN' && keep ? (cur?.val2 ?? '') : '',
+    })
   }
 
   const columnOptions = useMemo(() => columnSelectOptions(columns), [columns])
@@ -105,7 +110,7 @@ export function RowFilterBar({
               const isArray = columns[0]?.isArray === true
               onChange({
                 ...value,
-                conditions: [...value.conditions, newFilterCondition(first, isArray)],
+                conditions: [...value.conditions, newFilterCondition(first, isArray, columns[0]?.typeId)],
               })
             }}
           >
@@ -166,6 +171,25 @@ export function RowFilterBar({
                       )
                     }
                     if (inputKind === 'datetime') {
+                      if (opDef.rangeValue) {
+                        return (
+                          <div className="filter-value-range">
+                            <input
+                              type={dateTimeInputType(filterType)}
+                              aria-label="Filter from"
+                              value={cond.val}
+                              onChange={(e) => updateCondition(cond.id, { val: e.target.value })}
+                            />
+                            <span className="filter-value-range-sep">–</span>
+                            <input
+                              type={dateTimeInputType(filterType)}
+                              aria-label="Filter to"
+                              value={cond.val2 ?? ''}
+                              onChange={(e) => updateCondition(cond.id, { val2: e.target.value })}
+                            />
+                          </div>
+                        )
+                      }
                       return (
                         <input
                           type={dateTimeInputType(filterType)}

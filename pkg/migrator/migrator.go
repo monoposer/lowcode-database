@@ -35,7 +35,7 @@ func ApplyWithConfig(ctx context.Context, databaseURL string, fsys fs.FS, sessio
 }
 
 // ApplyResult is Apply plus the list of files executed. Fails before DDL if
-// required extensions are not available on the server (e.g. PostGIS missing).
+// required extensions are not available on the server.
 func ApplyResult(ctx context.Context, databaseURL string, fsys fs.FS, sessionConfig map[string]string) (Result, error) {
 	var out Result
 	if databaseURL == "" {

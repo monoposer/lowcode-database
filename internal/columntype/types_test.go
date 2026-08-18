@@ -52,8 +52,17 @@ func TestNoEnumBuiltInType(t *testing.T) {
 	}
 }
 
+func TestNoPointBuiltInType(t *testing.T) {
+	if columntype.IsBuiltIn("point") {
+		t.Fatal("point should not be a built-in column type")
+	}
+	if _, err := columntype.Resolve("point"); err == nil {
+		t.Fatal("expected Resolve(point) to fail")
+	}
+}
+
 func TestListNonEmpty(t *testing.T) {
-	if len(columntype.List()) != 10 {
-		t.Fatalf("expected 10 built-in types, got %d", len(columntype.List()))
+	if len(columntype.List()) != 9 {
+		t.Fatalf("expected 9 built-in types, got %d", len(columntype.List()))
 	}
 }

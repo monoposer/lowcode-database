@@ -10,9 +10,12 @@ import (
 // ColumnPgTypeSQL returns PostgreSQL type SQL for a column (built-in pgType or columnType).
 // Array-ness comes from columnType Spec.Array, not from column config.
 func (s *Catalog) ColumnPgTypeSQL(ctx context.Context, tid, typeID string, cfg map[string]any) string {
-	_ = cfg
-	if _, err := columntype.Resolve(typeID); err == nil {
-		t, _ := columntype.Get(typeID)
+	if t, err := columntype.Resolve(typeID); err == nil {
+		if t.Kind != "" {
+			if pg := shared.VirtualColumnPgType(typeID, cfg); pg != "" {
+				return pg
+			}
+		}
 		return shared.EffectivePgType(t.PgType, t.Config)
 	}
 	ct, err := s.loadColumnType(ctx, tid, typeID)

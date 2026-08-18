@@ -146,7 +146,7 @@ func ResolveUnderlyingPgType(pgType string, precision, scale *int) (string, erro
 		return "", fmt.Errorf("pgType is empty")
 	}
 	if strings.Contains(pgType, " ") || strings.HasSuffix(pgType, "[]") ||
-		strings.HasPrefix(pgType, "numeric(") || strings.HasPrefix(pgType, "geometry") {
+		strings.HasPrefix(pgType, "numeric(") {
 		return pgType, nil
 	}
 	if bt, ok := GetPgType(pgType); ok {

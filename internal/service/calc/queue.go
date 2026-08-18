@@ -33,6 +33,35 @@ func Enqueue(ctx context.Context, pool *pgxpool.Pool, tenantID, tableName, recor
 	return err
 }
 
+// EnqueueTable queues calc for every row of a logical table (virtual column add/update backfill).
+// Existing pending jobs on that table are widened to a full-field recalc so the new column is included.
+func EnqueueTable(ctx context.Context, pool *pgxpool.Pool, tenantID, tableName, vtID string, fieldIDs []string) error {
+	if pool == nil || tenantID == "" || tableName == "" || vtID == "" {
+		return nil
+	}
+	q := qTbl(ctx)
+	rec := postgres.TablesFromContext(ctx).QRecord()
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s SET target_field_ids = NULL
+		WHERE tenant_id = $1 AND table_name = $2 AND status = 0`, q), tenantID, tableName); err != nil {
+		return err
+	}
+	var ids any
+	if len(fieldIDs) > 0 {
+		ids = fieldIDs
+	}
+	_, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s (tenant_id, table_name, record_id, target_field_ids, status, next_run_at)
+		SELECT $1, $2, r.record_id, $3, 0, now()
+		FROM %s r
+		WHERE r.tenant_id = $1 AND r.vt_id = $4::uuid
+		  AND NOT EXISTS (
+			SELECT 1 FROM %s q
+			WHERE q.tenant_id = r.tenant_id AND q.record_id = r.record_id AND q.status = 0
+		  )`, q, rec, q), tenantID, tableName, ids, vtID)
+	return err
+}
+
 // EnqueueMany fans out with per-record dedup.
 func EnqueueMany(ctx context.Context, pool *pgxpool.Pool, jobs []Task) error {
 	for _, j := range jobs {

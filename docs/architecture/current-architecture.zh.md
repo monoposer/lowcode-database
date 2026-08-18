@@ -49,7 +49,7 @@ cmd/migrate   ← 一次性 CLI，对 meta + 各 data DSN apply SQL；服务不�
 | **Meta** | `META_DATABASE_URL` | `tenants`、`lc_bases`、表/列/索引/关系/Query、column types、API Key、webhooks |
 | **Data** | `tenants.data_dsn`（可另配 write/reads） | `record` / `link_ref` / `calc_queue`（+ dedicated 前缀表） |
 
-Data 侧扩展（PostGIS、`pg_stat_statements`）与**行父表由运行时 DDL 创建**（`pkg/infra/postgres/virtual_records.go`）。`cmd/migrate` 只迁 meta。
+Data 侧扩展（`pg_stat_statements`）与**行父表由运行时 DDL 创建**（`pkg/infra/postgres/virtual_records.go`）。`cmd/migrate` 只迁 meta。
 
 ### 3.2 身份层级
 

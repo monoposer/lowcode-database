@@ -6,10 +6,7 @@
 
 services:
   postgres:
-    # PostGIS bundled (geometry/geography/point). Official image is amd64-only;
-    # pin platform so Apple Silicon pulls via emulation instead of failing the manifest.
-    image: postgis/postgis:16-3.5
-    platform: linux/amd64
+    image: postgres:16
     container_name: lowcode-postgres
     environment:
       POSTGRES_USER: postgres

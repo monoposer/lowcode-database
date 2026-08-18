@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AgGridReact } from 'ag-grid-react'
+import type { CustomCellEditorProps, CustomCellRendererProps } from 'ag-grid-react'
 import {
   AllCommunityModule,
   ModuleRegistry,
@@ -51,7 +52,13 @@ import { ColumnPicker } from './components/ColumnPicker'
 import { RowFilterBar } from './components/RowFilterBar'
 import { ArrayInput } from './components/ArrayInput'
 import { FormulaEditor } from './components/FormulaEditor'
-import { RelationPicker, loadRelationChoices, type RelationChoice } from './components/RelationPicker'
+import {
+  LinkChips,
+  RelationPicker,
+  loadRelationChoices,
+  parseLinkIds,
+  type RelationChoice,
+} from './components/RelationPicker'
 import {
   IconDatabase,
   IconPlus,
@@ -94,6 +101,33 @@ function isScalarType(t: ColType) {
 
 function isTableIdType(t: ColType) {
   return t.id === 'text' || t.id === 'number'
+}
+
+type LinkCellParams = {
+  choices?: RelationChoice[]
+  tableName?: string
+  many?: boolean
+  opts?: ApiOpts
+}
+
+function LinkChipsRenderer(p: CustomCellRendererProps) {
+  const params = (p.colDef?.cellRendererParams || {}) as LinkCellParams
+  return <LinkChips ids={parseLinkIds(formatCell(p.value))} choices={params.choices || []} />
+}
+
+function LinkCellEditor(p: CustomCellEditorProps) {
+  const params = (p.colDef?.cellEditorParams || {}) as LinkCellParams
+  return (
+    <div className="link-cell-editor">
+      <RelationPicker
+        tableName={params.tableName || ''}
+        many={!!params.many}
+        value={String(p.value ?? '')}
+        onChange={(v) => p.onValueChange?.(v)}
+        opts={params.opts || {}}
+      />
+    </div>
+  )
 }
 
 async function loadPhysicalColumns(tableName: string, opts: ApiOpts): Promise<Column[]> {
@@ -635,6 +669,12 @@ export default function App() {
         if (!ids.length) return ''
         return ids.map((id) => choices.find((x) => x.id === id)?.label || id).join(', ')
       }
+      const linkParams: LinkCellParams = {
+        choices,
+        tableName: relationshipTargetTable(c),
+        many,
+        opts,
+      }
       defs.push({
         colId: c.name,
         headerComponent: ColumnHeader,
@@ -646,14 +686,18 @@ export default function App() {
         },
         field: c.name,
         flex: 1,
-        minWidth: Math.max(140, c.name.length * 8 + (label ? label.length * 10 : 0)),
+        minWidth: isLink ? 220 : Math.max(140, c.name.length * 8 + (label ? label.length * 10 : 0)),
         wrapHeaderText: true,
         autoHeaderHeight: true,
+        wrapText: isLink,
+        autoHeight: isLink,
         editable: isWritableColumn(c),
         valueFormatter: (p) => (isLink ? formatLink(p.value) : formatCell(p.value as string | undefined)),
-        cellEditor: isLink && !many ? 'agSelectCellEditor' : undefined,
-        cellEditorParams:
-          isLink && !many ? { values: ['', ...choices.map((x) => x.id)] } : undefined,
+        cellRenderer: isLink ? LinkChipsRenderer : undefined,
+        cellRendererParams: isLink ? linkParams : undefined,
+        cellEditor: isLink ? LinkCellEditor : undefined,
+        cellEditorParams: isLink ? linkParams : undefined,
+        cellEditorPopup: isLink,
         cellClass: isComputedColumn(c)
           ? 'computed-cell'
           : isWritableColumn(c)
@@ -662,7 +706,7 @@ export default function App() {
       })
     }
     return defs
-  }, [columns, relationChoices])
+  }, [columns, relationChoices, opts])
 
   const run = async (fn: () => Promise<void>) => {
     setErr(null)
@@ -1679,9 +1723,9 @@ export default function App() {
                     }
                     if (e.target.value !== 'link') {
                       setNewRelTargetTable('')
-                      setNewRelLinkColumn('')
-                      setNewRelFKColumn('')
-                      setNewRelCardinality('one')
+                      setNewRelInverseName('')
+                      setNewRelBidirectional(true)
+                      setNewRelCardinality('many')
                     }
                   }}
                 >

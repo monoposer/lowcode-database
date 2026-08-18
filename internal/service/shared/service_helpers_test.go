@@ -7,7 +7,7 @@ import (
 func TestNormalizeRelationshipConfigMany(t *testing.T) {
 	cfg, err := NormalizeRelationshipConfig(map[string]any{
 		"target_table_name": "orders",
-		"link_column_id":  "col-uuid",
+		"link_column_id":    "col-uuid",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -19,8 +19,8 @@ func TestNormalizeRelationshipConfigMany(t *testing.T) {
 
 func TestNormalizeRelationshipConfigOne(t *testing.T) {
 	cfg, err := NormalizeRelationshipConfig(map[string]any{
-		"target_table_name":  "vendor",
-		"target_column_id": "fk-col",
+		"target_table_name": "vendor",
+		"target_column_id":  "fk-col",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -77,6 +77,24 @@ func TestValidateRollupConfig(t *testing.T) {
 	}
 	if err := ValidateRollupConfig(map[string]any{"relation_column_id": "rel"}); err == nil {
 		t.Fatal("expected missing aggregate error")
+	}
+}
+
+func TestVirtualColumnPgType(t *testing.T) {
+	if got := VirtualColumnPgType("rollup", nil); got != "numeric" {
+		t.Fatalf("rollup default: %q", got)
+	}
+	if got := VirtualColumnPgType("formula", map[string]any{"expression": "CONCAT({{a}}, {{b}})"}); got != "text" {
+		t.Fatalf("formula concat: %q", got)
+	}
+	if got := VirtualColumnPgType("formula", nil); got != "numeric" {
+		t.Fatalf("formula default: %q", got)
+	}
+	if got := VirtualColumnPgType("lookup", map[string]any{"result_type_id": "datetime"}); got != "timestamptz" {
+		t.Fatalf("lookup datetime: %q", got)
+	}
+	if got := VirtualColumnPgType("link", nil); got != "" {
+		t.Fatalf("link should be empty, got %q", got)
 	}
 }
 

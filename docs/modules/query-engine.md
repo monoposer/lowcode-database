@@ -6,6 +6,15 @@ Query DSL, SQL generation, formula AST evaluation, built-in type registry.
 
 Parse filter DSL → structured filter AST (same shape as saved Query `filter` JSON).
 
+```json
+{"type":"EQ","attr":"name","val":"BBB"}
+{"type":"AND","val":[{"type":"EQ","attr":"status","val":"active"},{"type":"GT","attr":"score","val":10}]}
+{"type":"FTS","val":"hello world"}
+{"type":"IN","attr":"id","val":["rec_1","rec_2"]}
+{"type":"BETWEEN","attr":"created_at","val":["2026-01-01T00:00","2026-12-31T23:59"]}
+{"type":"ARRAY_HAS","attr":"items","val":"98ba2647-ffa2-419f-8c2b-fafac6a449be"}
+```
+
 **Path:** `internal/dsl/dsl.go`, `params.go`
 
 ## internal/query

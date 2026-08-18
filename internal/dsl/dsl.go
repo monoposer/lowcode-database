@@ -9,7 +9,7 @@ import (
 
 // Where is a parsed filter node.
 type Where struct {
-	Type string // AND, OR, EQ, NEQ, IN, NIN, LIKE, GT, GTE, LT, LTE, EMPTY, NOT_EMPTY, ARRAY_HAS, ARRAY_NOT_HAS, ARRAY_OVERLAP, ARRAY_NOT_OVERLAP, ARRAY_CONTAINS, ARRAY_NOT_CONTAINS
+	Type string // AND, OR, EQ, NEQ, IN, NIN, LIKE, GT, GTE, LT, LTE, BETWEEN, EMPTY, NOT_EMPTY, FTS, ARRAY_HAS, ARRAY_NOT_HAS, ARRAY_OVERLAP, ARRAY_NOT_OVERLAP, ARRAY_CONTAINS, ARRAY_NOT_CONTAINS
 	Attr string
 	Val  any
 	Vals []Where
@@ -51,7 +51,10 @@ func parseNode(m map[string]any) (Where, error) {
 	t, _ := m["type"].(string)
 	t = strings.ToUpper(strings.TrimSpace(t))
 	if t == "" {
-		return Where{}, nil
+		if len(m) == 0 {
+			return Where{}, nil
+		}
+		return Where{}, fmt.Errorf("filter requires type")
 	}
 	switch t {
 	case "AND", "OR":
@@ -83,6 +86,16 @@ func parseNode(m map[string]any) (Where, error) {
 			return Where{}, fmt.Errorf("filter %s requires attr", t)
 		}
 		return Where{Type: t, Attr: attr, Val: m["val"]}, nil
+	case "BETWEEN":
+		attr, _ := m["attr"].(string)
+		if attr == "" {
+			return Where{}, fmt.Errorf("filter BETWEEN requires attr")
+		}
+		bounds, err := betweenBounds(m["val"])
+		if err != nil {
+			return Where{}, err
+		}
+		return Where{Type: t, Attr: attr, Val: bounds}, nil
 	case "ARRAY_HAS", "ARRAY_NOT_HAS":
 		attr, _ := m["attr"].(string)
 		if attr == "" {
@@ -102,6 +115,15 @@ func parseNode(m map[string]any) (Where, error) {
 			typ = "NOT_EMPTY"
 		}
 		return Where{Type: typ, Attr: attr}, nil
+	case "FTS":
+		attr, _ := m["attr"].(string)
+		if attr == "" {
+			attr = "_fulltext_text"
+		}
+		if m["val"] == nil || strings.TrimSpace(fmt.Sprint(m["val"])) == "" {
+			return Where{}, fmt.Errorf("filter FTS requires val")
+		}
+		return Where{Type: t, Attr: attr, Val: m["val"]}, nil
 	default:
 		return Where{}, fmt.Errorf("unsupported filter type %q", t)
 	}
@@ -120,4 +142,23 @@ func BuildEqualMap(m map[string]any) Where {
 		return children[0]
 	}
 	return Where{Type: "AND", Vals: children}
+}
+
+func betweenBounds(val any) ([]any, error) {
+	raw, ok := val.([]any)
+	if !ok || len(raw) != 2 {
+		return nil, fmt.Errorf("BETWEEN filter val must be [start, end]")
+	}
+	if emptyFilterVal(raw[0]) || emptyFilterVal(raw[1]) {
+		return nil, fmt.Errorf("BETWEEN filter val must be [start, end]")
+	}
+	return raw, nil
+}
+
+func emptyFilterVal(v any) bool {
+	if v == nil {
+		return true
+	}
+	s, ok := v.(string)
+	return ok && strings.TrimSpace(s) == ""
 }

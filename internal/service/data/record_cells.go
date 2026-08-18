@@ -64,6 +64,50 @@ func linkFieldMeta(cols []shared.FullColumnMeta, ref string) (shared.FullColumnM
 	return shared.FullColumnMeta{}, false
 }
 
+func linkCardinality(c shared.FullColumnMeta) string {
+	return shared.EffectiveRelationshipCardinality(
+		c.Config,
+		shared.CfgString(c.Config, "link_column_id"),
+		shared.CfgString(c.Config, "target_column_id"),
+	)
+}
+
+// linkCellValue: many-to-one → a single id string (or omitted); one-to-many → id array.
+func linkCellValue(c shared.FullColumnMeta, ids []string) *shared.Value {
+	if linkCardinality(c) == "one" {
+		if len(ids) == 0 {
+			return nil
+		}
+		return shared.StringValue(ids[0])
+	}
+	if ids == nil {
+		ids = []string{}
+	}
+	return shared.JsonValue(ids)
+}
+
+func mergeLinkIDs(a, b []string) []string {
+	if len(b) == 0 {
+		return a
+	}
+	if len(a) == 0 {
+		return b
+	}
+	seen := map[string]struct{}{}
+	var out []string
+	for _, id := range append(append([]string{}, a...), b...) {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
 func hydrateCells(native map[string]any, cols []shared.FullColumnMeta, links map[string][]string, pending bool) map[string]*shared.Value {
 	out := map[string]*shared.Value{}
 	for _, c := range cols {
@@ -72,14 +116,10 @@ func hydrateCells(native map[string]any, cols []shared.FullColumnMeta, links map
 			continue
 		}
 		if calc.IsLinkType(c.TypeId) || calc.IsLinkType(c.Kind) {
-			ids := links[c.Name]
-			if ids == nil {
-				ids = links[c.Id]
+			ids := mergeLinkIDs(links[c.Name], links[c.Id])
+			if v := linkCellValue(c, ids); v != nil {
+				out[c.Name] = v
 			}
-			if ids == nil {
-				ids = []string{}
-			}
-			out[c.Name] = shared.JsonValue(ids)
 			continue
 		}
 		if calc.IsCalcType(c.TypeId) || calc.IsCalcType(c.Kind) {

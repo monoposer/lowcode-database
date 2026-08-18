@@ -19,6 +19,22 @@ func TestBuildWhereEQ(t *testing.T) {
 	}
 }
 
+func TestBuildWhereGTNumericCast(t *testing.T) {
+	cols := []ColumnMeta{{ID: "score", Name: "score", PgType: "numeric"}}
+	attrMap := AttrMapFromColumns("_b", cols)
+	attrTypes := AttrPgTypesFromColumns(cols)
+	sql, args, err := BuildWhereWithTypes(dsl.Where{Type: "GT", Attr: "score", Val: 1}, attrMap, attrTypes, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sql, " > $1::numeric") {
+		t.Fatalf("sql: %q", sql)
+	}
+	if len(args) != 1 {
+		t.Fatalf("args: %v", args)
+	}
+}
+
 func TestBuildWhereIN(t *testing.T) {
 	cols := []ColumnMeta{{ID: "col1", Name: "status"}}
 	attrMap := AttrMapFromColumns("_b", cols)
@@ -46,6 +62,20 @@ func TestBuildWhereLIKEContains(t *testing.T) {
 	}
 }
 
+func TestBuildWhereJSONExprNotQuotedAsIdent(t *testing.T) {
+	expr := `(CASE WHEN jsonb_typeof(data->'title')='object' AND (data->'title') ? 'value' THEN data->'title'->>'value' ELSE data->>'title' END)`
+	sql, _, err := BuildWhere(dsl.Where{Type: "LIKE", Attr: "title", Val: "x"}, map[string]string{"title": expr}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(sql, `"(`) {
+		t.Fatalf("expression was quoted as identifier: %s", sql)
+	}
+	if !strings.Contains(sql, "jsonb_typeof") || !strings.Contains(sql, " LIKE ") {
+		t.Fatalf("sql: %s", sql)
+	}
+}
+
 func TestBuildWhereArrayHas(t *testing.T) {
 	cols := []ColumnMeta{{ID: "tags", Name: "multi_select", PgType: "text[]"}}
 	attrMap := AttrMapFromColumns("_b", cols)
@@ -61,6 +91,25 @@ func TestBuildWhereArrayHas(t *testing.T) {
 		t.Fatalf("sql: %q", sql)
 	}
 	if len(args) != 1 || args[0] != "数据1" {
+		t.Fatalf("args: %v", args)
+	}
+}
+
+func TestBuildWhereEQOnArrayUsesHas(t *testing.T) {
+	cols := []ColumnMeta{{ID: "items", Name: "items", PgType: "text[]"}}
+	attrMap := AttrMapFromColumns("_b", cols)
+	attrTypes := AttrPgTypesFromColumns(cols)
+	sql, args, err := BuildWhereWithTypes(
+		dsl.Where{Type: "EQ", Attr: "items", Val: "rec-1"},
+		attrMap, attrTypes, 1,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sql, "@> ARRAY[$1]::text[]") {
+		t.Fatalf("sql: %q", sql)
+	}
+	if len(args) != 1 || args[0] != "rec-1" {
 		t.Fatalf("args: %v", args)
 	}
 }
@@ -137,6 +186,40 @@ func TestBuildWhereArrayNotHas(t *testing.T) {
 		t.Fatalf("sql: %q", sql)
 	}
 	if len(args) != 1 || args[0] != "数据1" {
+		t.Fatalf("args: %v", args)
+	}
+}
+
+func TestBuildWhereBETWEEN(t *testing.T) {
+	cols := []ColumnMeta{{ID: "created_at", Name: "created_at"}}
+	attrMap := AttrMapFromColumns("_b", cols)
+	sql, args, err := BuildWhere(dsl.Where{
+		Type: "BETWEEN", Attr: "created_at", Val: []any{"2026-01-01", "2026-12-31"},
+	}, attrMap, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sql, " BETWEEN $1 AND $2") {
+		t.Fatalf("sql: %q", sql)
+	}
+	if len(args) != 2 || args[0] != "2026-01-01" || args[1] != "2026-12-31" {
+		t.Fatalf("args: %v", args)
+	}
+}
+
+func TestBuildWhereFTS(t *testing.T) {
+	attrMap := map[string]string{"_fulltext_text": `COALESCE(data->>'_fulltext_text','')`}
+	sql, args, err := BuildWhere(dsl.Where{Type: "FTS", Attr: "_fulltext_text", Val: "hello world"}, attrMap, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sql, "to_tsvector") || !strings.Contains(sql, "to_tsquery") {
+		t.Fatalf("sql: %q", sql)
+	}
+	if strings.Contains(sql, `"(`) {
+		t.Fatalf("expr quoted as identifier: %s", sql)
+	}
+	if len(args) != 1 || args[0] != "hello & world" {
 		t.Fatalf("args: %v", args)
 	}
 }

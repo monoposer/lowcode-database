@@ -32,7 +32,7 @@ Copy: `cp .env.example .env` and edit as above.
 ## Run and debug
 
 ```bash
-make docker-up      # postgis/postgis:16-3.5 (linux/amd64); empty DBs lowcode_meta / lowcode_data
+make docker-up      # postgres:16; empty DBs lowcode_meta / lowcode_data
 make migrate        # or make docker-migrate / go run ./cmd/migrate
 make run            # HTTP service (does not migrate)
 make test
@@ -70,7 +70,7 @@ HTTP /v1/*
 
 ## Migration
 
-SQL: `migrations/meta/` (`cmd/migrate`). Data tables/extensions: runtime DDL (`EnsureDataTables`); PostGIS ops notes: [data/README.md](../migrations/data/README.md).
+SQL: `migrations/meta/` (`cmd/migrate`). Data tables/extensions: runtime DDL (`EnsureDataTables`); notes: [data/README.md](../migrations/data/README.md).
 
 | Command | Notes |
 |---------|-------|
@@ -79,7 +79,7 @@ SQL: `migrations/meta/` (`cmd/migrate`). Data tables/extensions: runtime DDL (`E
 | `make docker-migrate` | compose `run --rm migrate` (not started by docker-up) |
 | `go run ./cmd/migrate -database-url '...'` | Meta migrate against an explicit URL |
 
-**Data DB:** business tables and extensions (`postgis`, optional `pg_stat_statements`) use runtime DDL. UUID PKs use built-in `gen_random_uuid()`. Docker uses `postgis/postgis`; self-hosted/cloud: [data/README.md](../migrations/data/README.md).
+**Data DB:** business tables and extensions (optional `pg_stat_statements`) use runtime DDL. UUID PKs use built-in `gen_random_uuid()`. Docker uses `postgres:16`; self-hosted/cloud: [data/README.md](../migrations/data/README.md).
 
 SQL files are idempotent (`IF NOT EXISTS`). Re-run `make migrate` after adding `NNNN_xxx.up.sql`.
 

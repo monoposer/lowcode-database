@@ -47,20 +47,14 @@ func BuildOrderBy(orders []OrderSpec, attrToPg map[string]string, defaultCol str
 		if strings.EqualFold(o.SortOrder, "DESC") {
 			dir = "DESC"
 		}
-		ref := pg
-		if !strings.Contains(pg, ".") {
-			ref = pgx.Identifier{pg}.Sanitize()
-		}
-		parts = append(parts, ref+" "+dir)
+		parts = append(parts, quoteColRef(pg)+" "+dir)
 	}
 	if len(parts) == 0 && defaultCol != "" {
 		ref := defaultCol
 		if r, ok := attrToPg[defaultCol]; ok {
 			ref = r
-		} else if !strings.Contains(defaultCol, ".") {
-			ref = pgx.Identifier{defaultCol}.Sanitize()
 		}
-		parts = append(parts, ref+" ASC")
+		parts = append(parts, quoteColRef(ref)+" ASC")
 	}
 	return strings.Join(parts, ", ")
 }

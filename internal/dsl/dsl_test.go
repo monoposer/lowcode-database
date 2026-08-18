@@ -45,6 +45,45 @@ func TestBuildEqualMap(t *testing.T) {
 	}
 }
 
+func TestParseRequiresType(t *testing.T) {
+	_, err := Parse(map[string]any{"field": "title", "op": "eq", "value": "x"})
+	if err == nil {
+		t.Fatal("expected error for missing type")
+	}
+}
+
+func TestParseBETWEEN(t *testing.T) {
+	w, err := Parse(map[string]any{
+		"type": "BETWEEN",
+		"attr": "created_at",
+		"val":  []any{"2026-01-01", "2026-12-31"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	vals, ok := w.Val.([]any)
+	if w.Type != "BETWEEN" || w.Attr != "created_at" || !ok || len(vals) != 2 {
+		t.Fatalf("unexpected: %+v", w)
+	}
+}
+
+func TestParseBETWEENRequiresBounds(t *testing.T) {
+	_, err := Parse(map[string]any{"type": "BETWEEN", "attr": "created_at", "val": "x"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestParseFTS(t *testing.T) {
+	w, err := Parse(map[string]any{"type": "FTS", "val": "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Type != "FTS" || w.Attr != "_fulltext_text" || w.Val != "hello" {
+		t.Fatalf("unexpected: %+v", w)
+	}
+}
+
 func TestParseEmpty(t *testing.T) {
 	w, err := Parse("")
 	if err != nil {

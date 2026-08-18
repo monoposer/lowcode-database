@@ -67,13 +67,37 @@ func BuildWhereWithTypes(w dsl.Where, attrToPg, attrPgTypes map[string]string, a
 		}
 		return buildArrayNotContains(colRef, pgType, w.Val, argStart)
 	case "EQ", "NEQ", "GT", "GTE", "LT", "LTE":
+		colRef, pgType, err := resolveColRefWithType(w.Attr, attrToPg, attrPgTypes)
+		if err != nil {
+			return "", nil, err
+		}
+		if isArrayPgType(pgType) && (w.Type == "EQ" || w.Type == "NEQ") {
+			if w.Type == "EQ" {
+				return buildArrayHas(colRef, pgType, w.Val, argStart)
+			}
+			return buildArrayNotHas(colRef, pgType, w.Val, argStart)
+		}
 		return buildWhereCompare(w, attrToPg, attrPgTypes, argStart)
 	case "IN", "NIN":
+		colRef, pgType, err := resolveColRefWithType(w.Attr, attrToPg, attrPgTypes)
+		if err != nil {
+			return "", nil, err
+		}
+		if isArrayPgType(pgType) {
+			if w.Type == "IN" {
+				return buildArrayOverlap(colRef, pgType, w.Val, argStart)
+			}
+			return buildArrayNotOverlap(colRef, pgType, w.Val, argStart)
+		}
 		return buildWhereIn(w, attrToPg, attrPgTypes, argStart)
+	case "BETWEEN":
+		return buildWhereBetween(w, attrToPg, attrPgTypes, argStart)
 	case "EMPTY":
 		return buildWhereEmpty(w, attrToPg, attrPgTypes)
 	case "NOT_EMPTY":
 		return buildWhereNotEmpty(w, attrToPg, attrPgTypes)
+	case "FTS":
+		return buildWhereFTS(w, attrToPg, attrPgTypes, argStart)
 	default:
 		return "", nil, fmt.Errorf("unsupported filter type %q", w.Type)
 	}
@@ -106,14 +130,31 @@ func buildWhereLogical(w dsl.Where, attrToPg, attrPgTypes map[string]string, arg
 }
 
 func buildWhereCompare(w dsl.Where, attrToPg, attrPgTypes map[string]string, argStart int) (string, []any, error) {
-	colRef, _, err := resolveColRefWithType(w.Attr, attrToPg, attrPgTypes)
+	colRef, pgType, err := resolveColRefWithType(w.Attr, attrToPg, attrPgTypes)
 	if err != nil {
 		return "", nil, err
 	}
 	op := map[string]string{
 		"EQ": " = ", "NEQ": " <> ", "GT": " > ", "GTE": " >= ", "LT": " < ", "LTE": " <= ",
 	}[w.Type]
-	return colRef + op + fmt.Sprintf("$%d", argStart), []any{w.Val}, nil
+	placeholder := fmt.Sprintf("$%d", argStart)
+	if cast := compareArgCast(pgType); cast != "" {
+		placeholder += "::" + cast
+	}
+	return colRef + op + placeholder, []any{w.Val}, nil
+}
+
+func compareArgCast(pgType string) string {
+	switch strings.ToLower(strings.TrimSpace(pgType)) {
+	case "numeric", "bigint", "integer", "int4", "int8", "double precision", "float8":
+		return "numeric"
+	case "boolean", "bool":
+		return "boolean"
+	case "timestamptz", "timestamp with time zone", "timestamp", "date":
+		return "timestamptz"
+	default:
+		return ""
+	}
 }
 
 func buildWhereIn(w dsl.Where, attrToPg, attrPgTypes map[string]string, argStart int) (string, []any, error) {
@@ -148,6 +189,43 @@ func buildWhereIn(w dsl.Where, attrToPg, attrPgTypes map[string]string, argStart
 	return colRef + op + "(" + strings.Join(placeholders, ", ") + ")", args, nil
 }
 
+func buildWhereBetween(w dsl.Where, attrToPg, attrPgTypes map[string]string, argStart int) (string, []any, error) {
+	colRef, _, err := resolveColRefWithType(w.Attr, attrToPg, attrPgTypes)
+	if err != nil {
+		return "", nil, err
+	}
+	vals, ok := w.Val.([]any)
+	if !ok || len(vals) != 2 {
+		return "", nil, fmt.Errorf("BETWEEN filter val must be [start, end]")
+	}
+	return colRef + fmt.Sprintf(" BETWEEN $%d AND $%d", argStart, argStart+1), []any{vals[0], vals[1]}, nil
+}
+
+func buildWhereFTS(w dsl.Where, attrToPg, attrPgTypes map[string]string, argStart int) (string, []any, error) {
+	colRef, _, err := resolveColRefWithType(w.Attr, attrToPg, attrPgTypes)
+	if err != nil {
+		return "", nil, err
+	}
+	q := toTsQuery(fmt.Sprint(w.Val))
+	if q == "" {
+		return "FALSE", nil, nil
+	}
+	return fmt.Sprintf("to_tsvector('simple', %s) @@ to_tsquery('simple', $%d)", colRef, argStart), []any{q}, nil
+}
+
+func toTsQuery(q string) string {
+	parts := strings.Fields(q)
+	if len(parts) == 0 {
+		return ""
+	}
+	for i, p := range parts {
+		p = strings.ReplaceAll(p, "'", "")
+		p = strings.ReplaceAll(p, ":", "")
+		parts[i] = p
+	}
+	return strings.Join(parts, " & ")
+}
+
 func buildWhereEmpty(w dsl.Where, attrToPg, attrPgTypes map[string]string) (string, []any, error) {
 	colRef, pgType, err := resolveColRefWithType(w.Attr, attrToPg, attrPgTypes)
 	if err != nil {
@@ -177,14 +255,39 @@ func resolveColRefWithType(attr string, attrToPg, attrPgTypes map[string]string)
 	if !ok {
 		return "", "", fmt.Errorf("unknown filter attribute %q", attr)
 	}
-	colRef = pg
-	if !strings.Contains(pg, ".") {
-		colRef = pgx.Identifier{pg}.Sanitize()
-	}
+	colRef = quoteColRef(pg)
 	if attrPgTypes != nil {
 		pgType = attrPgTypes[attr]
 	}
 	return colRef, pgType, nil
+}
+
+// quoteColRef sanitizes a bare identifier. JSONB/SQL expressions are left as-is.
+func quoteColRef(pg string) string {
+	if isRawSQLExpr(pg) {
+		return pg
+	}
+	if strings.Contains(pg, ".") {
+		return pg
+	}
+	return pgx.Identifier{pg}.Sanitize()
+}
+
+func isRawSQLExpr(pg string) bool {
+	s := strings.TrimSpace(pg)
+	if s == "" {
+		return false
+	}
+	if strings.HasPrefix(s, "(") || strings.HasPrefix(s, "COALESCE(") || strings.HasPrefix(s, "CASE") {
+		return true
+	}
+	if strings.Contains(s, "->") || strings.Contains(s, "::") {
+		return true
+	}
+	if strings.ContainsAny(s, " \t\n") {
+		return true
+	}
+	return false
 }
 
 func likeContainsPattern(val any) any {

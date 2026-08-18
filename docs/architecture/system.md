@@ -333,7 +333,7 @@ Full list: [`.env.example`](../../.env.example).
 |--------|----------|-------|
 | Meta | `migrations/meta/*.up.sql` | Schema only (no tenant/base DML). `cmd/migrate` / `make migrate` |
 
-Data tables, indexes, PostGIS, and `pg_stat_statements` are created by **runtime DDL** (`EnsureDataTables`). SQL is idempotent (`IF NOT EXISTS`). **`cmd/migrate` does not touch data databases.**
+Data tables, indexes, and `pg_stat_statements` are created by **runtime DDL** (`EnsureDataTables`). SQL is idempotent (`IF NOT EXISTS`). **`cmd/migrate` does not touch data databases.**
 
 ---
 

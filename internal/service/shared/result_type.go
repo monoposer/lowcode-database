@@ -123,6 +123,53 @@ func LookupManyResultTypeID(scalar string) string {
 	return columntype.CanonicalID(scalar)
 }
 
+// ResultTypeIDToPgType maps a scalar result type id to a PostgreSQL type for predicates.
+func ResultTypeIDToPgType(resultTypeID string) string {
+	switch columntype.CanonicalID(strings.TrimSpace(resultTypeID)) {
+	case "number":
+		return "numeric"
+	case "datetime":
+		return "timestamptz"
+	case "boolean":
+		return "boolean"
+	case "jsonb":
+		return "jsonb"
+	default:
+		if t, ok := columntype.GetPgType(resultTypeID); ok && t.PgType != "" {
+			return t.PgType
+		}
+		return "text"
+	}
+}
+
+// VirtualColumnPgType is the JSONB/cache predicate type for formula, lookup, and rollup.
+// Link is empty: callers bind link_ref instead.
+func VirtualColumnPgType(typeID string, cfg map[string]any) string {
+	kind := columntype.Kind(typeID)
+	switch kind {
+	case "formula":
+		rt := ConfigResultTypeID(cfg)
+		if rt == "" {
+			rt = InferFormulaResultTypeId(FormulaExpression(cfg))
+		}
+		return ResultTypeIDToPgType(rt)
+	case "lookup":
+		rt := ConfigResultTypeID(cfg)
+		if rt == "" {
+			rt = "text"
+		}
+		return ResultTypeIDToPgType(rt)
+	case "rollup":
+		rt := ConfigResultTypeID(cfg)
+		if rt == "" {
+			rt = "number"
+		}
+		return ResultTypeIDToPgType(rt)
+	default:
+		return ""
+	}
+}
+
 // ScalarPgTypeToArray maps a scalar PostgreSQL type to an array pg type for array_agg.
 func ScalarPgTypeToArray(pgType string) string {
 	pgType = strings.TrimSpace(pgType)

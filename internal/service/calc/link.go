@@ -13,11 +13,11 @@ import (
 func linkTbl(ctx context.Context) string { return postgres.TablesFromContext(ctx).QLinkRef() }
 
 type LinkEdge struct {
-	FromTableName  string
-	FromRecordID string
-	FromFieldID  string
-	ToTableName    string
-	ToRecordID   string
+	FromTableName string
+	FromRecordID  string
+	FromFieldID   string
+	ToTableName   string
+	ToRecordID    string
 }
 
 func ListToIDs(ctx context.Context, q queryRower, tenantID, fromRecordID, fromFieldID string) ([]string, error) {
@@ -42,6 +42,25 @@ func ListToIDs(ctx context.Context, q queryRower, tenantID, fromRecordID, fromFi
 
 type queryRower interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+func ListOutgoing(ctx context.Context, pool *pgxpool.Pool, tenantID, fromRecordID string) ([]LinkEdge, error) {
+	rows, err := pool.Query(ctx, fmt.Sprintf(`
+		SELECT from_table_name, from_record_id, from_field_id, to_table_name, to_record_id
+		FROM %s WHERE tenant_id = $1 AND from_record_id = $2`, linkTbl(ctx)), tenantID, fromRecordID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []LinkEdge
+	for rows.Next() {
+		var e LinkEdge
+		if err := rows.Scan(&e.FromTableName, &e.FromRecordID, &e.FromFieldID, &e.ToTableName, &e.ToRecordID); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }
 
 func ListIncoming(ctx context.Context, pool *pgxpool.Pool, tenantID, toRecordID string) ([]LinkEdge, error) {

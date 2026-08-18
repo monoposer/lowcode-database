@@ -42,9 +42,6 @@ func fromPgTypeEntry(pt PgTypeEntry) Type {
 			t.Config["scale"] = m.Default
 		}
 	}
-	if pt.ID == "point" {
-		t.Config["postgis"] = true
-	}
 	return t
 }
 

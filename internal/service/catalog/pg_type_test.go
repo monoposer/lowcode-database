@@ -19,6 +19,14 @@ func TestColumnPgTypeSQL_BuiltinIgnoresColumnConfigArray(t *testing.T) {
 	if got != "numeric" {
 		t.Fatalf("got %q want numeric", got)
 	}
+	got = c.ColumnPgTypeSQL(context.Background(), "t", "rollup", nil)
+	if got != "numeric" {
+		t.Fatalf("got %q want numeric for rollup", got)
+	}
+	got = c.ColumnPgTypeSQL(context.Background(), "t", "rollup", map[string]any{"result_type_id": "datetime"})
+	if got != "timestamptz" {
+		t.Fatalf("got %q want timestamptz for datetime rollup", got)
+	}
 }
 
 func TestEffectiveColumnTypePgType_MultiSelect(t *testing.T) {

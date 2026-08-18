@@ -7,7 +7,7 @@
 
 | File | Role |
 |------|------|
-| `vr_rows.go` | Create/Update/Delete/Get/list (`record` + version + enqueue) |
+| `vr_rows.go` | Create/Update/Delete/Get/list (`record` + version + enqueue self and link peers) |
 | `link_write.go` / `record_cells.go` | `link_ref` binding; cache field hydrate |
 | `query.go` / `query_exec.go` | ListRows, `:query`, SearchRows |
 | `vr_fulltext.go` / `cascade.go` | Full text |
@@ -26,7 +26,7 @@ Calc engine: `internal/service/calc` (queue + in-process worker). Design: [recor
 
 ## Query
 
-- Filter / sort: `internal/dsl` + VR JSONB predicates (`data->>` / FTS / `in_record_ids`); lookup/formula/rollup filters read `record.data` calc cache
+- Filter / sort: `internal/dsl` (`type` / `attr` / `val`) + VR JSONB predicates; link filters `link_ref` (`ARRAY_HAS` / empty); FTS is `{"type":"FTS","val":"..."}`; record ids are `{"type":"IN","attr":"id","val":[...]}`; lookup/formula/rollup filters read `record.data` calc cache
 - Slow queries: `SLOW_QUERY_THRESHOLD_MS` warn
 - SQL statements: debug (`LOG_LEVEL=debug`)
 
