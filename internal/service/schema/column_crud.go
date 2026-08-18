@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"time"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/monoposer/lowcode-database/internal/event"
+	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
 func (s *Schema) ListColumns(ctx context.Context, tableName string) ([]*Column, error) {
@@ -58,6 +60,10 @@ func (s *Schema) ListColumns(ctx context.Context, tableName string) ([]*Column, 
 }
 
 func (s *Schema) DeleteColumn(ctx context.Context, tableName, id string) error {
+	return s.deleteColumn(ctx, tableName, id, false)
+}
+
+func (s *Schema) deleteColumn(ctx context.Context, tableName, id string, skipInverse bool) error {
 	tenantID, err := s.B.TenantID(ctx)
 	if err != nil {
 		return err
@@ -72,17 +78,22 @@ func (s *Schema) DeleteColumn(ctx context.Context, tableName, id string) error {
 	}
 	meta := s.B.Tenants.MetaPool()
 
-	var tableKey string
+	var tableKey, typeID string
+	var cfg map[string]any
 	if err := meta.QueryRow(ctx, `
-		SELECT c.table_name
+		SELECT c.table_name, c.type_id, c.config
 		FROM lc_columns c
 		WHERE c.id = $1 AND c.tenant_id = $2 AND c.base_id = $3`,
 		colDBID, tenantID, baseID,
-	).Scan(&tableKey); err != nil {
+	).Scan(&tableKey, &typeID, &cfg); err != nil {
 		if err == pgx.ErrNoRows {
 			return nil
 		}
 		return err
+	}
+
+	if !skipInverse && typeID == "link" {
+		s.deleteInverseLinkColumn(ctx, cfg)
 	}
 
 	if _, err := meta.Exec(ctx, `
@@ -92,6 +103,9 @@ func (s *Schema) DeleteColumn(ctx context.Context, tableName, id string) error {
 	}
 
 	s.B.InvalidateTableMetaCache(ctx, tableKey)
+	if tgt := shared.CfgString(cfg, "target_table_name"); tgt != "" && tgt != tableKey {
+		s.B.InvalidateTableMetaCache(ctx, tgt)
+	}
 	s.B.EmitEvent(ctx, event.MetadataColumnDeleted, tableKey, map[string]any{
 		"tableName": tableKey, "columnId": colDBID,
 	})

@@ -72,9 +72,23 @@ func (s *Schema) AddColumn(ctx context.Context, req *Column) (*Column, error) {
 	if err := s.EnsureColumnResultType(ctx, tenantID, tableKey, &c); err != nil {
 		return nil, err
 	}
+	dbColumnID := c.Id
 	PublicColumn(&c)
 
+	if c.TypeId == "link" {
+		updated, err := s.ensureInverseLinkColumn(ctx, tenantID, dbColumnID, &c, req.Config)
+		if err != nil {
+			_ = s.deleteColumn(ctx, tableKey, dbColumnID, true)
+			return nil, err
+		}
+		c = *updated
+		PublicColumn(&c)
+	}
+
 	s.B.InvalidateTableMetaCache(ctx, tableKey)
+	if tgt := shared.CfgString(c.Config, "target_table_name"); tgt != "" && tgt != tableKey {
+		s.B.InvalidateTableMetaCache(ctx, tgt)
+	}
 	s.B.EmitEvent(ctx, event.MetadataColumnCreated, tableKey, map[string]any{"column": columnToMap(&c)})
 	return &c, nil
 }

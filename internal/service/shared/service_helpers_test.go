@@ -30,14 +30,41 @@ func TestNormalizeRelationshipConfigOne(t *testing.T) {
 	}
 }
 
-func TestNormalizeRelationshipConfigConflict(t *testing.T) {
-	_, err := NormalizeRelationshipConfig(map[string]any{
-		"target_table_name":  "vendor",
-		"link_column_id":   "a",
-		"target_column_id": "b",
+func TestNormalizeRelationshipConfigLinkRefBidirectional(t *testing.T) {
+	cfg, err := NormalizeRelationshipConfig(map[string]any{
+		"target_table_name": "order_items",
+		"cardinality":       "many",
 	})
-	if err == nil {
-		t.Fatal("expected error when both link and target set")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !CfgBool(cfg, "bidirectional") {
+		t.Fatal("expected default bidirectional=true for link_ref model")
+	}
+	if CfgString(cfg, "inverse_cardinality") != "one" {
+		t.Fatalf("expected inverse_cardinality=one, got %q", CfgString(cfg, "inverse_cardinality"))
+	}
+}
+
+func TestNormalizeRelationshipConfigOneWay(t *testing.T) {
+	cfg, err := NormalizeRelationshipConfig(map[string]any{
+		"target_table_name": "order_items",
+		"bidirectional":     false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if CfgBool(cfg, "bidirectional") {
+		t.Fatal("expected bidirectional=false")
+	}
+}
+
+func TestInverseLinkCardinality(t *testing.T) {
+	if InverseLinkCardinality("many") != "one" {
+		t.Fatal("many → one")
+	}
+	if InverseLinkCardinality("one") != "many" {
+		t.Fatal("one → many")
 	}
 }
 

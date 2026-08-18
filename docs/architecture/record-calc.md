@@ -49,7 +49,9 @@ Tenant shards: [virtual-records.md](virtual-records.md) (`record` evolved from `
 
 ## Field options (`lc_columns.config`)
 
-- **link**: `to_table_name` (or `target_table_name`), `bidirectional`, `inverse_field_id`, `cardinality`
+- **link**: `to_table_name` (or `target_table_name`), `bidirectional` (default true for pure `link_ref`), `inverse_field_id` / `inverse_field_name`, `cardinality`, `inverse_cardinality`
+  - Creating a two-way link auto-creates the symmetric field on the target table (Teable-style), e.g. `order.order_items` (many) ↔ `order_items.order` (one).
+  - Row writes update both `link_ref` directions when `bidirectional` is set.
 - **formula**: `expression`, `deps` (may be inferred from `{{col}}`)
 - **lookup**: `link_field_id` / `relation_column_id`, `target_field_id` / `target_column_id`
 - **rollup**: same + `aggregation` / `aggregate` (`sum`|`count`|`max`|`min`|`avg`)

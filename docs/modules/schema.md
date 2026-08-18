@@ -31,7 +31,7 @@ Logical tables do not get a physical `CREATE TABLE`. Rows live in `record` (filt
 | typeId | Config |
 |--------|--------|
 | `formula` | `expression` |
-| `link` | `target_table_name` + `link_column_id` \| `target_column_id` |
+| `link` | `target_table_name` (+ optional `link_column_id` \| `target_column_id` for FK-style); Teable two-way: `bidirectional` (default true for `link_ref`), `inverse_field_name`, `inverse_cardinality` |
 | `lookup` / `rollup` | `relation_column_id` + … |
 
 See [roadmap](../roadmap.md) for schema bundle import (not in this version).

@@ -86,12 +86,33 @@ func ValidateLinkedFilter(cfg map[string]any) error {
 	return nil
 }
 
+// InverseLinkCardinality returns the Teable-style opposite side for one|many.
+// one ↔ many; many-many / one-one keep the same when inverse_cardinality is set explicitly.
+func InverseLinkCardinality(card string) string {
+	switch strings.ToLower(strings.TrimSpace(card)) {
+	case "one":
+		return "many"
+	default:
+		return "one"
+	}
+}
+
+// LinkInverseFieldKey is the link_ref from_field_id for the symmetric field (prefer name).
+func LinkInverseFieldKey(cfg map[string]any) string {
+	if name := CfgString(cfg, "inverse_field_name"); name != "" {
+		return name
+	}
+	return CfgString(cfg, "inverse_field_id")
+}
+
 // NormalizeRelationshipConfig validates relationship column config.
 func NormalizeRelationshipConfig(cfg map[string]any) (map[string]any, error) {
 	if cfg == nil {
 		cfg = map[string]any{}
 	}
 	out := maps.Clone(cfg)
+	delete(out, "_skip_inverse")
+	delete(out, "_skip_inverse_delete")
 	if CfgString(out, "target_table_name") == "" {
 		if t := CfgString(out, "to_table_name"); t != "" {
 			out["target_table_name"] = t
@@ -109,11 +130,20 @@ func NormalizeRelationshipConfig(cfg map[string]any) (map[string]any, error) {
 	card := strings.ToLower(CfgString(out, "cardinality"))
 
 	// link_ref model: only target table is required; cardinality defaults to many.
+	// Teable-style two-way links default to bidirectional=true when omitted.
 	if linkID == "" && targetColID == "" {
 		if card == "one" {
 			out["cardinality"] = "one"
 		} else {
 			out["cardinality"] = "many"
+		}
+		if _, ok := out["bidirectional"]; !ok {
+			out["bidirectional"] = true
+		}
+		if invCard := strings.ToLower(CfgString(out, "inverse_cardinality")); invCard == "one" || invCard == "many" {
+			out["inverse_cardinality"] = invCard
+		} else if CfgBool(out, "bidirectional") {
+			out["inverse_cardinality"] = InverseLinkCardinality(CfgString(out, "cardinality"))
 		}
 		return out, nil
 	}
@@ -126,6 +156,9 @@ func NormalizeRelationshipConfig(cfg map[string]any) (map[string]any, error) {
 		}
 		out["cardinality"] = "many"
 		delete(out, "target_column_id")
+		if _, ok := out["bidirectional"]; !ok {
+			out["bidirectional"] = false
+		}
 		return out, nil
 	}
 	if card == "many" {
@@ -133,6 +166,9 @@ func NormalizeRelationshipConfig(cfg map[string]any) (map[string]any, error) {
 	}
 	out["cardinality"] = "one"
 	delete(out, "link_column_id")
+	if _, ok := out["bidirectional"]; !ok {
+		out["bidirectional"] = false
+	}
 	return out, nil
 }
 

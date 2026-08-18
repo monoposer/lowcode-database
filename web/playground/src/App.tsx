@@ -163,11 +163,10 @@ export default function App() {
   const [rollupTargetColumns, setRollupTargetColumns] = useState<Column[]>([])
   const [newLookupFilter, setNewLookupFilter] = useState('')
   const [newRollupFilter, setNewRollupFilter] = useState('')
-  const [newRelCardinality, setNewRelCardinality] = useState<'many' | 'one'>('one')
+  const [newRelCardinality, setNewRelCardinality] = useState<'many' | 'one'>('many')
   const [newRelTargetTable, setNewRelTargetTable] = useState('')
-  const [newRelLinkColumn, setNewRelLinkColumn] = useState('')
-  const [newRelFKColumn, setNewRelFKColumn] = useState('')
-  const [relLinkColumns, setRelLinkColumns] = useState<Column[]>([])
+  const [newRelBidirectional, setNewRelBidirectional] = useState(true)
+  const [newRelInverseName, setNewRelInverseName] = useState('')
   const [editingColumnId, setEditingColumnId] = useState<string | null>(null)
   const [editColName, setEditColName] = useState('')
   const [editColLabel, setEditColLabel] = useState('')
@@ -325,32 +324,6 @@ export default function App() {
       cancelled = true
     }
   }, [newColType, newRollupRelColumn, columns, opts])
-
-  useEffect(() => {
-    if (
-      newColType !== 'link' ||
-      newRelCardinality !== 'many' ||
-      !newRelTargetTable
-    ) {
-      setRelLinkColumns([])
-      return
-    }
-    let cancelled = false
-    void loadPhysicalColumns(newRelTargetTable, opts)
-      .then((physical) => {
-        if (cancelled) return
-        setRelLinkColumns(physical)
-        setNewRelLinkColumn((cur) =>
-          cur && physical.some((c) => c.name === cur || c.id === cur) ? cur : '',
-        )
-      })
-      .catch(() => {
-        if (!cancelled) setRelLinkColumns([])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [newColType, newRelCardinality, newRelTargetTable, opts])
 
   const refreshTypes = useCallback(() => {
     return listTypes(opts)
@@ -856,14 +829,6 @@ export default function App() {
         setErr('link requires a target table.')
         return
       }
-      if (newRelCardinality === 'many' && !newRelLinkColumn) {
-        setErr('link (many) requires link_column_id on the child table.')
-        return
-      }
-      if (newRelCardinality === 'one' && !newRelFKColumn) {
-        setErr('link (one) requires target_column_id on this table.')
-        return
-      }
     }
     void run(async () => {
       const body: Parameters<typeof createColumn>[0] = {
@@ -879,11 +844,14 @@ export default function App() {
         body.config = { expression: newFormulaExpr.trim() }
       }
       if (newColType === 'link') {
-        body.config = { target_table_name: newRelTargetTable.trim() }
-        if (newRelCardinality === 'many') {
-          body.config.link_column_id = newRelLinkColumn
-        } else {
-          body.config.target_column_id = newRelFKColumn
+        body.config = {
+          target_table_name: newRelTargetTable.trim(),
+          cardinality: newRelCardinality,
+          bidirectional: newRelBidirectional,
+        }
+        const inv = newRelInverseName.trim()
+        if (newRelBidirectional && inv) {
+          body.config.inverse_field_name = inv
         }
       }
       if (newColType === 'lookup') {
@@ -929,8 +897,8 @@ export default function App() {
       setNewLookupFilter('')
       setNewRollupFilter('')
       setNewRelTargetTable('')
-      setNewRelLinkColumn('')
-      setNewRelFKColumn('')
+      setNewRelInverseName('')
+      setNewRelBidirectional(true)
       await loadGrid()
     })
   }
@@ -1764,10 +1732,9 @@ export default function App() {
                 <div className="relationship-panel column-edit-panel">
                   <h3>link config</h3>
                   <p className="muted">
-                    Virtual column linking to another table. Requires <code>target_table_name</code>{' '}
-                    and either <code>link_column_id</code> (one-to-many) or{' '}
-                    <code>target_column_id</code> (many-to-one on this table). Related IDs live in{' '}
-                    <code>link_ref</code>.
+                    Teable-style virtual link stored in <code>link_ref</code>. Two-way links
+                    auto-create the symmetric field on the target table (e.g.{' '}
+                    <code>order.order_items</code> ↔ <code>order_items.order</code>).
                   </p>
                   <div className="form-row">
                     <label>
@@ -1777,12 +1744,10 @@ export default function App() {
                         value={newRelCardinality}
                         onChange={(e) => {
                           setNewRelCardinality(e.target.value as 'many' | 'one')
-                          setNewRelLinkColumn('')
-                          setNewRelFKColumn('')
                         }}
                       >
-                        <option value="one">many-to-one (FK on this table)</option>
-                        <option value="many">one-to-many (FK on child table)</option>
+                        <option value="many">one-to-many (this side has many)</option>
+                        <option value="one">many-to-one (this side has one)</option>
                       </select>
                     </label>
                     <label>
@@ -1792,7 +1757,6 @@ export default function App() {
                         value={newRelTargetTable}
                         onChange={(e) => {
                           setNewRelTargetTable(e.target.value)
-                          setNewRelLinkColumn('')
                         }}
                       >
                         <option value="">— select —</option>
@@ -1805,51 +1769,38 @@ export default function App() {
                           ))}
                       </select>
                     </label>
-                    {newRelCardinality === 'one' ? (
+                    <label className="inline" style={{ alignSelf: 'end' }}>
+                      <input
+                        type="checkbox"
+                        data-testid="add-rel-bidirectional"
+                        checked={newRelBidirectional}
+                        onChange={(e) => setNewRelBidirectional(e.target.checked)}
+                      />
+                      two-way link
+                    </label>
+                    {newRelBidirectional && (
                       <label>
-                        FK column (this table)
-                        <select
-                          data-testid="add-rel-fk-column"
-                          value={newRelFKColumn}
-                          onChange={(e) => setNewRelFKColumn(e.target.value)}
-                        >
-                          <option value="">— select —</option>
-                          {physicalCols.map((c) => (
-                            <option key={c.id} value={c.name}>
-                              {c.name} ({c.typeId})
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    ) : (
-                      <label>
-                        Link column (child table)
-                        <select
-                          data-testid="add-rel-link-column"
-                          value={newRelLinkColumn}
-                          onChange={(e) => setNewRelLinkColumn(e.target.value)}
-                          disabled={!newRelTargetTable}
-                        >
-                          <option value="">— select —</option>
-                          {relLinkColumns.map((c) => (
-                            <option key={c.id} value={c.name}>
-                              {c.name} ({c.typeId})
-                            </option>
-                          ))}
-                        </select>
+                        Inverse field name
+                        <input
+                          data-testid="add-rel-inverse-name"
+                          value={newRelInverseName}
+                          onChange={(e) => setNewRelInverseName(e.target.value)}
+                          placeholder={selectedTable || 'order'}
+                        />
                       </label>
                     )}
                   </div>
-                  {newRelCardinality === 'one' && (
-                    <p className="muted">
-                      Example: column <code>order_id</code> on this table → order table row.
-                      table row.
-                    </p>
-                  )}
                   {newRelCardinality === 'many' && (
                     <p className="muted">
-                      Example: child table has a column storing this table&apos;s row{' '}
-                      <code>id</code>.
+                      Example: on <code>order</code> add link <code>order_items</code> →{' '}
+                      <code>order_items</code> (many). Inverse defaults to{' '}
+                      <code>order</code> (one) on the child table.
+                    </p>
+                  )}
+                  {newRelCardinality === 'one' && (
+                    <p className="muted">
+                      Example: on <code>order_items</code> add link <code>order</code> →{' '}
+                      <code>order</code> (one). Inverse becomes many on the parent.
                     </p>
                   )}
                 </div>

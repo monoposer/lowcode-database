@@ -98,6 +98,18 @@ func InsertInverse(ctx context.Context, tx pgx.Tx, tenantID, fromTableName, from
 	return err
 }
 
+// DeleteEdge removes one directed link_ref edge (from_record_id, from_field_id → to_record_id).
+func DeleteEdge(ctx context.Context, tx pgx.Tx, tenantID, fromRecordID, fromFieldID, toRecordID string) error {
+	if fromRecordID == "" || fromFieldID == "" || toRecordID == "" {
+		return nil
+	}
+	_, err := tx.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM %s
+		WHERE tenant_id = $1 AND from_record_id = $2 AND from_field_id = $3 AND to_record_id = $4`, linkTbl(ctx)),
+		tenantID, fromRecordID, fromFieldID, toRecordID)
+	return err
+}
+
 func DeleteInverseForField(ctx context.Context, tx pgx.Tx, tenantID, inverseFieldID string, toIDs []string, fromRecordID string) error {
 	if inverseFieldID == "" || len(toIDs) == 0 {
 		return nil
