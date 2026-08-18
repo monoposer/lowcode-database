@@ -8,3 +8,4 @@ web/playground/e2e/node_modules
 web/playground/e2e/playwright-report
 web/playground/e2e/test-results
 
+.DS_Store
