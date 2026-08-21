@@ -10,7 +10,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	formulacompile "github.com/monoposer/lowcode-database/internal/formula"
+	"github.com/monoposer/lowcode-database/internal/numeric"
 	"github.com/monoposer/lowcode-database/internal/service/shared"
+	"github.com/shopspring/decimal"
 )
 
 type Field struct {
@@ -173,15 +175,14 @@ func computeRollup(ctx context.Context, pool *pgxpool.Pool, rec *Rec, f Field, v
 	if err != nil {
 		return nil, err
 	}
-	var nums []float64
+	var nums []decimal.Decimal
 	for _, id := range childIDs {
 		r := recs[id]
 		if r == nil {
 			continue
 		}
-		n, ok := toFloat(UnwrapCache(r.Data[targetField]))
-		if ok {
-			nums = append(nums, n)
+		if d, ok := numeric.FromAny(UnwrapCache(r.Data[targetField])); ok {
+			nums = append(nums, d)
 		}
 	}
 	if len(nums) == 0 {
@@ -189,33 +190,37 @@ func computeRollup(ctx context.Context, pool *pgxpool.Pool, rec *Rec, f Field, v
 	}
 	switch agg {
 	case "sum":
-		s := 0.0
+		sum := decimal.Zero
 		for _, n := range nums {
-			s += n
+			sum = numeric.Add(sum, n)
 		}
-		return s, nil
+		return numeric.ToFloat64(sum), nil
 	case "min":
 		m := nums[0]
 		for _, n := range nums[1:] {
-			if n < m {
+			if numeric.Compare(n, m) < 0 {
 				m = n
 			}
 		}
-		return m, nil
+		return numeric.ToFloat64(m), nil
 	case "max":
 		m := nums[0]
 		for _, n := range nums[1:] {
-			if n > m {
+			if numeric.Compare(n, m) > 0 {
 				m = n
 			}
 		}
-		return m, nil
+		return numeric.ToFloat64(m), nil
 	case "avg":
-		s := 0.0
+		sum := decimal.Zero
 		for _, n := range nums {
-			s += n
+			sum = numeric.Add(sum, n)
 		}
-		return s / float64(len(nums)), nil
+		q, err := numeric.Div(sum, decimal.NewFromInt(int64(len(nums))))
+		if err != nil {
+			return nil, err
+		}
+		return numeric.ToFloat64(q), nil
 	default:
 		return nil, fmt.Errorf("unsupported aggregation %q", agg)
 	}

@@ -7,10 +7,12 @@ import (
 
 var canonicalPgTypes = []PgTypeEntry{
 	{ID: "text", Name: "text", PgType: "text", Category: CategoryScalar, Description: "Unbounded UTF-8 text"},
-	{ID: "number", Name: "number", PgType: "numeric", Category: CategoryScalar, Description: "Exact decimal",
+	{ID: "number", Name: "number", PgType: "numeric", Category: CategoryScalar, Description: "Exact decimal (financial mode uses decimal arithmetic)",
 		Modifiers: []Modifier{
 			{Name: "precision", Type: "integer", Default: 20},
 			{Name: "scale", Type: "integer", Default: 6},
+			{Name: "financialMode", Type: "boolean", Default: true, Description: "Apply scale rounding with decimal library"},
+			{Name: "roundingMode", Type: "string", Default: "half_up", Description: "half_up | half_even | ceil | floor | truncate"},
 		}},
 	{ID: "datetime", Name: "datetime", PgType: "timestamptz", Category: CategoryScalar, Description: "Timestamp with time zone"},
 	{ID: "boolean", Name: "boolean", PgType: "boolean", Category: CategoryScalar},

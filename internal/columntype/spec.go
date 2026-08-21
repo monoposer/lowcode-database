@@ -59,9 +59,11 @@ type ColumnTypeSpec struct {
 	// Not virtual, and not raw SQL.
 	PgType    string      `json:"pgType"`
 	Array     bool        `json:"array,omitempty"` // true → logical PG array (e.g. text[])
-	Precision *int        `json:"precision,omitempty"`
-	Scale     *int        `json:"scale,omitempty"`
-	NotNull   bool        `json:"notNull,omitempty"`
+	Precision     *int   `json:"precision,omitempty"`
+	Scale         *int   `json:"scale,omitempty"`
+	FinancialMode *bool  `json:"financialMode,omitempty"` // decimal scale rounding on write/calc
+	RoundingMode  string `json:"roundingMode,omitempty"`  // half_up | half_even | ceil | floor | truncate
+	NotNull       bool   `json:"notNull,omitempty"`
 	Default   *string     `json:"default,omitempty"`
 	Checks    []CheckSpec `json:"checks,omitempty"`
 }

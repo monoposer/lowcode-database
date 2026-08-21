@@ -35,11 +35,12 @@ func fromPgTypeEntry(pt PgTypeEntry) Type {
 		t.Config["kind"] = pt.Kind
 	}
 	for _, m := range pt.Modifiers {
-		if m.Name == "precision" && m.Default != nil {
-			t.Config["precision"] = m.Default
+		if m.Default == nil {
+			continue
 		}
-		if m.Name == "scale" && m.Default != nil {
-			t.Config["scale"] = m.Default
+		switch m.Name {
+		case "precision", "scale", "financialMode", "roundingMode":
+			t.Config[m.Name] = m.Default
 		}
 	}
 	return t

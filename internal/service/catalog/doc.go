@@ -3,7 +3,7 @@
 //
 // Files:
 //
-//   - types.go — ListTypes (pgType + columnType); columnTypeToAPIType
+//   - types.go — ListTypes (pgType + tenant columnType); columnTypeToAPIType
 //   - column_type.go — lc_column_types CRUD
 //   - index.go — index catalog reads
 //

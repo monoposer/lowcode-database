@@ -3,11 +3,12 @@ package data
 import (
 	"fmt"
 
+	"github.com/monoposer/lowcode-database/internal/numeric"
 	"github.com/monoposer/lowcode-database/internal/service/calc"
 	"github.com/monoposer/lowcode-database/internal/service/shared"
 )
 
-func splitLinkCells(cells map[string]*shared.Value, cols []shared.FullColumnMeta) (data map[string]any, links map[string][]string) {
+func splitLinkCells(cells map[string]*shared.Value, cols []shared.FullColumnMeta, numSpecs map[string]numeric.Spec) (data map[string]any, links map[string][]string) {
 	linkCols := map[string]bool{}
 	calcCols := map[string]bool{}
 	for _, c := range cols {
@@ -33,6 +34,7 @@ func splitLinkCells(cells map[string]*shared.Value, cols []shared.FullColumnMeta
 		if k == "_fulltext_text" {
 			continue
 		}
+		v = shared.NormalizeNumberValue(v, numSpecs[k])
 		data[k] = shared.ValueToAnyForColumn(v, "")
 	}
 	return data, links

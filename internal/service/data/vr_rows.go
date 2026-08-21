@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/monoposer/lowcode-database/internal/event"
+	"github.com/monoposer/lowcode-database/internal/numeric"
 	"github.com/monoposer/lowcode-database/internal/service/calc"
 	"github.com/monoposer/lowcode-database/internal/service/shared"
 	"github.com/monoposer/lowcode-database/pkg/infra/postgres"
@@ -57,9 +58,10 @@ func (s *Data) CreateRow(ctx context.Context, req *CreateRowRequest) (*CreateRow
 		return nil, fmt.Errorf("cells is empty")
 	}
 
-	native := cellsToNativeMap(req.Cells, cols)
+	native := s.cellsToNativeMap(ctx, req.Cells, cols)
 	allCols, _, _, _ := s.meta().LoadAllColumnMeta(ctx, tableName)
-	dataMap, linkMap := splitLinkCells(req.Cells, allCols)
+	numSpecs := s.numericSpecsByColumn(ctx, allCols)
+	dataMap, linkMap := splitLinkCells(req.Cells, allCols, numSpecs)
 	if len(dataMap) == 0 && len(native) > 0 {
 		// keep scalars from native minus links
 		dataMap = native
@@ -124,9 +126,10 @@ func (s *Data) UpdateRow(ctx context.Context, req *UpdateRowRequest) (*UpdateRow
 		return nil, fmt.Errorf("cells is empty")
 	}
 
-	native := cellsToNativeMap(req.Cells, cols)
+	native := s.cellsToNativeMap(ctx, req.Cells, cols)
 	allCols, _, _, _ := s.meta().LoadAllColumnMeta(ctx, tableName)
-	patch, linkMap := splitLinkCells(req.Cells, allCols)
+	numSpecs := s.numericSpecsByColumn(ctx, allCols)
+	patch, linkMap := splitLinkCells(req.Cells, allCols, numSpecs)
 	if len(patch) == 0 {
 		for k, v := range native {
 			patch[k] = v
@@ -380,11 +383,33 @@ func (s *Data) executeVRQuery(ctx context.Context, spec querySpec) (*QueryRowsRe
 	return &out, nil
 }
 
-func cellsToNativeMap(cells map[string]*shared.Value, cols []shared.ColumnMeta) map[string]any {
+func (s *Data) cellsToNativeMap(ctx context.Context, cells map[string]*shared.Value, cols []shared.ColumnMeta) map[string]any {
 	normalized := shared.NormalizeInputCells(cells, cols)
+	byName := make(map[string]shared.ColumnMeta, len(cols))
+	for _, c := range cols {
+		byName[c.Name] = c
+	}
 	out := make(map[string]any, len(normalized))
 	for k, v := range normalized {
+		if col, ok := byName[k]; ok {
+			if spec, ok := s.meta().NumericSpecForType(ctx, col.TypeId); ok {
+				v = shared.NormalizeNumberValue(v, spec)
+			}
+		}
 		out[k] = shared.ValueToAnyForColumn(v, "")
+	}
+	return out
+}
+
+func (s *Data) numericSpecsByColumn(ctx context.Context, cols []shared.FullColumnMeta) map[string]numeric.Spec {
+	out := make(map[string]numeric.Spec, len(cols))
+	for _, c := range cols {
+		if _, ok := out[c.Name]; ok {
+			continue
+		}
+		if spec, ok := s.meta().NumericSpecForType(ctx, c.TypeId); ok {
+			out[c.Name] = spec
+		}
 	}
 	return out
 }

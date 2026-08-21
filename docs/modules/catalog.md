@@ -6,19 +6,21 @@
 ## Type system
 
 ```
-typeId resolution order: pgType → columnType
+typeId resolution order: pgType → tenant columnType
 ```
 
 | Kind | Source | Storage |
 |------|--------|---------|
 | **pgType** | `internal/columntype` built-in registry | No meta row |
-| **columnType** | Admin `POST /column-types` | Meta `lc_column_types` + Data `CREATE DOMAIN` |
+| **columnType** | Admin `POST /column-types` (platform may seed the same template per tenant) | Meta `lc_column_types` per tenant+base |
+
+Builtin names cannot be occupied by tenant columnTypes. Product catalogs live in lowcode-platform; this service only stores per-tenant copies.
 
 ## Core files
 
 | File | Role |
 |------|------|
-| `types.go` | `ListTypes` — pgType + tenant columnTypes |
+| `types.go` | `ListTypes` — builtin pgTypes ∪ tenant columnTypes |
 | `column_type.go` | columnType CRUD, `ImportTypeCatalog` (types portion) |
 | `loaders.go` | `LoadColumns`, `LoadAllColumnMeta` |
 | `pg_index.go` | Read indexes from `pg_catalog` |
@@ -52,6 +54,22 @@ POST /v1/admin/columns
 | `GET /types` | — | `config.array: true`, `pgType: "text[]"` |
 
 Tenant columnTypes are stored in `lc_column_types` (`POST /v1/admin/column-types`). Do **not** use `{ "typeId": "text", "config": { "array": true } }`.
+
+### Financial `number` (decimal)
+
+Built-in `number` defaults to financial mode: `precision=20`, `scale=6`, `financialMode=true`, `roundingMode=half_up`.
+
+Tenant columnTypes with `spec.pgType: "number"` may set:
+
+| Field | Values |
+|-------|--------|
+| `precision` / `scale` | `numeric(p,s)` metadata + write rounding |
+| `financialMode` | `true` → apply scale rounding on write via `shopspring/decimal` |
+| `roundingMode` | `half_up` \| `half_even` \| `ceil` \| `floor` \| `truncate` |
+
+Example tenant types: `currency` with `scale=4`; `rating` with `scale=1` (seeded by the platform template into each tenant’s `lc_column_types`).
+
+Formula engine uses decimal arithmetic; functions: `ROUND(n[, digits])`, `CEIL`, `FLOOR`, `INT` (floor to integer).
 
 ## Admin API
 

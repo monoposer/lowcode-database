@@ -7,6 +7,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/monoposer/lowcode-database/internal/numeric"
+	"github.com/shopspring/decimal"
 )
 
 // EvalExpr parses and evaluates a formula against column values (application layer).
@@ -72,7 +75,7 @@ func Eval(n Node, env map[string]any) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		return evalArith(t.Op, l, r)
+		return evalArithDecimal(t.Op, l, r)
 	case CallNode:
 		return evalCall(t, env)
 	default:
@@ -83,23 +86,27 @@ func Eval(n Node, env map[string]any) (any, error) {
 func evalUnary(op string, x any) (any, error) {
 	switch op {
 	case "-":
-		n, ok := toFloat(x)
+		n, ok := toDecimal(x)
 		if !ok {
 			return nil, fmt.Errorf("formula: unary - needs a number")
 		}
-		return -n, nil
+		return decimalToResult(n.Neg()), nil
 	case "+":
-		n, ok := toFloat(x)
+		n, ok := toDecimal(x)
 		if !ok {
 			return nil, fmt.Errorf("formula: unary + needs a number")
 		}
-		return n, nil
+		return decimalToResult(n), nil
 	case "%":
-		n, ok := toFloat(x)
+		n, ok := toDecimal(x)
 		if !ok {
 			return nil, fmt.Errorf("formula: %% needs a number")
 		}
-		return n / 100, nil
+		q, err := numeric.Div(n, decimal.NewFromInt(100))
+		if err != nil {
+			return nil, err
+		}
+		return decimalToResult(q), nil
 	default:
 		return nil, fmt.Errorf("formula: unknown unary %q", op)
 	}
@@ -150,6 +157,11 @@ func evalCompare(op string, l, r any) (bool, error) {
 			case ">=":
 				return lt.After(rt) || lt.Equal(rt), nil
 			}
+		}
+	}
+	if _, okL := toDecimal(l); okL {
+		if _, okR := toDecimal(r); okR {
+			return evalCompareDecimal(op, l, r)
 		}
 	}
 	if lf, okL := toFloat(l); okL {
@@ -207,19 +219,7 @@ func evalCall(c CallNode, env map[string]any) (any, error) {
 		}
 		return false, nil
 	case "SUM":
-		sum := 0.0
-		for _, a := range c.Args {
-			v, err := Eval(a, env)
-			if err != nil {
-				return nil, err
-			}
-			n, ok := toFloat(v)
-			if !ok {
-				return nil, fmt.Errorf("formula: SUM needs numbers")
-			}
-			sum += n
-		}
-		return sum, nil
+		return evalSumDecimal(c, env)
 	case "CONCAT", "CONCATENATE":
 		var b strings.Builder
 		for _, a := range c.Args {
@@ -282,39 +282,26 @@ func evalCall(c CallNode, env map[string]any) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		n, ok := toFloat(v)
-		if !ok {
-			return nil, fmt.Errorf("formula: ABS needs a number")
-		}
-		return math.Abs(n), nil
+		return evalAbsDecimal(v)
 	case "ROUND":
-		if len(c.Args) < 1 || len(c.Args) > 2 {
-			return nil, fmt.Errorf("formula: ROUND needs 1 or 2 arguments")
+		return evalRoundCall(c, env, numeric.RoundHalfUp)
+	case "CEIL", "CEILING":
+		return evalCeilFloorCall(c, env, true)
+	case "FLOOR":
+		return evalCeilFloorCall(c, env, false)
+	case "MIN":
+		return evalMinMaxDecimal(c, env, true)
+	case "MAX":
+		return evalMinMaxDecimal(c, env, false)
+	case "INT":
+		if len(c.Args) != 1 {
+			return nil, fmt.Errorf("formula: INT needs 1 argument")
 		}
 		v, err := Eval(c.Args[0], env)
 		if err != nil {
 			return nil, err
 		}
-		n, ok := toFloat(v)
-		if !ok {
-			return nil, fmt.Errorf("formula: ROUND needs a number")
-		}
-		digits := 0.0
-		if len(c.Args) == 2 {
-			d, err := Eval(c.Args[1], env)
-			if err != nil {
-				return nil, err
-			}
-			digits, _ = toFloat(d)
-		}
-		pow := math.Pow(10, digits)
-		return math.Round(n*pow) / pow, nil
-	case "MIN":
-		return evalMinMax(c, env, true)
-	case "MAX":
-		return evalMinMax(c, env, false)
-	case "INT":
-		return evalINT(c, env)
+		return evalINTDecimal(v)
 	case "ISBLANK":
 		return evalISBLANK(c, env)
 	case "TRIM":

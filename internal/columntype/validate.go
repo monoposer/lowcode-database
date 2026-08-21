@@ -74,6 +74,11 @@ func ValidateColumnTypeSpec(spec *ColumnTypeSpec) error {
 	if spec.Default != nil && strings.TrimSpace(*spec.Default) == "" {
 		return fmt.Errorf("spec.default must not be empty when set")
 	}
+	if spec.RoundingMode != "" {
+		if _, err := validateRoundingMode(spec.RoundingMode); err != nil {
+			return err
+		}
+	}
 	for i, c := range spec.Checks {
 		if strings.TrimSpace(c.Expr) == "" {
 			return fmt.Errorf("spec.checks[%d].expr is required", i)
@@ -161,4 +166,13 @@ func ResolveUnderlyingPgType(pgType string, precision, scale *int) (string, erro
 		return bt.PgType, nil
 	}
 	return "", fmt.Errorf("unknown pgType %q", pgType)
+}
+
+func validateRoundingMode(s string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "half_up", "half_even", "ceil", "floor", "truncate":
+		return s, nil
+	default:
+		return "", fmt.Errorf("spec.roundingMode must be half_up, half_even, ceil, floor, or truncate")
+	}
 }

@@ -5,6 +5,40 @@ import (
 	"time"
 )
 
+func TestEvalDecimalArithmetic(t *testing.T) {
+	got, err := EvalExpr("0.1 + 0.2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.(float64) != 0.3 {
+		t.Fatalf("0.1+0.2 = %#v", got)
+	}
+}
+
+func TestEvalCeilFloorRound(t *testing.T) {
+	got, err := EvalExpr("CEIL(1.231, 2)", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.(float64) != 1.24 {
+		t.Fatalf("CEIL got %#v", got)
+	}
+	got, err = EvalExpr("FLOOR(1.239, 2)", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.(float64) != 1.23 {
+		t.Fatalf("FLOOR got %#v", got)
+	}
+	got, err = EvalExpr("ROUND(1.235, 2)", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.(float64) != 1.24 {
+		t.Fatalf("ROUND got %#v", got)
+	}
+}
+
 func TestEvalSimpleArithmetic(t *testing.T) {
 	got, err := EvalExpr("{{amount}} * 2 + {{tax}}", map[string]any{"amount": 10.0, "tax": 1.5})
 	if err != nil {

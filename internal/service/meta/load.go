@@ -3,6 +3,7 @@ package meta
 import (
 	"context"
 	"fmt"
+	"github.com/monoposer/lowcode-database/internal/numeric"
 	"github.com/monoposer/lowcode-database/internal/service/catalog"
 	"github.com/monoposer/lowcode-database/internal/service/schema"
 	"github.com/monoposer/lowcode-database/internal/service/shared"
@@ -34,6 +35,14 @@ func (r *Read) LoadTableIDPgType(ctx context.Context, schemaName, tableName stri
 
 func (r *Read) ColumnPgTypeSQL(ctx context.Context, tid, typeID string, cfg map[string]any) string {
 	return catalog.New(r.B).ColumnPgTypeSQL(ctx, tid, typeID, cfg)
+}
+
+func (r *Read) NumericSpecForType(ctx context.Context, typeID string) (numeric.Spec, bool) {
+	tid, err := r.B.TenantID(ctx)
+	if err != nil {
+		return numeric.Spec{}, false
+	}
+	return catalog.New(r.B).NumericSpecForType(ctx, tid, typeID)
 }
 
 func (r *Read) ResolveQueryRef(ctx context.Context, tableRef, dsRef string) (tableName, dsName string, err error) {

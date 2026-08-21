@@ -2,26 +2,34 @@ package catalog
 
 import (
 	"context"
+
 	"github.com/monoposer/lowcode-database/internal/columntype"
 )
 
 // ListTypes returns built-in pgTypes plus tenant columnTypes from meta DB.
+// Builtin names cannot be overridden by tenant columnTypes.
 func (s *Catalog) ListTypes(ctx context.Context) ([]*Type, error) {
 	var types []*Type
+	builtin := map[string]struct{}{}
 	for _, t := range columntype.List() {
 		refKind := columntype.RefKindPgType
 		if t.Kind != "" {
 			refKind = columntype.RefKindVirtual
 		}
+		builtin[t.ID] = struct{}{}
 		types = append(types, &Type{
 			Id: t.ID, Name: t.Name, PgType: t.PgType, Config: t.Config, RefKind: refKind,
 		})
 	}
-	cts, err := s.ListColumnTypes(ctx)
+
+	tenantCTs, err := s.ListColumnTypes(ctx)
 	if err != nil {
 		return nil, err
 	}
-	for _, ct := range cts {
+	for _, ct := range tenantCTs {
+		if _, ok := builtin[ct.Name]; ok {
+			continue
+		}
 		types = append(types, columnTypeToAPIType(ct))
 	}
 	return types, nil
@@ -39,6 +47,12 @@ func columnTypeToAPIType(ct *ColumnTypeDef) *Type {
 		}
 		if ct.Spec.Scale != nil {
 			cfg["scale"] = *ct.Spec.Scale
+		}
+		if ct.Spec.FinancialMode != nil {
+			cfg["financialMode"] = *ct.Spec.FinancialMode
+		}
+		if ct.Spec.RoundingMode != "" {
+			cfg["roundingMode"] = ct.Spec.RoundingMode
 		}
 	}
 	pgType := ct.Name
