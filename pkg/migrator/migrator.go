@@ -82,8 +82,18 @@ func ApplyResult(ctx context.Context, databaseURL string, fsys fs.FS, sessionCon
 	}
 	defer conn.Release()
 
+	ns := NamespaceFromDSN(databaseURL)
+	if sessionConfig != nil {
+		if v := sessionConfig["search_path"]; v != "" {
+			ns = NormalizeNamespace(v)
+		}
+	}
+	if err := EnsureNamespace(ctx, conn, ns); err != nil {
+		return out, err
+	}
+
 	for k, v := range sessionConfig {
-		if k == "" {
+		if k == "" || k == "search_path" {
 			continue
 		}
 		if _, err := conn.Exec(ctx, `SELECT set_config($1, $2, false)`, k, v); err != nil {

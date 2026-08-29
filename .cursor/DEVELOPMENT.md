@@ -2,14 +2,14 @@
 
 ## Environment
 
-The code uses a **dual-DB model** (not the old `TENANT_MODE` in stale READMEs):
+# Dual-schema model on one Postgres database (`lowcode`):
 
 ```bash
-# Meta: all lc_* metadata + tenants
-META_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/lowcode_meta
+# Meta: all lc_* metadata + tenants (schema `meta`)
+META_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/lowcode?search_path=meta
 
-# Migrate applies meta only. This DSN is what you pass as tenant data_dsn.
-DATA_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/lowcode_data
+# Migrate applies meta only. This DSN is what you pass as tenant data_dsn (row tables in public).
+DATA_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/lowcode
 
 HTTP_ADDR=:8080
 MAX_ROW=100
@@ -32,7 +32,7 @@ Copy: `cp .env.example .env` and edit as above.
 ## Run and debug
 
 ```bash
-make docker-up      # postgres:16; empty DBs lowcode_meta / lowcode_data
+make docker-up      # postgres:16; schema meta on database `lowcode`; rows in public
 make migrate        # or make docker-migrate / go run ./cmd/migrate
 make run            # HTTP service (does not migrate)
 make test
@@ -44,8 +44,8 @@ Playground UI: in-repo `web/playground` (`make playground-dev`).
 Integration tests:
 
 ```bash
-export TEST_META_DATABASE_URL='postgresql://postgres:postgres@localhost:5432/lowcode_meta'
-export TEST_DATA_DATABASE_URL='postgresql://postgres:postgres@localhost:5432/lowcode_data'
+export TEST_META_DATABASE_URL='postgresql://postgres:postgres@localhost:5432/lowcode?search_path=meta'
+export TEST_DATA_DATABASE_URL='postgresql://postgres:postgres@localhost:5432/lowcode'
 make test-integration
 ```
 

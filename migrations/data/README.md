@@ -19,4 +19,4 @@ Requires **PostgreSQL 16+**.
 
 `deploy/docker-compose.yml` uses **`postgres:16`**.
 
-`lowcode_data` is only the default tenant DB. When Admin creates a tenant with a **dedicated database**, the same extensions run via `EnsureDataTables` on that DSN.
+Row tables live in **`public`** on the shared `lowcode` database by default. When Admin creates a tenant with a **dedicated database**, the same extensions run via `EnsureDataTables` on that DSN.

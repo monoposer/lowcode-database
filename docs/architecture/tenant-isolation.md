@@ -6,12 +6,12 @@ Related: [system.md](system.md) · [virtual-records.md](virtual-records.md) · [
 
 ---
 
-## 1. Dual database
+## 1. Dual schema (one database)
 
-| DB | Connection | Contents |
-|----|------------|----------|
-| **Meta** | `META_DATABASE_URL` | `tenants`, `lc_bases`, `lc_tables` / `lc_columns` / `lc_indexes` / `lc_queries`, API keys, webhooks |
-| **Data** | `tenants.data_dsn` | `record` (or `{tenant_id}_record`), `link_ref`, `calc_queue` |
+| Schema | Connection | Contents |
+|--------|------------|----------|
+| **Meta** (`meta`) | `META_DATABASE_URL` (`search_path=meta`) | `tenants`, `lc_bases`, `lc_tables` / `lc_columns` / `lc_indexes` / `lc_queries`, API keys, webhooks |
+| **Data** (`public`) | `tenants.data_dsn` | `record` (or `{tenant_id}_record`), `link_ref`, `calc_queue` |
 
 ```
 HTTP + X-Tenant-Id
@@ -25,7 +25,7 @@ HTTP + X-Tenant-Id
 | **Pool** | In-process `TenantManager.dataPools` | TCP reuse; **one pool per DSN**, not per tenant |
 | **Row parent** | `tenants.record_store` | Shared `record` vs `{tenant_id}_record` on that DSN |
 
-There is no `search_path` switching. SQL uses qualified table names. Static queries must include `tenant_id` (and `base_id` on meta `lc_*`).
+Meta catalog uses `search_path=meta`. Row tables use the data DSN default schema (`public`). Static queries must include `tenant_id` (and `base_id` on meta `lc_*`). Dedicated tenant databases (`createDatabase: true`) are still optional.
 
 ---
 
@@ -71,7 +71,7 @@ POST /v1/admin/tenants
 {
   "id": "acme",
   "displayName": "Acme",
-  "dataDsn": "postgresql://app:secret@db:5432/lowcode_data",
+  "dataDsn": "postgresql://app:secret@db:5432/lowcode",
   "recordStore": "shared"
 }
 ```

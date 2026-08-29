@@ -11,7 +11,7 @@ func TestDSNPoolKeyReuse(t *testing.T) {
 }
 
 func TestDSNFingerprintNoPassword(t *testing.T) {
-	fp := DSNFingerprint("postgresql://user:secret@localhost:5432/lowcode_data")
+	fp := DSNFingerprint("postgresql://user:secret@localhost:5432/lowcode")
 	if fp == "" {
 		t.Fatal("empty fingerprint")
 	}

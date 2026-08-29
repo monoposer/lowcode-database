@@ -1,5 +1,7 @@
--- Meta database schema (single migration for fresh installs).
--- Hierarchy: Tenant ⊃ Base ⊃ Table. Row data on the tenant data DB; logical table key = vt_id.
+-- Meta catalog (single migration for fresh installs).
+-- Schema is not hardcoded: cmd/migrate sets search_path from META_DATABASE_URL
+-- (query param search_path), same idea as auth-cn DB_NAMESPACE.
+-- Hierarchy: Tenant ⊃ Base ⊃ Table. Row data on the tenant data DSN (public by default).
 -- lc_tables.name = logical table key for API; table_name columns reference that name.
 -- vt_id = global UUID. label = display name. tenant_id = X-Tenant-Id.
 

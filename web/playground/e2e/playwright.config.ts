@@ -10,7 +10,7 @@ const PLAYGROUND_BASE = process.env.PLAYGROUND_URL || 'http://localhost:5173'
 const dbEnv = {
   META_DATABASE_URL:
     process.env.META_DATABASE_URL ||
-    'postgresql://postgres:postgres@localhost:5432/lowcode_meta',
+    'postgresql://postgres:postgres@localhost:5432/lowcode?search_path=meta',
   HTTP_ADDR: process.env.HTTP_ADDR || ':8080',
 }
 

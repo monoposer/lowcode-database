@@ -38,7 +38,10 @@ func main() {
 		log.Fatalf("migrations: %v", err)
 	}
 	fmt.Printf("migrations: %s\n", src)
-	fmt.Printf("migrating meta database: %s\n", redactDSN(dbURL))
+	if ns := migrator.NamespaceFromDSN(dbURL); ns != "" {
+		fmt.Printf("namespace: %s\n", ns)
+	}
+	fmt.Printf("migrating: %s\n", redactDSN(dbURL))
 	if err := migrator.Apply(ctx, dbURL, fsys); err != nil {
 		log.Fatalf("migrate meta (%s): %v", redactDSN(dbURL), err)
 	}

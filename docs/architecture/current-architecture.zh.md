@@ -213,7 +213,7 @@ LowcodeService
 
 | 类别 | 环境变量（节选） |
 |------|------------------|
-| 双库 | `META_DATABASE_URL`、`DATA_DSN_TEMPLATE` |
+| 双连接 | `META_DATABASE_URL`（schema `meta`）、`DATA_DSN_TEMPLATE`（默认同一库 `public`） |
 | HTTP | `HTTP_ADDR`、`API_KEY_REQUIRED`、`MAX_ROW`、`DDL_CONFIRM_REQUIRED` |
 | 池 | `PG_MAX_CONNS`、`MAX_TENANT_DATA_POOLS`、`DEFAULT_TENANT_POOL_MAX_CONNS` |
 | 缓存 | `REDIS_URL`、`CACHE_ENABLED`、`CACHE_TTL_SECONDS` |

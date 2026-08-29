@@ -15,7 +15,7 @@ Isolation unit is the **tenant** (`tenants.tenant_id`): header `X-Tenant-Id`. Ea
 - **Query** — saved projection + filter + sort; execute with `POST /v1/data/queries/{name}`
 - **ER diagram** — edges derived from Link columns (`GET /v1/admin/schema/er`)
 - **HTTP JSON** — `net/http`, no gRPC; admin + data + calc in **one process**
-- **Dual database** — shared meta DB + per-tenant data DSN
+- **Catalog vs rows** — catalog in schema `meta`; row tables (`record`, …) in `public` on the same database by default
 
 ## Requirements
 

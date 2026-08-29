@@ -11,12 +11,13 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: lowcode
     command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
     ports:
       - "5432:5432"
     volumes:
       - pg-data:/var/lib/postgresql/data
-      # Creates empty lowcode_meta / lowcode_data only. Schema: make migrate.
+      # Creates schema meta on POSTGRES_DB. Row tables live in public. Catalog DDL: make migrate.
       - ../docker/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
@@ -41,21 +42,14 @@ services:
     ports:
       - "3000:3000"
     environment:
-      CONNECTIONS: meta,data,redis
-      LABEL_meta: lowcode_meta
-      SERVER_meta: postgres
-      USER_meta: postgres
-      PASSWORD_meta: postgres
-      PORT_meta: "5432"
-      DATABASE_meta: lowcode_meta
-      ENGINE_meta: postgres@dbgate-plugin-postgres
-      LABEL_data: lowcode_data
-      SERVER_data: postgres
-      USER_data: postgres
-      PASSWORD_data: postgres
-      PORT_data: "5432"
-      DATABASE_data: lowcode_data
-      ENGINE_data: postgres@dbgate-plugin-postgres
+      CONNECTIONS: postgres,redis
+      LABEL_postgres: lowcode
+      SERVER_postgres: postgres
+      USER_postgres: postgres
+      PASSWORD_postgres: postgres
+      PORT_postgres: "5432"
+      DATABASE_postgres: lowcode
+      ENGINE_postgres: postgres@dbgate-plugin-postgres
       LABEL_redis: redis
       SERVER_redis: redis
       PORT_redis: "6379"
@@ -76,7 +70,7 @@ services:
     image: lowcode-database:latest
     entrypoint: ["./migrate"]
     environment:
-      META_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/lowcode_meta
+      META_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/lowcode?search_path=meta
     depends_on:
       postgres:
         condition: service_healthy
@@ -91,7 +85,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      META_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/lowcode_meta
+      META_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/lowcode?search_path=meta
       REDIS_URL: redis://redis:6379/0
       CACHE_ENABLED: "true"
       HTTP_ADDR: :8080
