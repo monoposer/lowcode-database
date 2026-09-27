@@ -15,7 +15,8 @@ type Config struct {
 
 	// DataAdminDatabaseURL optional superuser DSN (e.g. .../postgres) used with create_database when provisioning tenants.
 	DataAdminDatabaseURL string
-	// DataDSNTemplate optional printf template for tenant data DSN when API omits data_dsn, e.g. postgresql://u:p@host:5432/%s
+	// DataDSNTemplate optional tenant data DSN when API omits data_dsn.
+	// Shared DB: literal URL (no verbs). Per-tenant DB: printf with %s, e.g. postgresql://u:p@host:5432/%s
 	DataDSNTemplate string
 
 	HTTPAddr string

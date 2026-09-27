@@ -127,16 +127,36 @@ func (m *TenantManager) DataPoolForTenant(ctx context.Context) (*pgxpool.Pool, e
 	return m.PoolForTenant(ctx, tenantID)
 }
 
+// ResolveCreateDSN returns an explicit dataDSN, or expands DATA_DSN_TEMPLATE.
+func (m *TenantManager) ResolveCreateDSN(ctx context.Context, tenantID, dataDSN string) (string, error) {
+	return m.resolveCreateDSN(ctx, tenantID, dataDSN)
+}
+
 func (m *TenantManager) resolveCreateDSN(ctx context.Context, tenantID, dataDSN string) (string, error) {
 	_ = ctx
 	dataDSN = strings.TrimSpace(dataDSN)
 	if dataDSN == "" && m.dataDSNTemplate != "" {
-		dataDSN = fmt.Sprintf(m.dataDSNTemplate, tenantID)
+		dataDSN = applyDataDSNTemplate(m.dataDSNTemplate, tenantID)
 	}
 	if dataDSN == "" {
 		return "", fmt.Errorf("data_dsn is required (or set DATA_DSN_TEMPLATE)")
 	}
 	return dataDSN, nil
+}
+
+// applyDataDSNTemplate expands DATA_DSN_TEMPLATE.
+// Shared-DB deployments use a literal URL (no %s); per-tenant DBs use …/%s.
+// Always calling fmt.Sprintf on a literal URL produces
+// `…%!(EXTRA string=<tenantId>)`, which is an invalid DSN.
+func applyDataDSNTemplate(tmpl, tenantID string) string {
+	tmpl = strings.TrimSpace(tmpl)
+	if tmpl == "" {
+		return ""
+	}
+	if strings.Contains(tmpl, "%s") {
+		return fmt.Sprintf(tmpl, tenantID)
+	}
+	return tmpl
 }
 
 // insertTenant registers a tenant and ensures data-plane tables. Does not create a base —

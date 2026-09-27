@@ -17,6 +17,8 @@ const (
 )
 
 // CreateTenant registers a tenant, provisions data tables, then seeds a public base and default API key.
+// Idempotent: if the tenant row already exists (e.g. a prior attempt failed after INSERT),
+// it repairs a corrupt data_dsn, ensures data tables, and backfills the public base.
 func (s *Platform) CreateTenant(ctx context.Context, req *CreateTenantRequest) (*CreateTenantResponse, error) {
 	id := strings.TrimSpace(req.Id)
 	if id == "" {
@@ -35,16 +37,34 @@ func (s *Platform) CreateTenant(ctx context.Context, req *CreateTenantRequest) (
 		return nil, fmt.Errorf("create tenant %s: %w", id, err)
 	}
 	out := &CreateTenantResponse{Id: id, RecordStore: store}
+
 	if !created {
-		return out, nil
+		if err := s.repairExistingTenant(ctx, id, writeDSN); err != nil {
+			return nil, err
+		}
 	}
 
 	baseID := "base_" + id
-	if _, err := s.B.Tenants.CreateBase(ctx, id, baseID, defaultPublicBaseName, defaultPublicBaseLabel); err != nil {
-		return nil, fmt.Errorf("create public base for tenant %s: %w", id, err)
+	bases, err := s.B.Tenants.ListBases(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("list bases for tenant %s: %w", id, err)
 	}
-	out.Base = &BaseDTO{
-		BaseID: baseID, TenantID: id, Name: defaultPublicBaseName, Label: defaultPublicBaseLabel, Status: "active",
+	if len(bases) == 0 {
+		if _, err := s.B.Tenants.CreateBase(ctx, id, baseID, defaultPublicBaseName, defaultPublicBaseLabel); err != nil {
+			return nil, fmt.Errorf("create public base for tenant %s: %w", id, err)
+		}
+		out.Base = &BaseDTO{
+			BaseID: baseID, TenantID: id, Name: defaultPublicBaseName, Label: defaultPublicBaseLabel, Status: "active",
+		}
+	} else {
+		b := bases[0]
+		out.Base = &BaseDTO{
+			BaseID: b.BaseID, TenantID: b.TenantID, Name: b.Name, Label: b.Label, Status: b.Status,
+		}
+	}
+
+	if !created {
+		return out, nil
 	}
 
 	plain, hash, prefix, err := authn.GenerateKey()
@@ -68,6 +88,38 @@ func (s *Platform) CreateTenant(ctx context.Context, req *CreateTenantRequest) (
 	out.ApiKey = &ak
 	out.Key = plain
 	return out, nil
+}
+
+// repairExistingTenant fixes tenants left half-created (bad sprintf DSN and/or missing data tables).
+func (s *Platform) repairExistingTenant(ctx context.Context, id, writeDSN string) error {
+	var currentDSN string
+	_ = s.B.Tenants.MetaPool().QueryRow(ctx, `
+		SELECT COALESCE(NULLIF(data_dsn_write, ''), data_dsn) FROM tenants WHERE tenant_id = $1
+	`, id).Scan(&currentDSN)
+
+	needDSNRepair := strings.Contains(currentDSN, "%!(EXTRA") || strings.TrimSpace(currentDSN) == ""
+	if needDSNRepair {
+		resolved, err := s.B.Tenants.ResolveCreateDSN(ctx, id, writeDSN)
+		if err != nil {
+			return fmt.Errorf("resolve data_dsn for tenant %s: %w", id, err)
+		}
+		if err := s.B.Tenants.UpdateTenantDSNs(ctx, id, resolved, nil, false); err != nil {
+			return fmt.Errorf("repair data_dsn for tenant %s: %w", id, err)
+		}
+	}
+
+	pool, err := s.B.Tenants.PoolForTenant(ctx, id)
+	if err != nil {
+		return fmt.Errorf("open data pool for tenant %s: %w", id, err)
+	}
+	tables, terr := s.B.Tenants.DataTablesForTenant(ctx, id)
+	if terr != nil {
+		tables = postgres.ResolveDataTables(id, postgres.RecordStoreShared)
+	}
+	if err := postgres.EnsureDataTables(ctx, pool, tables); err != nil {
+		return fmt.Errorf("ensure data tables for tenant %s: %w", id, err)
+	}
+	return nil
 }
 
 func (s *Platform) UpdateTenant(ctx context.Context, id string, req *UpdateTenantRequest) (*UpdateTenantResponse, error) {
